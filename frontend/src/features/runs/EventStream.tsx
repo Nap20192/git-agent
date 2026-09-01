@@ -135,6 +135,17 @@ function describe(e: RunEvent): Part[] {
         const tok = d.usage ? ` · ${d.usage.totalTokens.toLocaleString()} tok` : "";
         return [{ cls: "logLifecycle", text: `■ ${d.status}${err}${tok}`, color: termColor(d.status) }];
       }
+      case "agent_step": {
+        const out: Part[] = [];
+        if (d.text?.trim()) out.push({ cls: "logThink", text: d.text });
+        for (const c of d.toolCalls ?? []) {
+          out.push({ cls: "logTool", text: `⚙ ${c.name}(${c.args})`, color: "var(--amber)" });
+        }
+        for (const r of d.toolResults ?? []) {
+          out.push({ cls: "logResult", text: r });
+        }
+        return out.length ? out : [{ cls: "logMsg", text: e.message ?? "" }];
+      }
       case "node_status":
         return [{ cls: "logLifecycle", text: `● ${d.node} ${d.status}`, color: "var(--low)" }];
       case "status":

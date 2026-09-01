@@ -263,6 +263,9 @@ export interface GraphNode {
   tokenUsage?: TokenUsage | null;
   stopReason?: SubagentStopReason | null;
   subStatus?: SubagentStatus;
+  // ── lead runtime (present on the lead node in agent runs) ──
+  toolCalls?: number;
+  findings?: number;
 }
 
 export interface GraphEdge {
@@ -355,6 +358,13 @@ export type RunEventData =
       stopReason: SubagentStopReason | null;
       error: string | null;
       usage: TokenUsage | null;
+    }
+  | {
+      kind: "agent_step";
+      node: string;
+      text: string;
+      toolCalls: { name: string; args: string }[];
+      toolResults: string[];
     };
 
 // ── connections ────────────────────────────────────────────────────────────────

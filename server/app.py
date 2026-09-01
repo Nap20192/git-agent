@@ -199,6 +199,16 @@ def _register_routes(application: FastAPI) -> None:
         fresh = await _run_row_or_404(request, run_id)
         return {"run": wire.run_to_wire(fresh), "disposition": result.disposition.value}
 
+    @api.delete("/api/runs/{run_id}", status_code=204)
+    async def delete_run(request: Request, run_id: str) -> None:
+        await _run_row_or_404(request, run_id)
+        try:
+            deleted = await _runtime(request).delete_run(int(run_id))
+        except RuntimeError as exc:
+            raise _error(409, "conflict", str(exc)) from exc
+        if not deleted:
+            raise _error(404, "not_found", f"run {run_id}")
+
     @api.get("/api/runs/{run_id}/report")
     async def get_report(request: Request, run_id: str) -> dict[str, Any]:
         row = await _run_row_or_404(request, run_id)
@@ -254,6 +264,8 @@ def _register_routes(application: FastAPI) -> None:
                         event.get("payload") or {},
                         event.get("created_at"),
                     )
+                    if payload is None:  # служебный шум middleware
+                        continue
                     yield f"data: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
                 yield _status_frame(row["status"])
                 return
@@ -285,6 +297,8 @@ def _register_routes(application: FastAPI) -> None:
                     cur = -1
                 # live-события бриджа не обёрнуты в {"data": …} (в отличие от durable)
                 payload = wire.event_to_wire(cur, item.event, {"data": item.data})
+                if payload is None:
+                    continue
                 yield f"data: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
 
         return StreamingResponse(

@@ -58,6 +58,10 @@ export function RunDetailScreen() {
     await api.resumeRun(id);
     runQ.reload();
   };
+  const remove = async () => {
+    await api.deleteRun(id);
+    navigate("/runs");
+  };
 
   if (!run) return <div className={styles.loading}>loading run…</div>;
 
@@ -92,6 +96,11 @@ export function RunDetailScreen() {
           {run.hasReport && (
             <Button variant="outline" onClick={() => navigate(`/runs/${id}/report`)}>
               → report
+            </Button>
+          )}
+          {!live && (
+            <Button variant="ghost" onClick={remove}>
+              ✕ delete
             </Button>
           )}
         </div>

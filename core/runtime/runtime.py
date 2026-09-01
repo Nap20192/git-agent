@@ -130,6 +130,10 @@ class Runtime:
     async def cancel(self, run_id: int) -> CancelOutcome:
         return await self._manager.cancel(run_id)
 
+    async def delete_run(self, run_id: int) -> bool:
+        """Удалить терминальный Ран (store решает; активный → RuntimeError)."""
+        return await self._store.delete_run(run_id)
+
     async def shutdown(self, *, timeout: float = 10.0) -> None:
         await self._manager.shutdown(timeout=timeout)
 

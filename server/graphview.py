@@ -79,6 +79,27 @@ def _is_agent_run(events: list[dict[str, Any]], node_ids: list[str]) -> bool:
     return False
 
 
+def _lead_activity(events: list[dict[str, Any]]) -> tuple[int, int]:
+    """(число вызовов инструментов Лидом, число report_finding) из updates-событий."""
+    tool_calls = findings = 0
+    for event in events:
+        if event.get("kind") != "updates":
+            continue
+        data = (event.get("payload") or {}).get("data")
+        if not isinstance(data, dict):
+            continue
+        for value in data.values():
+            if not isinstance(value, dict):
+                continue
+            for msg in value.get("messages") or []:
+                if isinstance(msg, dict) and msg.get("type") == "ai":
+                    for call in msg.get("tool_calls") or []:
+                        tool_calls += 1
+                        if call.get("name") == "report_finding":
+                            findings += 1
+    return tool_calls, findings
+
+
 def derive_graph(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
     run_id = str(row["id"])
     node_ids_probe, _ = pipeline_topology()
@@ -89,6 +110,7 @@ def derive_graph(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str,
             "failed": "error",
             "interrupted": "error",
         }.get(str(row.get("status")), "running")
+        lead_tools, lead_findings = _lead_activity(events)
         nodes: list[dict[str, Any]] = [
             {
                 "id": "lead",
@@ -98,6 +120,8 @@ def derive_graph(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str,
                 "parentId": None,
                 "x": 0,
                 "y": 0,
+                "toolCalls": lead_tools,
+                "findings": lead_findings,
             }
         ]
         edges = []

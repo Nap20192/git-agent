@@ -51,23 +51,70 @@ def _task_terminal(kind: str, data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_PIPELINE_NODES = {"scan", "parse", "report"}
+
+
+def _lead_step_from_messages(node: str, messages: list[Any]) -> dict[str, Any] | None:
+    """Развернуть сообщения хода Лида в читаемый agent_step (или None — пусто).
+
+    model-узел несёт AIMessage (рассуждение + tool_calls); tools-узел — ToolMessage
+    (результаты). Служебные узлы middleware с пустым value сюда не попадают.
+    """
+    text_parts: list[str] = []
+    tool_calls: list[dict[str, str]] = []
+    tool_results: list[str] = []
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        mtype = msg.get("type")
+        if mtype == "ai":
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                text_parts.append(content.strip())
+            for call in msg.get("tool_calls") or []:
+                tool_calls.append({"name": call.get("name", ""), "args": str(call.get("args", ""))})
+        elif mtype == "tool":
+            name = msg.get("name", "")
+            content = msg.get("content")
+            snippet = content if isinstance(content, str) else str(content)
+            tool_results.append(f"{name}: {snippet}".strip(": "))
+    if not (text_parts or tool_calls or tool_results):
+        return None
+    return {
+        "kind": "agent_step",
+        "node": node,
+        "text": "\n".join(text_parts),
+        "toolCalls": tool_calls,
+        "toolResults": tool_results,
+    }
+
+
 def event_to_wire(
     cursor: int, kind: str, payload: dict[str, Any], ts: Any = None
-) -> dict[str, Any]:
-    """run_events-строка / bridge-событие → RunEvent контракта."""
+) -> dict[str, Any] | None:
+    """run_events-строка / bridge-событие → RunEvent контракта (None = отбросить)."""
     data = payload.get("data") if isinstance(payload, dict) else None
     wire: dict[str, Any] = {"cursor": cursor, "ts": _iso(ts), "type": "custom"}
 
     if kind == "updates" and isinstance(data, dict):
-        # updates-чанк LangGraph: {node_name: {...}} — узел завершил шаг
-        node = next(iter(data), None)
-        if node:
+        node, value = next(iter(data.items()), (None, None))
+        if node is None:
+            return None
+        if node in _PIPELINE_NODES:
             wire.update(
                 type="node_update",
                 agent=node,
                 data={"kind": "node_status", "node": node, "status": "completed"},
             )
-        return wire
+            return wire
+        # ход агента (Лид): развернуть сообщения; служебные middleware-узлы пусты
+        if isinstance(value, dict) and value.get("messages"):
+            step = _lead_step_from_messages(node, value["messages"])
+            if step is None:
+                return None
+            wire.update(type="custom", agent="lead", data=step)
+            return wire
+        return None  # middleware-шум (value None / без messages)
 
     if isinstance(data, dict) and isinstance(data.get("type"), str):
         dtype = data["type"]

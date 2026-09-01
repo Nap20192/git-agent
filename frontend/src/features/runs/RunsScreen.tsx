@@ -15,6 +15,7 @@ type Filter = "all" | RunStatus | "reports";
 
 export function RunsScreen() {
   const navigate = useNavigate();
+  const api = useApi();
   const runsQ = useRuns();
   const [params, setParams] = useSearchParams();
   const [filter, setFilter] = useState<Filter>("all");
@@ -63,6 +64,26 @@ export function RunsScreen() {
           {r.metrics.tokenUsage ? tokensLabel(r.metrics.tokenUsage.totalTokens) : "—"}
         </span>
       ),
+    },
+    {
+      id: "del",
+      header: "",
+      width: "28px",
+      align: "right",
+      render: (r) =>
+        r.status === "running" || r.status === "pending" ? null : (
+          <span
+            title="delete run"
+            style={{ color: "var(--dim)", cursor: "pointer" }}
+            onClick={async (e) => {
+              e.stopPropagation();
+              await api.deleteRun(r.id);
+              runsQ.reload();
+            }}
+          >
+            ✕
+          </span>
+        ),
     },
     { id: "go", header: "", width: "40px", align: "right", render: () => <span style={{ color: "var(--amber)" }}>→</span> },
   ];

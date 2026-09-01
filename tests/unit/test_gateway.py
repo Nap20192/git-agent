@@ -381,3 +381,103 @@ def test_resume_routes_to_original_mode(monkeypatch):
     )
     client.post("/api/runs/1/resume")
     assert calls == ["agent"]  # агентный Ран резюмится агентным профилем
+
+
+def test_lead_updates_unpack_to_agent_step():
+    # ход Лида: model-узел с AIMessage (рассуждение + tool_call)
+    payload = {
+        "data": {
+            "model": {
+                "messages": [
+                    {
+                        "type": "ai",
+                        "content": "смотрю дерево",
+                        "tool_calls": [{"name": "sandbox_run", "args": {"command": "ls"}}],
+                    }
+                ]
+            }
+        }
+    }
+    ev = wire.event_to_wire(5, "updates", payload)
+    assert ev["agent"] == "lead" and ev["data"]["kind"] == "agent_step"
+    assert ev["data"]["text"] == "смотрю дерево"
+    assert ev["data"]["toolCalls"][0]["name"] == "sandbox_run"
+
+    # tools-узел: результат
+    res = wire.event_to_wire(
+        6,
+        "updates",
+        {
+            "data": {
+                "tools": {"messages": [{"type": "tool", "name": "sandbox_run", "content": "a.py"}]}
+            }
+        },
+    )
+    assert res["data"]["toolResults"] == ["sandbox_run: a.py"]
+
+    # middleware-шум отбрасывается
+    assert (
+        wire.event_to_wire(7, "updates", {"data": {"TerminalResponseMiddleware.after_model": None}})
+        is None
+    )
+    # pipeline-узел — прежний node_update
+    pipe = wire.event_to_wire(8, "updates", {"data": {"scan": {"commit": "x"}}})
+    assert pipe["type"] == "node_update"
+
+
+def test_lead_graph_activity():
+    from server.graphview import derive_graph
+
+    events = [
+        {
+            "kind": "updates",
+            "payload": {
+                "data": {
+                    "model": {
+                        "messages": [
+                            {
+                                "type": "ai",
+                                "content": "",
+                                "tool_calls": [
+                                    {"name": "read_file", "args": {}},
+                                    {"name": "report_finding", "args": {}},
+                                ],
+                            },
+                        ]
+                    }
+                }
+            },
+        },
+    ]
+    graph = derive_graph(_row(status="succeeded"), events)
+    lead = next(n for n in graph["nodes"] if n["id"] == "lead")
+    assert lead["toolCalls"] == 2 and lead["findings"] == 1
+
+
+def test_delete_run_route(monkeypatch):
+    from types import SimpleNamespace
+
+    deleted = {"active": False}
+
+    class _Rt:
+        async def events(self, run_id, after_id=None):
+            return []
+
+        async def delete_run(self, run_id):
+            if deleted["active"]:
+                raise RuntimeError("cannot delete an active run; cancel it first")
+            return True
+
+    app = create_app(runtime=_Rt())
+    client = TestClient(app)
+    import infra.postgres
+
+    monkeypatch.setattr(
+        infra.postgres,
+        "get_run_with_repo",
+        lambda rid: {**_row(id=rid), "repo_url": "u", "sandbox_name": "git"},
+    )
+    assert client.delete("/api/runs/1").status_code == 204
+    deleted["active"] = True
+    assert client.delete("/api/runs/1").status_code == 409
+    del SimpleNamespace

@@ -98,6 +98,31 @@ class PostgresRunStore:
                 await conn.execute("SELECT * FROM runs WHERE id = %s", (run_id,))
             ).fetchone()
 
+    async def delete_run(self, run_id: int) -> bool:
+        """Удалить терминальный Ран: чекпоинты + события + строку (одна транзакция).
+
+        Отказ (False) на активном (pending/running) Ране — его данные трогать
+        нельзя. thread_id чекпоинтов = str(run_id).
+        """
+        from core.runtime.schemas import ACTIVE_STATUSES
+
+        pool = await get_async_pool()
+        async with pool.connection() as conn, conn.transaction():
+            row = await (
+                await conn.execute("SELECT status FROM runs WHERE id = %s FOR UPDATE", (run_id,))
+            ).fetchone()
+            if row is None:
+                return False
+            if row["status"] in {s.value for s in ACTIVE_STATUSES}:
+                raise RuntimeError("cannot delete an active run; cancel it first")
+            thread = str(run_id)
+            await conn.execute("DELETE FROM checkpoint_writes WHERE thread_id = %s", (thread,))
+            await conn.execute("DELETE FROM checkpoint_blobs WHERE thread_id = %s", (thread,))
+            await conn.execute("DELETE FROM checkpoints WHERE thread_id = %s", (thread,))
+            await conn.execute("DELETE FROM run_events WHERE run_id = %s", (run_id,))
+            await conn.execute("DELETE FROM runs WHERE id = %s", (run_id,))
+            return True
+
     async def start_run(self, run_id: int, *, owner_worker_id: str) -> bool:
         pool = await get_async_pool()
         async with pool.connection() as conn:

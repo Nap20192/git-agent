@@ -111,6 +111,19 @@ class MemoryRunStore:
         row = self._runs.get(run_id)
         return dict(row) if row else None
 
+    async def delete_run(self, run_id: int) -> bool:
+        row = self._runs.get(run_id)
+        if row is None:
+            return False
+        if row["status"] in ACTIVE_STATUSES:
+            raise RuntimeError("cannot delete an active run; cancel it first")
+        self._runs.pop(run_id, None)
+        self._events.pop(run_id, None)
+        for key, rid in list(self._identity.items()):
+            if rid == run_id:
+                self._identity.pop(key, None)
+        return True
+
     async def start_run(self, run_id: int, *, owner_worker_id: str) -> bool:
         row = self._runs.get(run_id)
         if (

@@ -33,6 +33,8 @@ export interface GitAgentApi {
   cancelRun(id: string): Promise<Run>;
   /** Resume a failed/interrupted run (resubmit → disposition "resumed"). */
   resumeRun(id: string): Promise<SubmitRunResponse>;
+  /** Delete a terminal run (history + checkpoints). Active runs are refused. */
+  deleteRun(id: string): Promise<void>;
 
   // report
   getReport(runId: string): Promise<Report>;
