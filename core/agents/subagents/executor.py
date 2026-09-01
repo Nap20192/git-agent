@@ -139,18 +139,28 @@ class SubagentExecutor:
         from datetime import UTC, datetime
 
         from core.agents.factory import build_agent
+        from core.agents.middleware.tool_error_handling import ToolErrorHandlingMiddleware
         from core.agents.middleware.tool_receipts import ToolReceiptMiddleware
+        from core.agents.middleware.tool_result_sanitization import (
+            ToolResultSanitizationMiddleware,
+        )
 
         result = SubagentResult(task_id=task_id, status=SubagentStatus.RUNNING)
         result.started_at = datetime.now(UTC)
         collector = SubagentTokenCollector(f"subagent:{self.config.name}")
 
-        # ToolReceiptMiddleware — единственный wrap_tool_call ребёнка (должен
-        # быть самым внешним; здесь это выполняется тривиально).
+        # Порядок wrap_tool_call (внешний → внутренний): Sanitization (никогда
+        # не короткое замыкание — безопасно снаружи; квитанция при этом хеширует
+        # СЫРОЙ вывод — freshness-штамп) → Receipt (внешний от всего, что может
+        # закоротить) → ErrorHandling (его error-ToolMessage квитанция штампует).
         agent = build_agent(
             self.model,
             self.tools,
-            middleware=[ToolReceiptMiddleware()],
+            middleware=[
+                ToolResultSanitizationMiddleware(),
+                ToolReceiptMiddleware(),
+                ToolErrorHandlingMiddleware(),
+            ],
             checkpointer=False,  # load-bearing: ребёнок никогда не персистится
             name=f"subagent:{self.config.name}",
         )

@@ -7,12 +7,15 @@
 """
 
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import structlog
 
 _LOG_DIR = Path("logs")
+# Уровень из env (LOG_LEVEL=DEBUG для трейсинга middleware/узлов), дефолт INFO
+_LEVEL = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
 
 # Общие процессоры — применяются и к structlog-, и к обычным stdlib-логам
 _shared = [
@@ -63,7 +66,7 @@ def _setup() -> None:
 
     root = logging.getLogger()
     root.handlers = handlers
-    root.setLevel(logging.INFO)
+    root.setLevel(_LEVEL)
 
 
 _setup()

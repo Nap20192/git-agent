@@ -33,9 +33,9 @@ class FakeSandbox:
 
 
 def _ai_tool_call(name: str, args: dict, call_id: str) -> AIMessage:
-    return AIMessage(content="", tool_calls=[
-        {"name": name, "args": args, "id": call_id, "type": "tool_call"}
-    ])
+    return AIMessage(
+        content="", tool_calls=[{"name": name, "args": args, "id": call_id, "type": "tool_call"}]
+    )
 
 
 class ToolFakeModel(GenericFakeChatModel):
@@ -46,7 +46,6 @@ class ToolFakeModel(GenericFakeChatModel):
 
     def bind_tools(self, tools, **kwargs):
         return self
-
 
 
 def _lead_with_task(lead_script, sandbox, capacity=None):
@@ -64,11 +63,15 @@ def test_delegation_end_to_end_with_receipts_verdict():
         sandbox = FakeSandbox()
         # порядок вызовов модели: лид(1) → ребёнок(2,3) → лид(4)
         script = [
-            _ai_tool_call("task", {
-                "description": "scan repo files",
-                "prompt": "List repo files",
-                "subagent_type": "general-purpose",
-            }, "task-1"),
+            _ai_tool_call(
+                "task",
+                {
+                    "description": "scan repo files",
+                    "prompt": "List repo files",
+                    "subagent_type": "general-purpose",
+                },
+                "task-1",
+            ),
             _ai_tool_call("sandbox_run", {"command": "ls /repo"}, "child-1"),
             AIMessage(content="Я запустил ls [r1 sandbox_run]. Файлы: main.py."),
             AIMessage(content="Итог: в репозитории main.py."),
@@ -86,8 +89,9 @@ def test_delegation_end_to_end_with_receipts_verdict():
             else:
                 final = chunk
 
-        tool_messages = [m for m in final["messages"]
-                         if isinstance(m, ToolMessage) and m.name == "task"]
+        tool_messages = [
+            m for m in final["messages"] if isinstance(m, ToolMessage) and m.name == "task"
+        ]
         assert len(tool_messages) == 1
         meta = read_subagent_result_metadata(tool_messages[0].additional_kwargs)
         assert meta["status"] == "completed"
@@ -112,15 +116,20 @@ def test_unknown_subagent_type_returns_failed_result():
     async def main():
         sandbox = FakeSandbox()
         script = [
-            _ai_tool_call("task", {
-                "description": "x", "prompt": "y", "subagent_type": "martian",
-            }, "task-1"),
+            _ai_tool_call(
+                "task",
+                {
+                    "description": "x",
+                    "prompt": "y",
+                    "subagent_type": "martian",
+                },
+                "task-1",
+            ),
             AIMessage(content="ok, no delegation"),
         ]
         lead = _lead_with_task(script, sandbox)
         final = await lead.ainvoke({"messages": [HumanMessage(content="go")]})
-        tm = next(m for m in final["messages"]
-                  if isinstance(m, ToolMessage) and m.name == "task")
+        tm = next(m for m in final["messages"] if isinstance(m, ToolMessage) and m.name == "task")
         meta = read_subagent_result_metadata(tm.additional_kwargs)
         assert meta["status"] == "failed"
         assert "general-purpose" in meta["error"]  # список доступных типов
@@ -141,17 +150,24 @@ def test_timeout_yields_timed_out_status():
         try:
             sandbox = SlowSandbox()
             script = [
-                _ai_tool_call("task", {
-                    "description": "x", "prompt": "y", "subagent_type": "snail",
-                }, "task-1"),
+                _ai_tool_call(
+                    "task",
+                    {
+                        "description": "x",
+                        "prompt": "y",
+                        "subagent_type": "snail",
+                    },
+                    "task-1",
+                ),
                 _ai_tool_call("sandbox_run", {"command": "sleep"}, "child-1"),
                 AIMessage(content="unreached"),
                 AIMessage(content="lead final"),
             ]
             lead = _lead_with_task(script, sandbox)
             final = await lead.ainvoke({"messages": [HumanMessage(content="go")]})
-            tm = next(m for m in final["messages"]
-                      if isinstance(m, ToolMessage) and m.name == "task")
+            tm = next(
+                m for m in final["messages"] if isinstance(m, ToolMessage) and m.name == "task"
+            )
             meta = read_subagent_result_metadata(tm.additional_kwargs)
             assert meta["status"] == "timed_out"
             assert "Timed Out" in tm.content
@@ -170,9 +186,15 @@ def test_turn_cap_produces_stop_reason():
             sandbox = FakeSandbox()
             # ребёнок бесконечно зовёт тулы — упрётся в recursion_limit
             script = [
-                _ai_tool_call("task", {
-                    "description": "x", "prompt": "y", "subagent_type": "twoturns",
-                }, "task-1"),
+                _ai_tool_call(
+                    "task",
+                    {
+                        "description": "x",
+                        "prompt": "y",
+                        "subagent_type": "twoturns",
+                    },
+                    "task-1",
+                ),
                 _ai_tool_call("sandbox_run", {"command": "a"}, "c1"),
                 _ai_tool_call("sandbox_run", {"command": "b"}, "c2"),
                 _ai_tool_call("sandbox_run", {"command": "c"}, "c3"),
@@ -180,8 +202,9 @@ def test_turn_cap_produces_stop_reason():
             ]
             lead = _lead_with_task(script, sandbox)
             final = await lead.ainvoke({"messages": [HumanMessage(content="go")]})
-            tm = next(m for m in final["messages"]
-                      if isinstance(m, ToolMessage) and m.name == "task")
+            tm = next(
+                m for m in final["messages"] if isinstance(m, ToolMessage) and m.name == "task"
+            )
             meta = read_subagent_result_metadata(tm.additional_kwargs)
             assert meta["status"] in ("failed", "completed")
             assert meta["stop_reason"] == "turn_capped"
@@ -205,15 +228,20 @@ def test_capacity_rejection_is_failed_result():
         holder = asyncio.create_task(hold())
         await asyncio.sleep(0.01)
         script = [
-            _ai_tool_call("task", {
-                "description": "x", "prompt": "y", "subagent_type": "general-purpose",
-            }, "task-1"),
+            _ai_tool_call(
+                "task",
+                {
+                    "description": "x",
+                    "prompt": "y",
+                    "subagent_type": "general-purpose",
+                },
+                "task-1",
+            ),
             AIMessage(content="lead final"),
         ]
         lead = _lead_with_task(script, sandbox, capacity=capacity)
         final = await lead.ainvoke({"messages": [HumanMessage(content="go")]})
-        tm = next(m for m in final["messages"]
-                  if isinstance(m, ToolMessage) and m.name == "task")
+        tm = next(m for m in final["messages"] if isinstance(m, ToolMessage) and m.name == "task")
         meta = read_subagent_result_metadata(tm.additional_kwargs)
         assert meta["status"] == "failed"
         assert "not admitted" in meta["error"]

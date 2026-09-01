@@ -66,8 +66,15 @@ def assemble_from_features(
     plan_mode: bool,
     extra_middleware: list[AgentMiddleware],
 ) -> list[AgentMiddleware]:
+    from core.agents.middleware.tool_result_sanitization import (
+        ToolResultSanitizationMiddleware,
+    )
+
     preset = features.memory_config or resolve_memory_preset(features.memory_preset)
     assembled: list[AgentMiddleware] = []
+    # Санитизация недоверенного tool-вывода — всегда и первой в списке
+    # (самый ВНЕШНИЙ wrap_tool_call: квитанции и гейты видят уже нейтрализованное)
+    assembled.append(ToolResultSanitizationMiddleware())
     if isinstance(features.summarization, AgentMiddleware):
         assembled.append(features.summarization)
     elif preset.summarization:
@@ -109,6 +116,16 @@ def assemble_from_features(
 
                 assembled.append(SubagentLimitMiddleware())
                 continue
+            if field_name == "loop_detection":
+                from core.agents.middleware.loop_detection import LoopDetectionMiddleware
+
+                assembled.append(LoopDetectionMiddleware())
+                continue
+            if field_name == "token_budget":
+                from core.agents.middleware.token_budget import TokenBudgetMiddleware
+
+                assembled.append(TokenBudgetMiddleware())
+                continue
             raise ValueError(
                 f"features.{field_name}=True has no built-in middleware yet; "
                 "pass an AgentMiddleware instance or False"
@@ -116,4 +133,14 @@ def assemble_from_features(
     if plan_mode:
         assembled.append(TodoListMiddleware())
     assembled.extend(extra_middleware)
+    # Хвост, всегда включён:
+    # TerminalResponse — восстановление пустого финала (after_model диспатчится
+    # в обратном порядке — поздняя регистрация видит сырой ответ первой);
+    # ToolErrorHandling — ПОСЛЕДНИМ (самый внутренний wrap_tool_call: его
+    # error-ToolMessage видят все внешние слои, включая квитанции).
+    from core.agents.middleware.terminal_response import TerminalResponseMiddleware
+    from core.agents.middleware.tool_error_handling import ToolErrorHandlingMiddleware
+
+    assembled.append(TerminalResponseMiddleware())
+    assembled.append(ToolErrorHandlingMiddleware())
     return assembled

@@ -17,6 +17,11 @@ from typing import Any
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, ToolMessage
 
+# ре-экспорт для обратной совместимости импортов
+from core.agents.middleware._common import (  # noqa: F401
+    _TOTAL_LIMIT_STOP_MSG,
+    clone_ai_message_with_tool_calls,
+)
 from core.agents.subagents.contract import SUBAGENT_STATUS_KEY
 from pkg.logger import get_logger
 
@@ -24,46 +29,6 @@ log = get_logger(__name__)
 
 DEFAULT_MAX_CONCURRENT = 3
 DEFAULT_MAX_TOTAL_PER_RUN = 6
-
-_TOTAL_LIMIT_STOP_MSG = (
-    "\n\n[SUBAGENT LIMIT REACHED] The delegation budget for this run is exhausted;"
-    " further `task` calls were removed. Synthesize the final answer from the"
-    " results already collected."
-)
-
-
-def clone_ai_message_with_tool_calls(message: AIMessage, kept_ids: set[str]) -> AIMessage:
-    """Клон с отфильтрованными tool_calls; все четыре инварианта гигиены:
-
-    1) фильтруется и provider-raw additional_kwargs["tool_calls"];
-    2) function_call выбрасывается, если ничего не осталось;
-    3) finish_reason форсируется в stop, когда все вызовы вырезаны;
-    4) id сообщения СОХРАНЯЕТСЯ — редьюсер состояния заменяет, а не добавляет.
-    """
-    kept_calls = [c for c in message.tool_calls if c.get("id") in kept_ids]
-    additional_kwargs = dict(message.additional_kwargs or {})
-    raw_calls = additional_kwargs.get("tool_calls")
-    if isinstance(raw_calls, list):
-        filtered = [c for c in raw_calls if isinstance(c, dict) and c.get("id") in kept_ids]
-        if filtered:
-            additional_kwargs["tool_calls"] = filtered
-        else:
-            additional_kwargs.pop("tool_calls", None)
-    if not kept_calls:
-        additional_kwargs.pop("function_call", None)
-    response_metadata = dict(message.response_metadata or {})
-    if not kept_calls and response_metadata.get("finish_reason") == "tool_calls":
-        response_metadata["finish_reason"] = "stop"
-    content = message.content
-    if not kept_calls and len(kept_ids) < len(message.tool_calls):
-        content = (content or "") + _TOTAL_LIMIT_STOP_MSG if isinstance(content, str) else content
-    return AIMessage(
-        content=content,
-        tool_calls=kept_calls,
-        additional_kwargs=additional_kwargs,
-        response_metadata=response_metadata,
-        id=message.id,  # тот же id: замена, не дописывание
-    )
 
 
 class SubagentLimitMiddleware(AgentMiddleware):

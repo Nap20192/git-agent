@@ -381,3 +381,41 @@ def test_limit_zero_budget_keeps_plain_tools_no_stop_note():
     # остались обычные вызовы: finish_reason не трогаем, заметку не добавляем
     assert clone.response_metadata["finish_reason"] == "tool_calls"
     assert "SUBAGENT LIMIT" not in clone.content
+
+
+def test_child_config_never_carries_checkpoint_coordinates():
+    """Пин линиджа: configurable-ключи в конфиге ребёнка на langgraph>=1.2.6
+    стартуют новый корневой линидж/утаскивают фреймы ребёнка в родительский
+    стрим. Ребёнок обязан получать координаты только амбиентно (и с
+    checkpointer=False им некуда персиститься)."""
+
+    async def main():
+        captured_config = {}
+
+        class _SpyAgent:
+            async def astream(self, state, config=None, stream_mode=None):
+                captured_config.update(config or {})
+                return
+                yield  # pragma: no cover
+
+        import core.agents.factory as factory_module
+
+        original = factory_module.build_agent
+        captured_kwargs = {}
+
+        def spy_build(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return _SpyAgent()
+
+        factory_module.build_agent = spy_build
+        try:
+            executor = SubagentExecutor(GENERAL_PURPOSE, MagicMock(), [])
+            await executor.arun("task", task_id="t1")
+        finally:
+            factory_module.build_agent = original
+
+        assert "configurable" not in captured_config
+        assert set(captured_config) == {"recursion_limit", "callbacks", "tags"}
+        assert captured_kwargs["checkpointer"] is False
+
+    asyncio.run(main())

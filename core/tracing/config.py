@@ -121,9 +121,7 @@ def get_tracing_config() -> TracingConfig:
             return _tracing_config
         _tracing_config = TracingConfig(
             langsmith=LangSmithTracingConfig(
-                enabled=_env_flag(
-                    "LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2", "LANGCHAIN_TRACING"
-                ),
+                enabled=_env_flag("LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2", "LANGCHAIN_TRACING"),
                 api_key=_first_env("LANGSMITH_API_KEY", "LANGCHAIN_API_KEY"),
                 project=_first_env("LANGSMITH_PROJECT", "LANGCHAIN_PROJECT") or "git-agent",
                 endpoint=_first_env("LANGSMITH_ENDPOINT", "LANGCHAIN_ENDPOINT")

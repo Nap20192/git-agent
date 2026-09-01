@@ -45,8 +45,11 @@ def test_concurrent_strip_keeps_non_task_calls():
 def test_total_budget_counts_prior_delegations():
     mw = SubagentLimitMiddleware(max_concurrent=3, max_total_per_run=2)
     prior = [
-        ToolMessage(content="done", tool_call_id=f"old{i}",
-                    additional_kwargs={SUBAGENT_STATUS_KEY: "completed"})
+        ToolMessage(
+            content="done",
+            tool_call_id=f"old{i}",
+            additional_kwargs={SUBAGENT_STATUS_KEY: "completed"},
+        )
         for i in range(2)
     ]
     state = {"messages": [*prior, _ai([_task_call(1)])]}
