@@ -325,6 +325,16 @@ class _FakeSandbox:
         pass
 
 
+def _fake_profile(build):
+    from core.runtime.profile import GraphProfile
+
+    return GraphProfile(
+        build=build,
+        make_input=lambda repo_url, checkout_ref=None: {"repo_url": repo_url},
+        extract_report=lambda values: (values or {}).get("report"),
+    )
+
+
 def _make_runtime(store, bridge, report=None, chunks=()):
     async def fake_repo(url):
         return {"id": 1, "url": url}
@@ -335,7 +345,7 @@ def _make_runtime(store, bridge, report=None, chunks=()):
     return Runtime(
         store=store,
         bridge=bridge,
-        build_graph=lambda sb, m, checkpointer=None: _FakeGraph(list(chunks), report),
+        profile=_fake_profile(lambda sb, m, checkpointer=None: _FakeGraph(list(chunks), report)),
         make_model=lambda **kw: object(),
         create_sandbox=fake_sandbox,
         get_or_create_repository=fake_repo,
@@ -360,7 +370,7 @@ def test_runtime_submit_success_and_idempotency():
         assert again.disposition == SubmitDisposition.already_succeeded
 
         events = await rt.events(result.run["id"])
-        assert [e["kind"] for e in events] == ["updates"]
+        assert [e["kind"] for e in events] == ["updates", "usage"]  # терминальное usage-событие
 
     asyncio.run(main())
 
@@ -407,7 +417,7 @@ def test_runtime_cancel_midflight():
         rt = Runtime(
             store=store,
             bridge=bridge,
-            build_graph=lambda sb, m, checkpointer=None: _SlowGraph([], None),
+            profile=_fake_profile(lambda sb, m, checkpointer=None: _SlowGraph([], None)),
             make_model=lambda **kw: object(),
             create_sandbox=fake_sandbox,
             get_or_create_repository=fake_repo,
@@ -525,7 +535,7 @@ def test_cancel_during_finalize_still_publishes_end():
         rt = Runtime(
             store=store,
             bridge=bridge,
-            build_graph=lambda sb, m, checkpointer=None: _FailingGraph([], None),
+            profile=_fake_profile(lambda sb, m, checkpointer=None: _FailingGraph([], None)),
             make_model=lambda **kw: object(),
             create_sandbox=fake_sandbox,
             get_or_create_repository=fake_repo,

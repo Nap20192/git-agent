@@ -42,6 +42,7 @@ def assert_transition(old: RunStatus, new: RunStatus, *, via_claim: bool = False
 STOP_REASON_ORPHAN = "orphan_recovered"
 STOP_REASON_CANCELLED = "cancelled"
 STOP_REASON_SHUTDOWN = "shutting_down"
+STOP_REASON_TURN = "turn_capped"
 ORPHAN_ERROR = "Worker crashed or lease expired before the run finished."
 
 

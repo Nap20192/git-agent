@@ -15,6 +15,7 @@ from core.ports import RunStore, Sandbox, StreamBridge
 from core.runtime import worker
 from core.runtime.bridge import StreamItem
 from core.runtime.manager import RunManager
+from core.runtime.profile import PIPELINE_PROFILE, GraphProfile
 from core.runtime.schemas import CancelOutcome, RunStatus, SubmitDisposition, SubmitResult
 from pkg.logger import get_logger
 
@@ -27,17 +28,17 @@ class Runtime:
         *,
         store: RunStore,
         bridge: StreamBridge,
-        build_graph: Callable[..., Any],
         make_model: Callable[..., Any],
         create_sandbox: Callable[[str], Awaitable[Sandbox]],
         get_or_create_repository: Callable[[str], Awaitable[dict[str, Any]]],
+        profile: GraphProfile | None = None,
         checkpointer: Any = None,
         lease_seconds: int = 30,
         grace_seconds: int = 10,
     ) -> None:
         self._store = store
         self._bridge = bridge
-        self._build_graph = build_graph
+        self._profile = profile or PIPELINE_PROFILE
         self._make_model = make_model
         self._create_sandbox = create_sandbox
         self._get_or_create_repository = get_or_create_repository
@@ -56,6 +57,7 @@ class Runtime:
         llm_api_key: str,
         llm_model: str,
         sandbox_name: str = "git",
+        checkout_ref: str | None = None,
     ) -> SubmitResult:
         import asyncio
 
@@ -77,12 +79,13 @@ class Runtime:
                     record=record,
                     run_row=result.run,
                     repo_url=repo_url,
-                    build_graph=self._build_graph,
+                    profile=self._profile,
                     make_model=self._make_model,
                     create_sandbox=self._create_sandbox,
                     checkpointer=self._checkpointer,
                     sandbox_name=sandbox_name,
                     is_resume=result.disposition is SubmitDisposition.resumed,
+                    checkout_ref=checkout_ref,
                 )
             )
             task.set_name(f"git-agent-run-{result.run['id']}")

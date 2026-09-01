@@ -13,10 +13,14 @@ import contextlib
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from langgraph.errors import GraphRecursionError
+
 from core.ports import RunStore, Sandbox, StreamBridge
 from core.runtime.manager import RunManager
+from core.runtime.profile import GraphProfile
 from core.runtime.schemas import (
     STOP_REASON_CANCELLED,
+    STOP_REASON_TURN,
     RunRecord,
     RunStartOutcome,
     RunStatus,
@@ -36,12 +40,13 @@ async def run_agent(
     record: RunRecord,
     run_row: dict[str, Any],
     repo_url: str,
-    build_graph: Callable[..., Any],
+    profile: GraphProfile,
     make_model: Callable[..., Any],
     create_sandbox: Callable[[str], Awaitable[Sandbox]],
     checkpointer: Any = None,
     sandbox_name: str = "git",
     is_resume: bool = False,
+    checkout_ref: str | None = None,
 ) -> None:
     run_id = record.run_id
     outcome = RunStatus.succeeded
@@ -63,11 +68,20 @@ async def run_agent(
                 api_base=run_row["llm_api_base"],
                 api_key=run_row["llm_api_key"],
             )
-            graph = build_graph(sandbox, model, checkpointer=checkpointer)
+            # Подготовка песочницы (например клон репо для лида); при resume
+            # песочница новая — готовим заново, чекпоинт хранит только состояние графа.
+            if profile.prepare is not None:
+                await profile.prepare(sandbox, repo_url, checkout_ref)
+            graph = profile.build(sandbox, model, checkpointer=checkpointer)
             # Коллбэки трейсинга — на корне инвокации: LangGraph прокидывает их
             # во все вложенные вызовы, один трейс деревом на ран. Ошибка сборки
             # (включён, но не настроен) — setup-ошибка рана, не тихий пропуск.
             tracing_callbacks = build_tracing_callbacks()
+            # Usage-коллектор на корне: считает ВСЕ LLM-вызовы рана (лид,
+            # pipeline-parse, сабагенты) с дедупом по run_id вызова
+            from core.agents.subagents.executor import SubagentTokenCollector
+
+            usage_collector = SubagentTokenCollector(caller="run")
         except asyncio.CancelledError:
             outcome, stop_reason = RunStatus.interrupted, STOP_REASON_CANCELLED
             raise
@@ -83,14 +97,15 @@ async def run_agent(
 
         config: dict[str, Any] = {
             "configurable": {"thread_id": str(run_id)},
-            "callbacks": tracing_callbacks,
+            "callbacks": [*tracing_callbacks, usage_collector],
+            **profile.run_config,
         }
         inject_langfuse_metadata(config, thread_id=str(run_id), model_name=run_row["llm_model"])
         # resume: None как вход — LangGraph продолжает с чекпоинта
-        graph_input = None if is_resume else {"repo_url": repo_url}
+        graph_input = None if is_resume else profile.make_input(repo_url, checkout_ref)
         try:
             async for mode, chunk in graph.astream(
-                graph_input, config=config, stream_mode=["updates", "custom"]
+                graph_input, config=config, stream_mode=profile.stream_modes
             ):
                 if record.abort_event.is_set():
                     outcome, stop_reason = RunStatus.interrupted, STOP_REASON_CANCELLED
@@ -101,14 +116,41 @@ async def run_agent(
                     await store.add_event(run_id, mode, {"data": data})
                 except Exception:
                     log.exception("event persistence failed", run_id=run_id)
+            # Терминальное usage-событие (контракт eval-харнеса): токены/вызовы
+            # рана одним machine-readable событием; best-effort, ран не роняет
+            try:
+                usage_payload = {
+                    "type": "usage",
+                    "usage": usage_collector.cumulative_usage(),
+                    "llm_calls": len(usage_collector.snapshot_records()),
+                    "records": usage_collector.snapshot_records(),
+                }
+                await bridge.publish(run_id, "custom", usage_payload)
+                await store.add_event(run_id, "usage", usage_payload)
+            except Exception:
+                log.exception("usage event emission failed", run_id=run_id)
             if outcome is RunStatus.succeeded:
                 state = await graph.aget_state(config)
-                report = (state.values or {}).get("report")
+                report = profile.extract_report(state.values or {})
                 if report is not None and report.get("error"):
                     outcome, error = RunStatus.failed, str(report["error"])
         except asyncio.CancelledError:
             outcome, stop_reason = RunStatus.interrupted, STOP_REASON_CANCELLED
             raise
+        except GraphRecursionError:
+            # Исчерпан бюджет ходов — не крах, а частичный результат (turn_capped):
+            # достаём отчёт из последнего сохранённого состояния.
+            stop_reason = STOP_REASON_TURN
+            log.warning("run hit recursion limit; harvesting partial report", run_id=run_id)
+            try:
+                state = await graph.aget_state(config)
+                report = profile.extract_report(state.values or {})
+            except Exception:
+                report = None
+            if report is not None and not report.get("error"):
+                outcome = RunStatus.succeeded  # capped, но с выводом
+            else:
+                outcome, error = RunStatus.failed, "reached max turns without an answer"
         except Exception as exc:
             outcome, error = RunStatus.failed, str(exc)
             log.exception("run failed", run_id=run_id)
