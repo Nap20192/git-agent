@@ -74,7 +74,9 @@ async def run_agent(
             # песочница новая — готовим заново, чекпоинт хранит только состояние графа.
             if profile.prepare is not None:
                 await profile.prepare(sandbox, repo_url, checkout_ref)
-            graph = profile.build(sandbox, model, checkpointer=checkpointer)
+            graph = profile.build(
+                sandbox, model, checkpointer=checkpointer, limits=run_row.get("limits") or {}
+            )
             # Коллбэки трейсинга — на корне инвокации: LangGraph прокидывает их
             # во все вложенные вызовы, один трейс деревом на ран. Ошибка сборки
             # (включён, но не настроен) — setup-ошибка рана, не тихий пропуск.

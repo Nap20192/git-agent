@@ -107,22 +107,48 @@ def _lead_report(values: dict[str, Any]) -> dict[str, Any] | None:
     return {"answer": summary, "summary": summary, "findings": findings}
 
 
+def _lead_features(limits: dict[str, Any]) -> tuple[RuntimeFeatures, SubagentCapacity]:
+    """RuntimeFeatures + capacity из пользовательских лимитов Рана (с дефолтами)."""
+    from core.middleware.token_budget import TokenBudgetMiddleware
+
+    subagent = limits.get("subagent", True)
+    loop = limits.get("loopDetection", True)
+    budget = limits.get("tokenBudget")
+    max_subagents = int(limits.get("maxSubagents") or 3)
+    token_budget: Any = True
+    if budget:  # число > 0 → конкретный бюджет; иначе дефолтный middleware
+        token_budget = TokenBudgetMiddleware(max_total_tokens=int(budget))
+    features = RuntimeFeatures(
+        subagent=bool(subagent),
+        loop_detection=bool(loop),
+        token_budget=token_budget,
+    )
+    capacity = SubagentCapacity(max_running=max(1, max_subagents))
+    return features, capacity
+
+
 def build_lead_profile(mcp_tools: list[BaseTool] = ()) -> GraphProfile:
     mcp_tools = list(mcp_tools)
 
-    def _build(sandbox: Sandbox, model: BaseChatModel, *, checkpointer: Any = None) -> Any:
-        capacity = SubagentCapacity()
+    def _build(
+        sandbox: Sandbox,
+        model: BaseChatModel,
+        *,
+        checkpointer: Any = None,
+        limits: dict[str, Any] | None = None,
+    ) -> Any:
+        features, capacity = _lead_features(limits or {})
         security_tools = build_security_tools()
-        # детям — и load_skill, и report_finding: их Находки собираются из
-        # хода Сабагента и попадают в сводный отчёт с атрибуцией
-        candidates = [
-            *build_sandbox_tools(sandbox),
-            *security_tools,
-            build_task_tool(
-                sandbox=sandbox, model=model, capacity=capacity, extra_tools=security_tools
-            ),
-            *mcp_tools,
-        ]
+        candidates = [*build_sandbox_tools(sandbox), *security_tools]
+        # task-тул только если делегирование включено; детям — load_skill и
+        # report_finding (их Находки собираются из хода Сабагента в сводный отчёт)
+        if features.subagent:
+            candidates.append(
+                build_task_tool(
+                    sandbox=sandbox, model=model, capacity=capacity, extra_tools=security_tools
+                )
+            )
+        candidates.extend(mcp_tools)
         tools, setup = assemble_deferred_tools(candidates, enabled=bool(mcp_tools))
         mcp_section = ""
         if setup.deferred_names:
@@ -140,7 +166,7 @@ def build_lead_profile(mcp_tools: list[BaseTool] = ()) -> GraphProfile:
             model,
             tools,
             system_prompt=prompt,
-            features=RuntimeFeatures(subagent=True, loop_detection=True, token_budget=True),
+            features=features,
             checkpointer=checkpointer,
             name="lead",
         )

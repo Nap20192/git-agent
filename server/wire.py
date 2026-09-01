@@ -230,6 +230,7 @@ def run_to_wire(row: dict[str, Any], events: list[dict[str, Any]] | None = None)
             "keyMasked": mask_key(row.get("llm_api_key")),
         },
         "sandbox": row.get("sandbox_name"),
+        "limits": row.get("limits"),  # пользовательские лимиты Рана (или null)
         "memoryPreset": None,  # пресет процесса, per-run не хранится
         "hasReport": row.get("report") is not None,
         "createdAt": _iso(row.get("started_at")),

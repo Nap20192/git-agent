@@ -133,6 +133,7 @@ export interface Run {
   attempt: number;
   connection: RunConnection;
   sandbox: string | null;
+  limits: RunLimits | null;
   memoryPreset: string | null;
   hasReport: boolean;
   createdAt: string;
@@ -169,6 +170,14 @@ export const DEFAULT_RUN_FEATURES: RunFeatures = {
   guardrail: false,
   loopDetection: false,
 };
+
+/** Per-run limits persisted on the run (subset of RunFeatures honored today). */
+export interface RunLimits {
+  subagent?: boolean;
+  maxSubagents?: number;
+  tokenBudget?: number | null;
+  loopDetection?: boolean;
+}
 
 export interface SubmitRunRequest {
   repoUrl: string;

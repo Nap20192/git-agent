@@ -345,7 +345,9 @@ def _make_runtime(store, bridge, report=None, chunks=()):
     return Runtime(
         store=store,
         bridge=bridge,
-        profile=_fake_profile(lambda sb, m, checkpointer=None: _FakeGraph(list(chunks), report)),
+        profile=_fake_profile(
+            lambda sb, m, checkpointer=None, limits=None: _FakeGraph(list(chunks), report)
+        ),
         make_model=lambda **kw: object(),
         create_sandbox=fake_sandbox,
         get_or_create_repository=fake_repo,
@@ -423,7 +425,9 @@ def test_runtime_cancel_midflight():
         rt = Runtime(
             store=store,
             bridge=bridge,
-            profile=_fake_profile(lambda sb, m, checkpointer=None: _SlowGraph([], None)),
+            profile=_fake_profile(
+                lambda sb, m, checkpointer=None, limits=None: _SlowGraph([], None)
+            ),
             make_model=lambda **kw: object(),
             create_sandbox=fake_sandbox,
             get_or_create_repository=fake_repo,
@@ -541,7 +545,9 @@ def test_cancel_during_finalize_still_publishes_end():
         rt = Runtime(
             store=store,
             bridge=bridge,
-            profile=_fake_profile(lambda sb, m, checkpointer=None: _FailingGraph([], None)),
+            profile=_fake_profile(
+                lambda sb, m, checkpointer=None, limits=None: _FailingGraph([], None)
+            ),
             make_model=lambda **kw: object(),
             create_sandbox=fake_sandbox,
             get_or_create_repository=fake_repo,
@@ -608,5 +614,34 @@ def test_submit_instructions_reach_graph_input():
         )
         await rt.wait(result.run["id"])
         assert captured["instructions"] == "опиши каждую функцию"
+
+    asyncio.run(main())
+
+
+def test_submit_persists_and_resume_keeps_limits():
+    async def main():
+        store, bridge = MemoryRunStore(), MemoryStreamBridge()
+        rt = _make_runtime(store, bridge, report={"error": "boom"})  # упадёт → resumable
+        r = await rt.submit(
+            repo_url="u",
+            commit_sha="c",
+            llm_api_base="b",
+            llm_api_key="k",
+            llm_model="m",
+            limits={"tokenBudget": 1000},
+        )
+        await rt.wait(r.run["id"])
+        assert (await store.get(r.run["id"]))["limits"] == {"tokenBudget": 1000}
+        # resume без limits → прежние сохраняются
+        rt2 = _make_runtime(store, bridge, report={"done": 1})
+        r2 = await rt2.submit(
+            repo_url="u",
+            commit_sha="c",
+            llm_api_base="b",
+            llm_api_key="k",
+            llm_model="m",
+        )
+        await rt2.wait(r2.run["id"])
+        assert (await store.get(r2.run["id"]))["limits"] == {"tokenBudget": 1000}
 
     asyncio.run(main())

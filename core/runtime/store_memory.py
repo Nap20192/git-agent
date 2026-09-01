@@ -111,6 +111,11 @@ class MemoryRunStore:
         row = self._runs.get(run_id)
         return dict(row) if row else None
 
+    async def set_limits(self, run_id: int, limits: dict[str, Any] | None) -> None:
+        row = self._runs.get(run_id)
+        if row is not None:
+            row["limits"] = limits
+
     async def delete_run(self, run_id: int) -> bool:
         row = self._runs.get(run_id)
         if row is None:

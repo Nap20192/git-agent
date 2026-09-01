@@ -175,7 +175,7 @@ def _make_runtime(store, bridge):
         store=store,
         bridge=bridge,
         profile=GraphProfile(
-            build=lambda sb, m, checkpointer=None: _FakeGraph(),
+            build=lambda sb, m, checkpointer=None, limits=None: _FakeGraph(),
             make_input=lambda repo_url, checkout_ref=None, instructions=None: {
                 "repo_url": repo_url
             },
@@ -481,3 +481,60 @@ def test_delete_run_route(monkeypatch):
     deleted["active"] = True
     assert client.delete("/api/runs/1").status_code == 409
     del SimpleNamespace
+
+
+def test_lead_features_from_limits():
+    from core.lead.graph import _lead_features
+    from core.middleware.token_budget import TokenBudgetMiddleware
+
+    f, cap = _lead_features({"tokenBudget": 40000, "maxSubagents": 2, "loopDetection": False})
+    assert isinstance(f.token_budget, TokenBudgetMiddleware)
+    assert cap.max_running == 2 and f.loop_detection is False
+    f2, cap2 = _lead_features({})
+    assert f2.token_budget is True and cap2.max_running == 3 and f2.subagent is True
+    assert _lead_features({"subagent": False})[0].subagent is False
+
+
+def test_limits_from_body():
+    from server.app import _limits_from_body
+
+    assert _limits_from_body({"features": {"tokenBudget": 100, "maxSubagents": 2, "x": 1}}) == {
+        "tokenBudget": 100,
+        "maxSubagents": 2,
+    }
+    assert _limits_from_body({"limits": {"subagent": False}}) == {"subagent": False}
+    assert _limits_from_body({}) is None
+
+
+def test_submit_persists_limits(monkeypatch):
+    from types import SimpleNamespace
+
+    captured = {}
+
+    class _Rt:
+        async def submit(self, **kw):
+            captured.update(kw)
+            return SimpleNamespace(run={"id": 1}, disposition=SimpleNamespace(value="created"))
+
+        async def events(self, run_id, after_id=None):
+            return []
+
+    app = create_app(runtime=_Rt())
+    client = TestClient(app)
+
+    async def fake_sha(url):
+        return "c" * 40
+
+    import core.repo
+    import infra.postgres
+
+    monkeypatch.setattr(core.repo, "resolve_commit_sha", fake_sha)
+    monkeypatch.setattr(
+        infra.postgres,
+        "get_run_with_repo",
+        lambda rid: {**_row(id=rid), "repo_url": "u", "sandbox_name": "git"},
+    )
+    client.post(
+        "/api/runs", json={"repoUrl": "u", "mode": "agent", "features": {"tokenBudget": 5000}}
+    )
+    assert captured["limits"] == {"tokenBudget": 5000}

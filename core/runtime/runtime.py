@@ -59,6 +59,7 @@ class Runtime:
         sandbox_name: str = "git",
         checkout_ref: str | None = None,
         instructions: str | None = None,
+        limits: dict[str, Any] | None = None,
     ) -> SubmitResult:
         import asyncio
 
@@ -71,6 +72,12 @@ class Runtime:
             llm_model=llm_model,
         )
         if result.disposition in (SubmitDisposition.created, SubmitDisposition.resumed):
+            # лимиты задаются при создании и живут на Ране; продолжение с новыми
+            # лимитами делает set_limits ДО submit — тут перезаписываем, только
+            # если явно переданы (resume без limits сохраняет прежние)
+            if limits is not None:
+                await self._store.set_limits(result.run["id"], limits)
+                result.run["limits"] = limits
             record = self._manager.get_local(result.run["id"])
             task = asyncio.create_task(
                 worker.run_agent(

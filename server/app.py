@@ -91,6 +91,18 @@ def _runtime(request: Request, mode: str = "pipeline") -> Any:
     return runtimes.get(mode) or runtimes["pipeline"]
 
 
+_LIMIT_KEYS = ("subagent", "maxSubagents", "tokenBudget", "loopDetection")
+
+
+def _limits_from_body(body: dict[str, Any]) -> dict[str, Any] | None:
+    """Лимиты Рана из body.features или body.limits (только известные ключи)."""
+    src = body.get("limits") or body.get("features")
+    if not isinstance(src, dict):
+        return None
+    limits = {k: src[k] for k in _LIMIT_KEYS if k in src}
+    return limits or None
+
+
 def _lead_tool_calls(events: list[dict[str, Any]]) -> int:
     from server.graphview import _lead_activity
 
@@ -174,6 +186,7 @@ def _register_routes(application: FastAPI) -> None:
                 llm_model=model,
                 sandbox_name=body.get("sandbox") or "git",
                 instructions=body.get("instructions") or None,
+                limits=_limits_from_body(body),
             )
         except ConflictError as exc:
             raise _error(409, "conflict", str(exc)) from exc
@@ -191,9 +204,15 @@ def _register_routes(application: FastAPI) -> None:
     @api.post("/api/runs/{run_id}/resume")
     async def resume_run(request: Request, run_id: str) -> dict[str, Any]:
         # resubmit той же идентичности: durable-runs гарантирует «тот же Ран»;
-        # профиль — по фактическому режиму (агентный Ран нельзя резюмить пайплайном)
+        # профиль — по фактическому режиму (агентный Ран нельзя резюмить пайплайном).
+        # Опц. новые лимиты в body → продолжение с поднятым бюджетом.
         row = await _run_row_or_404(request, run_id)
         mode = await _run_mode(request, int(run_id))
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        new_limits = _limits_from_body(body) if isinstance(body, dict) else None
         result = await _runtime(request, mode).submit(
             repo_url=row["repo_url"],
             commit_sha=row["commit_sha"],
@@ -201,6 +220,7 @@ def _register_routes(application: FastAPI) -> None:
             llm_api_key=row["llm_api_key"],
             llm_model=row["llm_model"],
             sandbox_name=row.get("sandbox_name") or "git",
+            limits=new_limits,  # None → сохраняются прежние лимиты Рана
         )
         fresh = await _run_row_or_404(request, run_id)
         return {"run": wire.run_to_wire(fresh), "disposition": result.disposition.value}

@@ -49,7 +49,11 @@ export function createHttpApi(): GitAgentApi {
     submitRun: (b: SubmitRunRequest) =>
       req<SubmitRunResponse>("/runs", { method: "POST", body: JSON.stringify(b) }),
     cancelRun: (id) => req<Run>(`/runs/${id}/cancel`, { method: "POST" }),
-    resumeRun: (id) => req<SubmitRunResponse>(`/runs/${id}/resume`, { method: "POST" }),
+    resumeRun: (id, limits) =>
+      req<SubmitRunResponse>(`/runs/${id}/resume`, {
+        method: "POST",
+        body: JSON.stringify(limits ? { limits } : {}),
+      }),
     deleteRun: async (id) => {
       await req<void>(`/runs/${id}`, { method: "DELETE" });
     },

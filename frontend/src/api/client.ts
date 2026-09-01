@@ -13,6 +13,7 @@ import type {
   RunEvent,
   RunGraph,
   SandboxSpec,
+  RunLimits,
   SubmitRunRequest,
   SubmitRunResponse,
 } from "./contract.ts";
@@ -31,8 +32,8 @@ export interface GitAgentApi {
   getRun(id: string): Promise<Run>;
   submitRun(req: SubmitRunRequest): Promise<SubmitRunResponse>;
   cancelRun(id: string): Promise<Run>;
-  /** Resume a failed/interrupted run (resubmit → disposition "resumed"). */
-  resumeRun(id: string): Promise<SubmitRunResponse>;
+  /** Resume/continue a failed/interrupted run; optional new limits raise the budget. */
+  resumeRun(id: string, limits?: RunLimits): Promise<SubmitRunResponse>;
   /** Delete a terminal run (history + checkpoints). Active runs are refused. */
   deleteRun(id: string): Promise<void>;
 

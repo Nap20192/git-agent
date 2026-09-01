@@ -19,9 +19,7 @@ def list_connections() -> list[dict[str, Any]]:
 
 def get_connection(connection_id: int) -> dict[str, Any] | None:
     with get_pool().connection() as conn:
-        return conn.execute(
-            "SELECT * FROM connections WHERE id = %s", (connection_id,)
-        ).fetchone()
+        return conn.execute("SELECT * FROM connections WHERE id = %s", (connection_id,)).fetchone()
 
 
 def create_connection(name: str, api_base: str, api_key: str, model: str) -> dict[str, Any]:

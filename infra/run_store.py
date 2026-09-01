@@ -98,6 +98,14 @@ class PostgresRunStore:
                 await conn.execute("SELECT * FROM runs WHERE id = %s", (run_id,))
             ).fetchone()
 
+    async def set_limits(self, run_id: int, limits: dict[str, Any] | None) -> None:
+        pool = await get_async_pool()
+        async with pool.connection() as conn:
+            await conn.execute(
+                "UPDATE runs SET limits = %s, updated_at = now() WHERE id = %s",
+                (Jsonb(limits) if limits is not None else None, run_id),
+            )
+
     async def delete_run(self, run_id: int) -> bool:
         """Удалить терминальный Ран: чекпоинты + события + строку (одна транзакция).
 

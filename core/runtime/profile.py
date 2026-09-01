@@ -35,7 +35,9 @@ class GraphProfile:
     prepare: Callable[[Sandbox, str, str | None], Awaitable[None]] | None = None
 
 
-def _pipeline_build(sandbox: Sandbox, model: BaseChatModel, *, checkpointer: Any = None) -> Any:
+def _pipeline_build(
+    sandbox: Sandbox, model: BaseChatModel, *, checkpointer: Any = None, limits: Any = None
+) -> Any:
     from core.agents.graph import build_graph
 
     return build_graph(sandbox, model, checkpointer=checkpointer)

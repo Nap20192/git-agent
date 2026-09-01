@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useApi, isActive, isResumable } from "@/api";
-import type { GraphNode } from "@/api";
+import type { GraphNode, RunLimits } from "@/api";
 import { useGraph, useRun, useRunStream } from "@/hooks";
 import { Button, Panel, PanelHeader, StatusBadge } from "@/components/primitives";
 import { elapsed } from "@/lib/format.ts";
@@ -55,7 +55,18 @@ export function RunDetailScreen() {
     runQ.reload();
   };
   const resume = async () => {
-    await api.resumeRun(id);
+    // продолжение: опц. поднять токен-бюджет (Enter пустым — прежние лимиты)
+    const cur = run?.limits?.tokenBudget ?? 0;
+    const raw = window.prompt(
+      "Продолжить ран. Новый токен-бюджет (пусто — прежние лимиты):",
+      cur ? String(cur) : "",
+    );
+    let limits: RunLimits | undefined;
+    if (raw !== null && raw.trim() !== "") {
+      const n = Number(raw.trim());
+      if (Number.isFinite(n) && n > 0) limits = { ...run?.limits, tokenBudget: n };
+    }
+    await api.resumeRun(id, limits);
     runQ.reload();
   };
   const remove = async () => {
@@ -90,7 +101,7 @@ export function RunDetailScreen() {
           )}
           {isResumable(run.status) && (
             <Button variant="ghost" onClick={resume}>
-              ↻ resume
+              ↻ continue
             </Button>
           )}
           {run.hasReport && (
