@@ -79,3 +79,26 @@ tasks:
     desc: 'Запустить агента: task run -- <repo-url> [флаги]'
     cmds:
       - uv run main.py {{.CLI_ARGS}}
+
+  server:
+    desc: HTTP-gateway (FastAPI) на :8080 (нужны Postgres + OpenSandbox)
+    cmds:
+      - uv run uvicorn server.app:app --port 8080
+
+  front:
+    desc: Фронтенд (vite dev, :5173) с http-адаптером к беку
+    dir: frontend
+    cmds:
+      - bun install
+      - bun dev
+
+  app:
+    desc: Всё приложение — инфраструктура, миграции, бек и фронт (Ctrl+C останавливает оба)
+    deps: [up, migrate]
+    cmds:
+      - |
+        bash -c '
+        trap "kill 0" INT TERM
+        uv run uvicorn server.app:app --port 8080 &
+        (cd frontend && bun install --silent && bun dev) &
+        wait'

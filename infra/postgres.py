@@ -106,3 +106,40 @@ def get_run_events(run_id: int) -> list[dict[str, Any]]:
 def get_run(run_id: int) -> dict[str, Any] | None:
     with get_pool().connection() as conn:
         return conn.execute("SELECT * FROM runs WHERE id = %s", (run_id,)).fetchone()
+
+
+_RUN_WITH_REPO_SQL = """
+    SELECT r.*, repo.url AS repo_url, s.name AS sandbox_name
+    FROM runs r
+    JOIN repositories repo ON repo.id = r.repository_id
+    LEFT JOIN sandboxes s ON s.id = r.sandbox_id
+"""
+
+
+def list_runs_with_repo() -> list[dict[str, Any]]:
+    with get_pool().connection() as conn:
+        return conn.execute(f"{_RUN_WITH_REPO_SQL} ORDER BY r.id DESC").fetchall()
+
+
+def get_run_with_repo(run_id: int) -> dict[str, Any] | None:
+    with get_pool().connection() as conn:
+        return conn.execute(f"{_RUN_WITH_REPO_SQL} WHERE r.id = %s", (run_id,)).fetchone()
+
+
+def list_sandboxes_with_counts() -> list[dict[str, Any]]:
+    with get_pool().connection() as conn:
+        return conn.execute(
+            "SELECT s.*, count(r.id) AS run_count FROM sandboxes s"
+            " LEFT JOIN runs r ON r.sandbox_id = s.id GROUP BY s.id ORDER BY s.id"
+        ).fetchall()
+
+
+def create_sandbox_row(
+    name: str, kind: str, image: str | None, workdir: str | None
+) -> dict[str, Any]:
+    with get_pool().connection() as conn:
+        return conn.execute(
+            "INSERT INTO sandboxes (name, kind, image, workdir)"
+            " VALUES (%s, %s, %s, %s) RETURNING *",
+            (name, kind, image, workdir),
+        ).fetchone()

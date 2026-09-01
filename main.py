@@ -14,6 +14,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from core.agents.llm import make_model
 from core.config import settings
 from core.lead import build_lead_profile
+from core.repo import resolve_commit_sha
 from core.runtime import MemoryStreamBridge, Runtime
 from core.runtime.bridge import END_SENTINEL, StreamGap
 from core.runtime.profile import PIPELINE_PROFILE
@@ -23,27 +24,6 @@ from infra.sandboxes import DEFAULT_SANDBOX, create_sandbox_by_name
 from pkg.logger import get_logger
 
 log = get_logger("main")
-
-
-async def _resolve_commit_sha(repo_url: str) -> str:
-    """HEAD-коммит без clone: ls-remote для URL, rev-parse для локального пути."""
-    import os
-
-    args = (
-        ["git", "-C", repo_url, "rev-parse", "HEAD"]
-        if os.path.isdir(repo_url)
-        else ["git", "ls-remote", repo_url, "HEAD"]
-    )
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
-        )
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
-        token = out.decode().split()[0] if out.split() else ""
-        return token or "unknown"
-    except Exception:
-        log.warning("commit sha resolution failed; using 'unknown'", repo_url=repo_url)
-        return "unknown"
 
 
 def _fmt_step(data: dict) -> str:
@@ -97,7 +77,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
     async def repository(url: str) -> dict[str, Any]:
         return await asyncio.to_thread(get_or_create_repository, url)
 
-    commit_sha = await _resolve_commit_sha(args.repo_url)
+    commit_sha = await resolve_commit_sha(args.repo_url)
     async with AsyncPostgresSaver.from_conn_string(settings.database_url) as checkpointer:
         runtime = Runtime(
             store=PostgresRunStore(),

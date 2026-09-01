@@ -7,11 +7,38 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 import shlex
 
 from core.ports import Sandbox
+from pkg.logger import get_logger
+
+log = get_logger(__name__)
 
 CLONE_TIMEOUT_SECONDS = 180.0
+
+
+async def resolve_commit_sha(repo_url: str) -> str:
+    """HEAD-коммит без clone: ls-remote для URL, rev-parse для локального пути.
+
+    Идентичность Рана (идемпотентность submit) считается от этого sha.
+    """
+    args = (
+        ["git", "-C", repo_url, "rev-parse", "HEAD"]
+        if os.path.isdir(repo_url)
+        else ["git", "ls-remote", repo_url, "HEAD"]
+    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+        token = out.decode().split()[0] if out.split() else ""
+        return token or "unknown"
+    except Exception:
+        log.warning("commit sha resolution failed; using 'unknown'", repo_url=repo_url)
+        return "unknown"
 
 
 async def prepare_repo(sandbox: Sandbox, repo_url: str, checkout_ref: str | None = None) -> None:
