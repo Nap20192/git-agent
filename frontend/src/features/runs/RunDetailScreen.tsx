@@ -8,6 +8,7 @@ import { useGraph, useRun, useRunStream } from "@/hooks";
 import { Button, Panel, PanelHeader, StatusBadge } from "@/components/primitives";
 import { elapsed } from "@/lib/format.ts";
 import { GraphCanvas } from "./GraphCanvas.tsx";
+import { AgentList } from "./AgentList.tsx";
 import { NodeInspector } from "./NodeInspector.tsx";
 import { EventStream } from "./EventStream.tsx";
 import styles from "./run.module.css";
@@ -20,6 +21,7 @@ export function RunDetailScreen() {
   const graphQ = useGraph(id);
   const stream = useRunStream(id);
   const [selected, setSelected] = useState<string | null>(null);
+  const [view, setView] = useState<"graph" | "list">("graph");
 
   const run = runQ.data;
   const live = run ? isActive(run.status) : false;
@@ -123,10 +125,27 @@ export function RunDetailScreen() {
           <PanelHeader
             icon="╱╱"
             title="AGENT ORCHESTRATION"
-            right={<span>{nodes.length} nodes</span>}
+            right={
+              <span className={styles.viewToggle}>
+                {(["graph", "list"] as const).map((v) => (
+                  <span
+                    key={v}
+                    className={[styles.viewTab, view === v ? styles.viewTabOn : ""].join(" ")}
+                    onClick={() => setView(v)}
+                  >
+                    {v}
+                  </span>
+                ))}
+                <span className={styles.viewCount}>{nodes.length}</span>
+              </span>
+            }
           />
           <div style={{ flex: 1, minHeight: 0 }}>
-            <GraphCanvas nodes={nodes} edges={graphQ.data?.edges ?? []} selectedId={selected} onSelect={setSelected} eventCounts={eventCounts} />
+            {view === "graph" ? (
+              <GraphCanvas nodes={nodes} edges={graphQ.data?.edges ?? []} selectedId={selected} onSelect={setSelected} eventCounts={eventCounts} />
+            ) : (
+              <AgentList nodes={nodes} selectedId={selected} onSelect={setSelected} eventCounts={eventCounts} />
+            )}
           </div>
         </Panel>
         <NodeInspector runId={id} node={selectedNode} events={selected ? stream.eventsByNode[selected] ?? [] : []} onClose={() => setSelected(null)} />
