@@ -13,3 +13,4 @@ wheels/
 .env
 logs/
 .claude/worktrees/
+evals/runs/

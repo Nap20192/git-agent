@@ -1,0 +1,138 @@
+"""Общие хелперы eval-харнеса: io / хэши / прайсинг / фолд событий.
+
+ПРАВИЛО R1: этот модуль (и grade/validity/report) НИКОГДА не импортирует
+core.*/infra.* — сохранённые бандлы обязаны грейдиться после любого
+рефакторинга приложения. Зеркалируемые константы пиннятся тестом на дрифт.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from collections.abc import Iterable
+from pathlib import Path
+from typing import Any
+
+SCHEMA_VERSION = 1
+
+# Зеркало core.runtime.schemas / событий (НЕ импортируется — R1; дрифт ловит
+# tests/unit/eval/test_signal_mirror.py)
+RUN_TERMINAL_STATUSES = ("succeeded", "failed", "interrupted")
+USAGE_EVENT_KIND = "usage"
+TASK_STARTED_TYPE = "task_started"
+
+# Прайсинг: USD за 1M токенов, снапшотится в манифест каждого прогона.
+# ponytail: цены дрейфуют — это калибровочная ручка, правь и ре-снапшоть.
+# Сверено с https://api-docs.deepseek.com/quick_start/pricing (2026-09).
+PRICING_USD_PER_MILLION: dict[str, dict[str, float]] = {
+    "deepseek-chat": {"input_cache_hit": 0.07, "input_cache_miss": 0.27, "output": 1.10},
+    "deepseek-reasoner": {"input_cache_hit": 0.14, "input_cache_miss": 0.55, "output": 2.19},
+    # неизвестная модель НАМЕРЕННО отсутствует -> price_run вернёт None, не 0
+}
+
+
+def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
+    rows = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
+
+
+def append_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> None:
+    with open(path, "a", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+
+
+def write_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+
+
+def sha256_file(path: str | Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def canonical_fingerprint(manifest: dict[str, Any]) -> str:
+    """Канонический JSON — точный (sort_keys + компактные сепараторы),
+    иначе resume молча ре-фингерпринтится."""
+    return sha256_text(json.dumps(manifest, sort_keys=True, separators=(",", ":"), default=str))
+
+
+def source_tree_sha256(
+    root: str | Path, dirs: tuple[str, ...] = ("core", "infra", "pkg", "evals")
+) -> str:
+    """sha256 всех .py (включая незакоммиченные — ловит то, что git sha не видит)."""
+    h = hashlib.sha256()
+    root = Path(root)
+    for d in dirs:
+        base = root / d
+        if not base.is_dir():
+            continue
+        for p in sorted(base.rglob("*.py")):
+            h.update(str(p.relative_to(root)).encode())
+            h.update(b"\0")
+            h.update(p.read_bytes())
+            h.update(b"\0")
+    return h.hexdigest()
+
+
+def stable_row_id(*parts: str) -> str:
+    """Детерминированный id строки: md5, НЕ builtin hash() (PYTHONHASHSEED-соль)."""
+    return hashlib.md5("|".join(parts).encode()).hexdigest()[:12]
+
+
+def price_run(
+    usage: dict[str, Any] | None, model: str, pricing: dict[str, dict[str, float]]
+) -> float | None:
+    """Стоимость рана из снапшота прайсинга; tri-state: None = неизмеримо.
+
+    Без cache-телеметрии input целиком по cache-miss — честная ВЕРХНЯЯ граница
+    (помечается в отчёте).
+    """
+    p = pricing.get((model or "").strip().lower())
+    if usage is None or p is None:
+        return None
+    try:
+        return (
+            usage["input_tokens"] * p["input_cache_miss"] + usage["output_tokens"] * p["output"]
+        ) / 1e6
+    except (KeyError, TypeError):
+        return None
+
+
+def fold_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Свернуть run_events в наблюдаемые сигналы (для бандла и гейта).
+
+    usage — tri-state: None если терминального usage-события нет.
+    """
+    usage: dict[str, Any] | None = None
+    llm_calls: int | None = None
+    served_models: set[str] = set()
+    subagent_count = 0
+    for event in events:
+        payload = event.get("payload") or {}
+        if event.get("kind") == USAGE_EVENT_KIND:
+            usage = payload.get("usage")
+            llm_calls = payload.get("llm_calls")
+            for record in payload.get("records") or []:
+                name = record.get("model_name")
+                if name:
+                    served_models.add(str(name))
+        data = payload.get("data")
+        if isinstance(data, dict) and data.get("type") == TASK_STARTED_TYPE:
+            subagent_count += 1
+    return {
+        "usage": usage,
+        "llm_calls": llm_calls,
+        "served_models": sorted(served_models),
+        "subagent_count": subagent_count,
+    }
