@@ -164,18 +164,38 @@ export function NodeInspector({ runId, node, events, onClose }: NodeInspectorPro
 
 function NodeEventRow({ event }: { event: RunEvent }) {
   const [open, setOpen] = useState(false);
-  const d = event.data;
-  const body =
-    d?.kind === "task_step" ? `${d.frameKind}: ${d.text}${d.toolName ? ` [${d.toolName}]` : ""}` : d?.kind === "task_terminal" && d.usage ? usageLabel(d.usage) : null;
-  const expandable = body != null;
+  const { summary, body } = eventDetail(event);
+  const expandable = !!body;
   return (
     <div className={styles.event}>
       <div className={styles.eventHead} onClick={() => expandable && setOpen((o) => !o)} style={{ cursor: expandable ? "pointer" : "default" }}>
         <span className={styles.eventType}>{event.type}</span>
-        <span className={styles.eventMsg}>{event.message}</span>
+        <span className={styles.eventMsg}>{summary}</span>
         {expandable && <span className={styles.eventChevron}>{open ? "▾" : "▸"}</span>}
       </div>
       {open && body && <CodeBlock copyable={false}>{body}</CodeBlock>}
     </div>
   );
+}
+
+/** Inline summary + full expandable body for a node event — reasoning, tool
+ *  calls with args, tool results, lifecycle. */
+function eventDetail(event: RunEvent): { summary: string; body: string | null } {
+  const d = event.data;
+  if (d?.kind === "task_step") {
+    const calls = (d.toolCalls ?? []).map((c) => `⚙ ${c.name}(${c.args})`).join("\n");
+    if (d.frameKind === "tool") {
+      const head = d.toolName ? `↩ ${d.toolName}` : "↩ tool result";
+      return { summary: head, body: [d.text, calls].filter(Boolean).join("\n\n") || null };
+    }
+    const summary = d.text?.trim()?.split("\n")[0] || (calls ? "tool call" : "thinking…");
+    return { summary, body: [d.text, calls].filter(Boolean).join("\n\n") || null };
+  }
+  if (d?.kind === "task_terminal") {
+    const err = d.error ? `\n${d.error}` : "";
+    return { summary: d.status, body: `${d.usage ? usageLabel(d.usage) : d.status}${err}` };
+  }
+  if (d?.kind === "task_started") return { summary: `▶ ${d.subagentType} — ${d.description}`, body: null };
+  if (event.message?.trim()) return { summary: event.message, body: null };
+  return { summary: event.type, body: d ? JSON.stringify(d, null, 2) : null };
 }

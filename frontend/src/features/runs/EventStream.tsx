@@ -1,5 +1,6 @@
 /** Full-width event stream, bound to the graph by node id. Node filter chips +
- *  live follow. Row source node highlights when a node is selected. */
+ *  live follow. Renders the full event payload: agent reasoning text, tool calls
+ *  with args, tool results, and lifecycle — not just the (often empty) message. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GraphNode, RunEvent } from "@/api";
 import { PanelHeader } from "@/components/primitives";
@@ -71,24 +72,85 @@ export function EventStream({ logs, nodes, selectedNodeId, live }: EventStreamPr
         onWheel={() => follow && setFollow(false)}
       >
         {shown.map((e) => (
-          <div
+          <EventRow
             key={e.cursor}
-            className={styles.logRow}
-            style={{ background: e.agent && e.agent === selectedNodeId ? "var(--hover)" : "transparent" }}
-          >
-            <span className={styles.logTime}>{fmtTime(e.ts)}</span>
-            <span className={styles.logAgent} style={{ color: e.agent ? colorOf.get(e.agent) : "var(--dim)" }}>
-              {e.agent ?? "—"}
-            </span>
-            <span className={styles.logMsg} style={{ color: e.level === "error" ? "var(--crit)" : e.level === "warn" ? "var(--high)" : "var(--text)" }}>
-              {e.message}
-            </span>
-          </div>
+            e={e}
+            color={e.agent ? colorOf.get(e.agent) ?? "var(--dim)" : "var(--dim)"}
+            highlight={!!e.agent && e.agent === selectedNodeId}
+          />
         ))}
         {shown.length === 0 && <div className={styles.streamEmpty}>no events</div>}
       </div>
     </div>
   );
+}
+
+function EventRow({ e, color, highlight }: { e: RunEvent; color: string; highlight: boolean }) {
+  const parts = describe(e);
+  return (
+    <div
+      className={styles.logRow}
+      style={{ background: highlight ? "var(--hover)" : "transparent" }}
+    >
+      <span className={styles.logTime}>{fmtTime(e.ts)}</span>
+      <span className={styles.logAgent} style={{ color }} title={e.agent ?? ""}>
+        {e.agent ?? "—"}
+      </span>
+      <div className={styles.logBody}>
+        {parts.map((p, i) => (
+          <div key={i} className={styles[p.cls]} style={p.color ? { color: p.color } : undefined}>
+            {p.text}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+type Part = { cls: "logMsg" | "logThink" | "logTool" | "logResult" | "logLifecycle"; text: string; color?: string };
+
+/** Turn a RunEvent into displayable lines — reasoning, tool calls, results, lifecycle. */
+function describe(e: RunEvent): Part[] {
+  const d = e.data;
+  if (d && "kind" in d) {
+    switch (d.kind) {
+      case "task_started":
+        return [{ cls: "logLifecycle", text: `▶ delegate ${d.subagentType} — ${d.description}`, color: "var(--blue)" }];
+      case "task_step": {
+        const out: Part[] = [];
+        if (d.text?.trim()) {
+          out.push(
+            d.frameKind === "tool"
+              ? { cls: "logResult", text: `${d.toolName ? d.toolName + " ▸ " : ""}${d.text}` }
+              : { cls: "logThink", text: d.text },
+          );
+        }
+        for (const c of d.toolCalls ?? []) {
+          out.push({ cls: "logTool", text: `⚙ ${c.name}(${c.args})`, color: "var(--amber)" });
+        }
+        return out.length ? out : [{ cls: "logMsg", text: e.message ?? "" }];
+      }
+      case "task_terminal": {
+        const err = d.error ? ` — ${d.error}` : "";
+        const tok = d.usage ? ` · ${d.usage.totalTokens.toLocaleString()} tok` : "";
+        return [{ cls: "logLifecycle", text: `■ ${d.status}${err}${tok}`, color: termColor(d.status) }];
+      }
+      case "node_status":
+        return [{ cls: "logLifecycle", text: `● ${d.node} ${d.status}`, color: "var(--low)" }];
+      case "status":
+        return [{ cls: "logLifecycle", text: `run ${d.status}`, color: "var(--low)" }];
+    }
+  }
+  if (e.message?.trim()) {
+    const color = e.level === "error" ? "var(--crit)" : e.level === "warn" ? "var(--high)" : undefined;
+    return [{ cls: "logMsg", text: e.message, color }];
+  }
+  // last resort: show raw payload so nothing is ever silently dropped
+  return [{ cls: "logMsg", text: e.data ? JSON.stringify(e.data) : e.type, color: "var(--dim)" }];
+}
+
+function termColor(status: string): string {
+  return status === "completed" ? "var(--low)" : "var(--crit)";
 }
 
 function fmtTime(iso: string): string {

@@ -44,30 +44,14 @@ export function useRunStream(runId: string): RunStreamState {
 }
 
 function nodeStatusFromEvent(e: RunEvent): NodeStatus | null {
-  const msg = (e.message ?? "").toLowerCase();
-  switch (e.type) {
-    case "task_started":
-      return "running";
-    case "task_completed":
-      return "completed";
-    case "task_failed":
-    case "task_cancelled":
-    case "task_timed_out":
-      return "error";
-    case "task_running":
-      return "running";
-    case "node_update":
-      if (msg.includes("started")) return "running";
-      if (msg.includes("finished") || msg.includes("assembled") || msg.includes("done")) return "completed";
-      return "running";
-    case "status":
-      if (e.data?.kind === "status") {
-        return e.data.status === "succeeded" ? "completed" : e.data.status === "running" ? "running" : "error";
-      }
-      return null;
-    default:
-      return null;
-  }
+  // Trust the structured payload — the backend leaves `message` empty for these,
+  // so the old text-matching path never saw "completed".
+  const d = e.data;
+  if (d?.kind === "node_status") return d.status; // LangGraph updates chunk: node done
+  if (d?.kind === "task_started") return "running";
+  if (d?.kind === "task_step") return "running";
+  if (d?.kind === "task_terminal") return d.status === "completed" ? "completed" : "error";
+  return null;
 }
 
 function reduce(s: RunStreamState, e: RunEvent): RunStreamState {

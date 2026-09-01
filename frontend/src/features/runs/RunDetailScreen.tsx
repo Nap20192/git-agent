@@ -24,11 +24,23 @@ export function RunDetailScreen() {
   const run = runQ.data;
   const live = run ? isActive(run.status) : false;
 
-  // Merge topology (graph) with live per-node status (stream).
+  // Merge topology (graph) with live per-node status (stream). The graph is a
+  // one-shot fetch, so the stream carries the truth: completed nodes come from
+  // its node_status events; while live, a completed node's still-pending
+  // successor is the one now running (pipeline emits no per-node "running").
   const nodes: GraphNode[] = useMemo(() => {
     const base = graphQ.data?.nodes ?? [];
-    return base.map((n) => ({ ...n, status: stream.nodeStatus[n.id] ?? n.status }));
-  }, [graphQ.data, stream.nodeStatus]);
+    const merged = base.map((n) => ({ ...n, status: stream.nodeStatus[n.id] ?? n.status }));
+    if (live) {
+      const byId = new Map(merged.map((n) => [n.id, n]));
+      for (const e of graphQ.data?.edges ?? []) {
+        const from = byId.get(e.from);
+        const to = byId.get(e.to);
+        if (from?.status === "completed" && to?.status === "pending") to.status = "running";
+      }
+    }
+    return merged;
+  }, [graphQ.data, stream.nodeStatus, live]);
 
   const eventCounts = useMemo(() => {
     const c: Record<string, number> = {};
