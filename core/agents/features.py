@@ -104,6 +104,11 @@ def assemble_from_features(
         if isinstance(value, AgentMiddleware):
             assembled.append(value)
         elif value is True:
+            if field_name == "subagent":
+                from core.agents.middleware.subagent_limit import SubagentLimitMiddleware
+
+                assembled.append(SubagentLimitMiddleware())
+                continue
             raise ValueError(
                 f"features.{field_name}=True has no built-in middleware yet; "
                 "pass an AgentMiddleware instance or False"

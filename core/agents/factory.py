@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -20,7 +22,8 @@ def build_agent(
     extra_middleware: list[AgentMiddleware] | None = None,
     plan_mode: bool = False,
     state_schema: type | None = None,
-    checkpointer: BaseCheckpointSaver | None = None,
+    # False — load-bearing для сабагентов: одноразовый граф без персистентности
+    checkpointer: BaseCheckpointSaver | Literal[False] | None = None,
     name: str = "default",
 ) -> CompiledStateGraph:
     if middleware is not None and features is not None:

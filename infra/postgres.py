@@ -71,7 +71,11 @@ async def get_async_pool() -> AsyncConnectionPool:
             _apool = AsyncConnectionPool(
                 settings.database_url, kwargs={"row_factory": dict_row}, open=False
             )
-            await _apool.open()
+            # wait=True обязателен: no-wait открытие уводит коннект в фоновых
+            # воркеров пула, которые в этом окружении падают с пустой ошибкой
+            # и пул виснет навечно; ждущее открытие коннектится сразу и при
+            # недоступной БД падает громко через timeout.
+            await _apool.open(wait=True, timeout=30)
     return _apool
 
 
