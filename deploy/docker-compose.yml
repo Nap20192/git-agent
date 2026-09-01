@@ -1,0 +1,67 @@
+# Основано на server/docker-compose.example.yaml из opensandbox-group/OpenSandbox
+configs:
+  opensandbox-config:
+    content: |
+      [server]
+      host = "0.0.0.0"
+      port = 8090
+      # ponytail: захардкоженный dev-ключ для локалки; для прода вынести в secret
+      api_key = "dev-local-key"
+
+      [log]
+      level = "INFO"
+
+      [runtime]
+      type = "docker"
+      execd_image = "opensandbox/execd:v1.1.0"
+
+      [egress]
+      image = "opensandbox/egress:v1.1.7"
+      readiness_timeout_seconds = 30.0
+
+      [docker]
+      network_mode = "bridge"
+      # Адрес, по которому клиенты достучатся до портов песочниц.
+      # SDK-клиент работает на этой же машине — поэтому localhost.
+      host_ip = "localhost"
+      port_range_min = 40000
+      port_range_max = 60000
+      drop_capabilities = ["AUDIT_WRITE", "MKNOD", "NET_ADMIN", "NET_RAW", "SYS_ADMIN", "SYS_MODULE", "SYS_PTRACE", "SYS_TIME", "SYS_TTY_CONFIG"]
+      no_new_privileges = true
+      pids_limit = 4096
+
+      [ingress]
+      mode = "direct"
+
+services:
+  opensandbox-server:
+    image: opensandbox/server:latest
+    container_name: opensandbox-server
+    ports:
+      - "8090:8090"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    configs:
+      - source: opensandbox-config
+        target: /etc/opensandbox/config.toml
+    environment:
+      - SANDBOX_CONFIG_PATH=/etc/opensandbox/config.toml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17
+    container_name: git-agent-postgres
+    environment:
+      POSTGRES_USER: git_agent
+      POSTGRES_PASSWORD: git_agent
+      POSTGRES_DB: git_agent
+    ports:
+      - "5433:5432"  # 5432 на хосте занят
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
