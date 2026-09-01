@@ -330,7 +330,7 @@ def _fake_profile(build):
 
     return GraphProfile(
         build=build,
-        make_input=lambda repo_url, checkout_ref=None: {"repo_url": repo_url},
+        make_input=lambda repo_url, checkout_ref=None, instructions=None: {"repo_url": repo_url},
         extract_report=lambda values: (values or {}).get("report"),
     )
 
@@ -583,5 +583,30 @@ def test_runtime_subscribe_terminal_run_ends_immediately():
             items.append(item)
             break
         assert items == [END_SENTINEL]  # не вечные heartbeat'ы
+
+    asyncio.run(main())
+
+
+def test_submit_instructions_reach_graph_input():
+    async def main():
+        captured = {}
+
+        def make_input(repo_url, checkout_ref=None, instructions=None):
+            captured["instructions"] = instructions
+            return {"repo_url": repo_url}
+
+        store, bridge = MemoryRunStore(), MemoryStreamBridge()
+        rt = _make_runtime(store, bridge, report={"done": True})
+        object.__setattr__(rt._profile, "make_input", make_input)
+        result = await rt.submit(
+            repo_url="u",
+            commit_sha="c",
+            llm_api_base="b",
+            llm_api_key="k",
+            llm_model="m",
+            instructions="опиши каждую функцию",
+        )
+        await rt.wait(result.run["id"])
+        assert captured["instructions"] == "опиши каждую функцию"
 
     asyncio.run(main())

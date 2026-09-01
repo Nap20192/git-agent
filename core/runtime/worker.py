@@ -47,6 +47,7 @@ async def run_agent(
     sandbox_name: str = "git",
     is_resume: bool = False,
     checkout_ref: str | None = None,
+    instructions: str | None = None,
 ) -> None:
     run_id = record.run_id
     outcome = RunStatus.succeeded
@@ -103,7 +104,9 @@ async def run_agent(
         }
         inject_langfuse_metadata(config, thread_id=str(run_id), model_name=run_row["llm_model"])
         # resume: None как вход — LangGraph продолжает с чекпоинта
-        graph_input = None if is_resume else profile.make_input(repo_url, checkout_ref)
+        graph_input = (
+            None if is_resume else profile.make_input(repo_url, checkout_ref, instructions)
+        )
         try:
             async for mode, chunk in graph.astream(
                 graph_input, config=config, stream_mode=profile.stream_modes

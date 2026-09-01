@@ -132,12 +132,15 @@ function SubmitDrawer({
 
   const [repoUrl, setRepoUrl] = useState("");
   const [branch, setBranch] = useState("main");
+  const [mode, setMode] = useState<"pipeline" | "agent">("agent");
+  const [instructions, setInstructions] = useState("");
   const [connMode, setConnMode] = useState<"saved" | "custom">("saved");
   const [connectionId, setConnectionId] = useState<string>("");
   const [apiBase, setApiBase] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
-  const [sandbox, setSandbox] = useState<string>("python");
+  // git — единственная песочница с git в образе; python:3.12-slim клонить не может
+  const [sandbox, setSandbox] = useState<string>("git");
   const [memoryPreset, setMemoryPreset] = useState<string>("prod_v2");
   const [features, setFeatures] = useState<RunFeatures>(DEFAULT_RUN_FEATURES);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -152,7 +155,15 @@ function SubmitDrawer({
     if (!canSubmit) return;
     setBusy(true);
     setNotice(null);
-    const req: SubmitRunRequest = { repoUrl, branch: branch.trim() || undefined, sandbox, memoryPreset, features };
+    const req: SubmitRunRequest = {
+      repoUrl,
+      branch: branch.trim() || undefined,
+      mode,
+      instructions: instructions.trim() || undefined,
+      sandbox,
+      memoryPreset,
+      features,
+    };
     if (connMode === "saved") req.connectionId = connectionId || undefined;
     else {
       req.apiBase = apiBase.trim();
@@ -185,6 +196,26 @@ function SubmitDrawer({
       />
       <label className={styles.label}>BRANCH</label>
       <TextInput glyph="⎇" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
+      <label className={styles.label}>MODE</label>
+      <div className={styles.segmented}>
+        {(["agent", "pipeline"] as const).map((m) => (
+          <span
+            key={m}
+            className={[styles.seg, mode === m ? styles.segOn : ""].join(" ")}
+            onClick={() => setMode(m)}
+          >
+            {m === "agent" ? "agent · lead + subagents" : "pipeline · scan→parse→report"}
+          </span>
+        ))}
+      </div>
+      <label className={styles.label}>TASK / INSTRUCTIONS</label>
+      <textarea
+        className={styles.select}
+        rows={3}
+        value={instructions}
+        onChange={(e) => setInstructions(e.target.value)}
+        placeholder="дефолтная задача агента; {repo_url} подставляется"
+      />
 
       <div className={styles.group}>model &amp; connection</div>
       <div className={styles.segmented}>

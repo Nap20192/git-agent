@@ -22,8 +22,9 @@ from core.repo import prepare_repo
 class GraphProfile:
     # (sandbox, model, *, checkpointer) -> CompiledStateGraph
     build: Callable[..., Any]
-    # (repo_url, checkout_ref|None) -> вход графа (при resume воркер подаёт None)
-    make_input: Callable[[str, str | None], Any]
+    # (repo_url, checkout_ref|None, instructions|None) -> вход графа (при
+    # resume воркер подаёт None; instructions — пользовательская задача Рана)
+    make_input: Callable[..., Any]
     # state.values -> отчёт (dict) | None
     extract_report: Callable[[dict[str, Any]], dict[str, Any] | None]
     stream_modes: list[str] = field(default_factory=lambda: ["updates", "custom"])
@@ -40,7 +41,10 @@ def _pipeline_build(sandbox: Sandbox, model: BaseChatModel, *, checkpointer: Any
     return build_graph(sandbox, model, checkpointer=checkpointer)
 
 
-def _pipeline_input(repo_url: str, checkout_ref: str | None = None) -> dict[str, Any]:
+def _pipeline_input(
+    repo_url: str, checkout_ref: str | None = None, instructions: str | None = None
+) -> dict[str, Any]:
+    # instructions игнорируются: вход пайплайна фиксирован (scan→parse→report)
     graph_input: dict[str, Any] = {"repo_url": repo_url}
     if checkout_ref:
         graph_input["checkout_ref"] = checkout_ref

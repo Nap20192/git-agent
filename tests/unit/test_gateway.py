@@ -176,7 +176,9 @@ def _make_runtime(store, bridge):
         bridge=bridge,
         profile=GraphProfile(
             build=lambda sb, m, checkpointer=None: _FakeGraph(),
-            make_input=lambda repo_url, checkout_ref=None: {"repo_url": repo_url},
+            make_input=lambda repo_url, checkout_ref=None, instructions=None: {
+                "repo_url": repo_url
+            },
             extract_report=lambda values: (values or {}).get("report"),
         ),
         make_model=lambda **kw: object(),
@@ -267,3 +269,115 @@ def test_gateway_routes_over_memory_runtime(monkeypatch):
     missing = client.get("/api/runs/999")
     assert missing.status_code == 404
     assert missing.json()["detail"]["error"]["code"] == "not_found"
+
+
+def test_submit_passes_instructions(monkeypatch):
+    captured = {}
+
+    class _Rt:
+        async def submit(self, **kw):
+            captured.update(kw)
+
+            from types import SimpleNamespace
+
+            return SimpleNamespace(run={"id": 1}, disposition=SimpleNamespace(value="created"))
+
+        async def events(self, run_id, after_id=None):
+            return []
+
+    app = create_app(runtime=_Rt())
+    client = TestClient(app)
+
+    async def fake_sha(url):
+        return "c" * 40
+
+    import core.repo
+    import infra.postgres
+
+    monkeypatch.setattr(core.repo, "resolve_commit_sha", fake_sha)
+    monkeypatch.setattr(
+        infra.postgres,
+        "get_run_with_repo",
+        lambda rid: {**_row(id=rid), "repo_url": "u", "sandbox_name": "git"},
+    )
+    client.post(
+        "/api/runs",
+        json={"repoUrl": "u", "instructions": "опиши каждую функцию в {repo_url}"},
+    )
+    assert captured["instructions"] == "опиши каждую функцию в {repo_url}"
+
+
+def test_submit_routes_by_mode(monkeypatch):
+    from types import SimpleNamespace
+
+    calls = []
+
+    def rt(name):
+        class _Rt:
+            async def submit(self, **kw):
+                calls.append(name)
+                return SimpleNamespace(run={"id": 1}, disposition=SimpleNamespace(value="created"))
+
+            async def events(self, run_id, after_id=None):
+                return []
+
+        return _Rt()
+
+    app = create_app(runtime=rt("pipeline"))
+    app.state.runtimes = {"pipeline": rt("pipeline"), "agent": rt("agent")}
+    client = TestClient(app)
+
+    async def fake_sha(url):
+        return "c" * 40
+
+    import core.repo
+    import infra.postgres
+
+    monkeypatch.setattr(core.repo, "resolve_commit_sha", fake_sha)
+    monkeypatch.setattr(
+        infra.postgres,
+        "get_run_with_repo",
+        lambda rid: {**_row(id=rid), "repo_url": "u", "sandbox_name": "git"},
+    )
+    client.post("/api/runs", json={"repoUrl": "u", "mode": "agent"})
+    client.post("/api/runs", json={"repoUrl": "u"})  # дефолт — pipeline
+    assert calls == ["agent", "pipeline"]
+    bad = client.post("/api/runs", json={"repoUrl": "u", "mode": "martian"})
+    assert bad.status_code == 422
+
+
+def test_resume_routes_to_original_mode(monkeypatch):
+    from types import SimpleNamespace
+
+    calls = []
+    agent_events = [
+        {"kind": "updates", "payload": {"data": {"model": {}}}},  # ход ReAct-цикла
+    ]
+
+    def rt(name, events):
+        class _Rt:
+            async def submit(self, **kw):
+                calls.append(name)
+                return SimpleNamespace(run={"id": 1}, disposition=SimpleNamespace(value="resumed"))
+
+            async def events(self, run_id, after_id=None):
+                return events
+
+        return _Rt()
+
+    app = create_app(runtime=rt("pipeline", agent_events))
+    app.state.runtimes = {
+        "pipeline": rt("pipeline", agent_events),
+        "agent": rt("agent", agent_events),
+    }
+    client = TestClient(app)
+
+    import infra.postgres
+
+    monkeypatch.setattr(
+        infra.postgres,
+        "get_run_with_repo",
+        lambda rid: {**_row(id=rid, status="failed"), "repo_url": "u", "sandbox_name": "git"},
+    )
+    client.post("/api/runs/1/resume")
+    assert calls == ["agent"]  # агентный Ран резюмится агентным профилем

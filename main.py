@@ -97,6 +97,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
                 llm_api_key=args.api_key or settings.llm_api_key,
                 llm_model=args.model or settings.llm_model,
                 sandbox_name=args.sandbox,
+                instructions=args.task,
             )
             run_id = result.run["id"]
             log.info("run submitted", run_id=run_id, disposition=result.disposition.value)
@@ -122,6 +123,10 @@ def main() -> None:
         choices=["pipeline", "agent"],
         default="pipeline",
         help="pipeline — линейный scan→parse→report; agent — ReAct-лид с делегированием",
+    )
+    parser.add_argument(
+        "--task",
+        help="пользовательская задача Рана (agent-режим; {repo_url} подставляется)",
     )
     parser.add_argument("--model", help="имя модели (иначе LLM_MODEL из .env)")
     parser.add_argument("--api-base", help="OpenAI-совместимый endpoint")

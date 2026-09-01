@@ -51,6 +51,21 @@ _LEAD_TASK = (
 )
 
 
+def _lead_input(
+    repo_url: str, checkout_ref: str | None = None, instructions: str | None = None
+) -> dict[str, Any]:
+    """Вход лида: пользовательская задача Рана или дефолтная формулировка.
+
+    В instructions поддерживается плейсхолдер {repo_url}; .replace, не .format —
+    произвольные фигурные скобки в тексте пользователя не должны ронять запуск.
+    """
+    if instructions and instructions.strip():
+        text = instructions.replace("{repo_url}", repo_url)
+    else:
+        text = _LEAD_TASK.format(repo_url=repo_url)
+    return {"messages": [HumanMessage(content=text)]}
+
+
 def _lead_report(values: dict[str, Any]) -> dict[str, Any] | None:
     messages = (values or {}).get("messages") or []
     for message in reversed(messages):
@@ -80,9 +95,7 @@ def build_lead_profile() -> GraphProfile:
     return GraphProfile(
         build=_build,
         prepare=prepare_repo,
-        make_input=lambda repo_url, checkout_ref=None: {
-            "messages": [HumanMessage(content=_LEAD_TASK.format(repo_url=repo_url))]
-        },
+        make_input=_lead_input,
         extract_report=_lead_report,
         # custom — прогресс-события сабагентов (task_*); updates — ходы графа
         stream_modes=["updates", "custom"],

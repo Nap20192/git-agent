@@ -365,6 +365,19 @@ components:
       properties:
         repoUrl: { type: string }
         branch: { type: string }
+        mode:
+          type: string
+          enum: [pipeline, agent]
+          description: >
+            Run mode: pipeline (scan→parse→report, default) or agent (lead with
+            sub-agent delegation). Run identity does not include the mode —
+            resubmitting the same (repo, commit, model) joins the existing run.
+        instructions:
+          type: string
+          description: >
+            User task for the run (agent mode; "{repo_url}" placeholder is
+            substituted). Ignored by the pipeline mode. Applies at run
+            creation only — resume continues from the checkpoint.
         connectionId: { type: string, description: "saved connection (NET-NEW)" }
         model: { type: string }
         apiBase: { type: string }

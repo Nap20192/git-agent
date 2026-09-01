@@ -5,7 +5,6 @@ configs:
       [server]
       host = "0.0.0.0"
       port = 8090
-      # ponytail: захардкоженный dev-ключ для локалки; для прода вынести в secret
       api_key = "dev-local-key"
 
       [log]
@@ -58,7 +57,7 @@ services:
       POSTGRES_PASSWORD: git_agent
       POSTGRES_DB: git_agent
     ports:
-      - "5433:5432"  # 5432 на хосте занят
+      - "5433:5432" # 5432 на хосте занят
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped

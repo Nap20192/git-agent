@@ -4,9 +4,10 @@
 зависимости направлены внутрь (server → core/infra), core об HTTP не знает.
 Запуск: uv run uvicorn server.app:app --port 8080
 
-ponytail: один Runtime с PIPELINE_PROFILE на процесс; агентный режим через
-HTTP — отдельным change, когда фронт начнёт его слать (Runtime принимает
-один профиль).
+Режимы: по Runtime на профиль (pipeline и agent) над ОБЩИМИ store и bridge —
+submit маршрутизируется по body.mode, resume — по фактическому режиму Рана
+(агентность видна из событий). Идентичность Рана режим не включает
+(кросс-режимный resubmit присоединяется — документировано в спеках).
 """
 
 from __future__ import annotations
@@ -44,35 +45,59 @@ async def _lifespan(app: FastAPI):
     async def repository(url: str) -> dict[str, Any]:
         return await asyncio.to_thread(get_or_create_repository, url)
 
+    from core.lead import build_lead_profile
+
+    store, bridge = PostgresRunStore(), MemoryStreamBridge()
     async with AsyncPostgresSaver.from_conn_string(settings.database_url) as checkpointer:
-        runtime = Runtime(
-            store=PostgresRunStore(),
-            bridge=MemoryStreamBridge(),
-            make_model=make_model,
-            create_sandbox=create_sandbox_by_name,
-            get_or_create_repository=repository,
-            profile=PIPELINE_PROFILE,
-            checkpointer=checkpointer,
-        )
-        await runtime.start()
-        app.state.runtime = runtime
+
+        def make_runtime(profile):
+            return Runtime(
+                store=store,
+                bridge=bridge,
+                make_model=make_model,
+                create_sandbox=create_sandbox_by_name,
+                get_or_create_repository=repository,
+                profile=profile,
+                checkpointer=checkpointer,
+            )
+
+        runtimes = {
+            "pipeline": make_runtime(PIPELINE_PROFILE),
+            "agent": make_runtime(build_lead_profile()),
+        }
+        for runtime in runtimes.values():
+            await runtime.start()
+        app.state.runtimes = runtimes
         try:
             yield
         finally:
-            await runtime.shutdown()
+            for runtime in runtimes.values():
+                await runtime.shutdown()
 
 
 def create_app(runtime: Any | None = None) -> FastAPI:
-    """runtime=None — продакшен (lifespan создаёт свой); иначе — инъекция в тестах."""
+    """runtime=None — продакшен (lifespan создаёт свои); в тестах один runtime на оба режима."""
     application = FastAPI(title="git-agent HTTP API", lifespan=None if runtime else _lifespan)
     if runtime is not None:
-        application.state.runtime = runtime
+        application.state.runtimes = {"pipeline": runtime, "agent": runtime}
     _register_routes(application)
     return application
 
 
-def _runtime(request: Request) -> Any:
-    return request.app.state.runtime
+def _runtime(request: Request, mode: str = "pipeline") -> Any:
+    runtimes = request.app.state.runtimes
+    return runtimes.get(mode) or runtimes["pipeline"]
+
+
+async def _run_mode(request: Request, run_id: int) -> str:
+    """Фактический режим Рана — по событиям (агентность видна из updates/task_*)."""
+    from server.graphview import _is_agent_run, _task_events, pipeline_topology
+
+    events = await _runtime(request).events(run_id)
+    node_ids, _ = pipeline_topology()
+    if _task_events(events) or _is_agent_run(events, node_ids):
+        return "agent"
+    return "pipeline"
 
 
 async def _run_row_or_404(request: Request, run_id: str) -> dict[str, Any]:
@@ -128,15 +153,19 @@ def _register_routes(application: FastAPI) -> None:
                 raise _error(404, "not_found", f"connection {body['connectionId']}")
             api_base, api_key, model = conn["api_base"], conn["api_key"], conn["model"]
 
+        mode = body.get("mode") or "pipeline"
+        if mode not in ("pipeline", "agent"):
+            raise _error(422, "invalid", f"unknown mode {mode!r}")
         commit_sha = await resolve_commit_sha(repo_url)
         try:
-            result = await _runtime(request).submit(
+            result = await _runtime(request, mode).submit(
                 repo_url=repo_url,
                 commit_sha=commit_sha,
                 llm_api_base=api_base,
                 llm_api_key=api_key,
                 llm_model=model,
                 sandbox_name=body.get("sandbox") or "git",
+                instructions=body.get("instructions") or None,
             )
         except ConflictError as exc:
             raise _error(409, "conflict", str(exc)) from exc
@@ -146,15 +175,18 @@ def _register_routes(application: FastAPI) -> None:
     @api.post("/api/runs/{run_id}/cancel")
     async def cancel_run(request: Request, run_id: str) -> dict[str, Any]:
         row = await _run_row_or_404(request, run_id)
-        await _runtime(request).cancel(int(run_id))
+        mode = await _run_mode(request, int(run_id))
+        await _runtime(request, mode).cancel(int(run_id))
         row = await _run_row_or_404(request, run_id)
         return wire.run_to_wire(row)
 
     @api.post("/api/runs/{run_id}/resume")
     async def resume_run(request: Request, run_id: str) -> dict[str, Any]:
-        # resubmit той же идентичности: durable-runs гарантирует «тот же Ран»
+        # resubmit той же идентичности: durable-runs гарантирует «тот же Ран»;
+        # профиль — по фактическому режиму (агентный Ран нельзя резюмить пайплайном)
         row = await _run_row_or_404(request, run_id)
-        result = await _runtime(request).submit(
+        mode = await _run_mode(request, int(run_id))
+        result = await _runtime(request, mode).submit(
             repo_url=row["repo_url"],
             commit_sha=row["commit_sha"],
             llm_api_base=row["llm_api_base"],

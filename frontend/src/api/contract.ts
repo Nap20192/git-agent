@@ -173,6 +173,10 @@ export const DEFAULT_RUN_FEATURES: RunFeatures = {
 export interface SubmitRunRequest {
   repoUrl: string;
   branch?: string;
+  /** pipeline (default) | agent — lead with sub-agent delegation. */
+  mode?: "pipeline" | "agent";
+  /** User task for the run (agent mode; "{repo_url}" is substituted). */
+  instructions?: string;
   connectionId?: string;
   model?: string;
   apiBase?: string;

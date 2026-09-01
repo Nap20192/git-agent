@@ -58,6 +58,7 @@ class Runtime:
         llm_model: str,
         sandbox_name: str = "git",
         checkout_ref: str | None = None,
+        instructions: str | None = None,
     ) -> SubmitResult:
         import asyncio
 
@@ -86,6 +87,7 @@ class Runtime:
                     sandbox_name=sandbox_name,
                     is_resume=result.disposition is SubmitDisposition.resumed,
                     checkout_ref=checkout_ref,
+                    instructions=instructions,
                 )
             )
             task.set_name(f"git-agent-run-{result.run['id']}")
