@@ -98,11 +98,26 @@ function EventRow({ e, color, highlight }: { e: RunEvent; color: string; highlig
       </span>
       <div className={styles.logBody}>
         {parts.map((p, i) => (
-          <div key={i} className={styles[p.cls]} style={p.color ? { color: p.color } : undefined}>
-            {p.text}
-          </div>
+          <Line key={i} p={p} />
         ))}
       </div>
+    </div>
+  );
+}
+
+/** Tool calls / results clamp to 3 lines and expand on click; text lines render as-is. */
+function Line({ p }: { p: Part }) {
+  const clampable = p.cls === "logTool" || p.cls === "logResult";
+  const [expanded, setExpanded] = useState(false);
+  const cls = [styles[p.cls], clampable && !expanded ? styles.clamp3 : ""].filter(Boolean).join(" ");
+  return (
+    <div
+      className={cls}
+      style={{ ...(p.color ? { color: p.color } : {}), ...(clampable ? { cursor: "pointer" } : {}) }}
+      onClick={clampable ? () => setExpanded((v) => !v) : undefined}
+      title={clampable && !expanded ? "click to expand" : undefined}
+    >
+      {p.text}
     </div>
   );
 }

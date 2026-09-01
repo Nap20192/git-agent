@@ -173,3 +173,12 @@
   word-break: break-word;
   font-weight: 600;
 }
+
+/* collapse tool calls / results to 3 lines (click to expand) */
+.clamp3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
