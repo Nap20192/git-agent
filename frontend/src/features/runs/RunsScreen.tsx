@@ -27,7 +27,7 @@ export function RunsScreen() {
   const runs = runsQ.data ?? [];
   const filtered = useMemo(() => {
     if (filter === "all") return runs;
-    if (filter === "reports") return runs.filter((r) => r.status === "succeeded");
+    if (filter === "reports") return runs.filter((r) => r.hasReport);
     return runs.filter((r) => r.status === filter);
   }, [runs, filter]);
 
@@ -64,6 +64,25 @@ export function RunsScreen() {
           {r.metrics.tokenUsage ? tokensLabel(r.metrics.tokenUsage.totalTokens) : "—"}
         </span>
       ),
+    },
+    {
+      id: "report",
+      header: "",
+      width: "72px",
+      align: "right",
+      render: (r) =>
+        r.hasReport ? (
+          <span
+            title="open report"
+            style={{ color: "var(--amber)", cursor: "pointer", fontSize: 11 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/runs/${r.id}/report`);
+            }}
+          >
+            report ↗
+          </span>
+        ) : null,
     },
     {
       id: "del",
@@ -119,7 +138,9 @@ export function RunsScreen() {
             columns={columns}
             rows={filtered}
             keyOf={(r) => r.id}
-            onRowClick={(r) => navigate(`/runs/${r.id}`)}
+            onRowClick={(r) =>
+              navigate(filter === "reports" && r.hasReport ? `/runs/${r.id}/report` : `/runs/${r.id}`)
+            }
             empty={runsQ.loading ? "loading…" : "no runs"}
           />
         </div>
