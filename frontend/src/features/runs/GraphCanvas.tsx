@@ -50,11 +50,32 @@ export function GraphCanvas({ nodes, edges, selectedId, onSelect, eventCounts }:
   const [pan, setPan] = useState<Pos>({ x: 0, y: 0 });
   const drag = useRef<{ mode: "pan" | "node"; id?: string; startX: number; startY: number; origin: Pos; moved: boolean } | null>(null);
 
-  // Re-seed layout when the node set changes (different run).
+  // Re-seed layout only when the node SET changes (not on every live event —
+  // `nodes` is a fresh array each render, which would reset positions/pan
+  // constantly during a running agent).
+  const idsKey = nodes.map((n) => n.id).join(",");
+  const prevIds = useRef(idsKey);
   useEffect(() => {
-    setLayout(initialLayout(nodes));
-    setPan({ x: 0, y: 0 });
-  }, [nodes]);
+    if (prevIds.current !== idsKey) {
+      prevIds.current = idsKey;
+      setLayout(initialLayout(nodes));
+      setPan({ x: 0, y: 0 });
+    } else {
+      // тот же набор узлов — добавить недостающие (новый сабагент), не сбрасывая
+      setLayout((l) => {
+        const next = { ...l };
+        let changed = false;
+        for (const n of nodes) {
+          if (!next[n.id]) {
+            next[n.id] = { x: n.x ?? 50, y: n.y ?? 50 };
+            changed = true;
+          }
+        }
+        return changed ? next : l;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
 
   const persist = useCallback(
     (l: Layout) => {

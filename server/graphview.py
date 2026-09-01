@@ -100,11 +100,13 @@ def _lead_activity(events: list[dict[str, Any]]) -> tuple[int, int]:
     return tool_calls, findings
 
 
-def _spread(i: int, n: int, *, lo: float = 15.0, hi: float = 85.0) -> float:
-    """Равномерная раскладка i-го из n узлов по оси в процентах [lo..hi]."""
+def _spread(i: int, n: int, *, center: float = 50.0, step: float = 16.0) -> float:
+    """Компактная раскладка i-го из n узлов вокруг center с фиксированным шагом
+    (узлы стоят рядом, а не растянуты по всему холсту), с клампом в [8..92]."""
     if n <= 1:
-        return (lo + hi) / 2
-    return round(lo + i * (hi - lo) / (n - 1), 1)
+        return center
+    y = center + (i - (n - 1) / 2) * step
+    return round(max(8.0, min(92.0, y)), 1)
 
 
 def derive_graph(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -127,7 +129,7 @@ def derive_graph(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str,
                 "kind": "agent",
                 "status": lead_status,
                 "parentId": None,
-                "x": 18,
+                "x": 30,
                 "y": 50,
                 "toolCalls": lead_tools,
                 "findings": lead_findings,
@@ -144,7 +146,7 @@ def derive_graph(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str,
                     "kind": "agent",
                     "status": _node_status(task["status"]),
                     "parentId": "lead",
-                    "x": 72,
+                    "x": 62,
                     "y": _spread(i, len(task_list)),
                     "subagentType": task.get("subagentType", ""),
                     "description": task.get("description", ""),
@@ -196,7 +198,7 @@ def derive_graph(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str,
                 "kind": "procedural",
                 "status": node_status,
                 "parentId": None,
-                "x": _spread(i, len(node_ids), lo=12, hi=88),
+                "x": _spread(i, len(node_ids), center=50, step=22),
                 "y": 50,
             }
         )
