@@ -538,3 +538,20 @@ def test_submit_persists_limits(monkeypatch):
         "/api/runs", json={"repoUrl": "u", "mode": "agent", "features": {"tokenBudget": 5000}}
     )
     assert captured["limits"] == {"tokenBudget": 5000}
+
+
+def test_graph_layout_is_percent_and_all_visible():
+    from server.graphview import derive_graph
+
+    events = [
+        {"kind": "custom", "payload": {"data": {"type": "task_started", "task_id": "t1", "subagent_type": "gp", "description": "a"}}},
+        {"kind": "custom", "payload": {"data": {"type": "task_started", "task_id": "t2", "subagent_type": "gp", "description": "b"}}},
+        {"kind": "custom", "payload": {"data": {"type": "task_started", "task_id": "t3", "subagent_type": "gp", "description": "c"}}},
+    ]
+    g = derive_graph(_row(status="running"), events)
+    # все узлы (лид + 3 сабагента) в пределах холста [0..100] и различны по y
+    assert {n["id"] for n in g["nodes"]} == {"lead", "t1", "t2", "t3"}
+    for n in g["nodes"]:
+        assert 0 <= n["x"] <= 100 and 0 <= n["y"] <= 100
+    subs = [n for n in g["nodes"] if n["parentId"] == "lead"]
+    assert len({n["y"] for n in subs}) == 3  # не наложены друг на друга

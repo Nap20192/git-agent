@@ -26,7 +26,8 @@ export interface GraphCanvasProps {
   eventCounts?: Record<string, number>;
 }
 
-const LS_KEY = "git-agent:graph-layout:";
+// v2: coords are now percent [0..100] (were pixel-ish) — invalidate old layouts
+const LS_KEY = "git-agent:graph-layout:v2:";
 
 function initialLayout(nodes: GraphNode[]): Layout {
   const key = LS_KEY + nodes.map((n) => n.id).sort().join(",");

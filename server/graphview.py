@@ -100,6 +100,13 @@ def _lead_activity(events: list[dict[str, Any]]) -> tuple[int, int]:
     return tool_calls, findings
 
 
+def _spread(i: int, n: int, *, lo: float = 15.0, hi: float = 85.0) -> float:
+    """Равномерная раскладка i-го из n узлов по оси в процентах [lo..hi]."""
+    if n <= 1:
+        return (lo + hi) / 2
+    return round(lo + i * (hi - lo) / (n - 1), 1)
+
+
 def derive_graph(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
     run_id = str(row["id"])
     node_ids_probe, _ = pipeline_topology()
@@ -111,6 +118,8 @@ def derive_graph(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str,
             "interrupted": "error",
         }.get(str(row.get("status")), "running")
         lead_tools, lead_findings = _lead_activity(events)
+        # координаты — проценты [0..100] (canvas позиционирует left/top в %):
+        # лид слева по центру, Сабагенты веером справа
         nodes: list[dict[str, Any]] = [
             {
                 "id": "lead",
@@ -118,14 +127,15 @@ def derive_graph(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str,
                 "kind": "agent",
                 "status": lead_status,
                 "parentId": None,
-                "x": 0,
-                "y": 0,
+                "x": 18,
+                "y": 50,
                 "toolCalls": lead_tools,
                 "findings": lead_findings,
             }
         ]
         edges = []
-        for i, task in enumerate(tasks.values()):
+        task_list = list(tasks.values())
+        for i, task in enumerate(task_list):
             usage = task.get("usage") or None
             nodes.append(
                 {
@@ -134,8 +144,8 @@ def derive_graph(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str,
                     "kind": "agent",
                     "status": _node_status(task["status"]),
                     "parentId": "lead",
-                    "x": 260,
-                    "y": i * 120,
+                    "x": 72,
+                    "y": _spread(i, len(task_list)),
                     "subagentType": task.get("subagentType", ""),
                     "description": task.get("description", ""),
                     "subStatus": task["status"],
@@ -186,8 +196,8 @@ def derive_graph(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str,
                 "kind": "procedural",
                 "status": node_status,
                 "parentId": None,
-                "x": i * 240,
-                "y": 0,
+                "x": _spread(i, len(node_ids), lo=12, hi=88),
+                "y": 50,
             }
         )
     return {"runId": run_id, "nodes": nodes, "edges": edges}
