@@ -101,6 +101,67 @@ def collect_findings(messages: list[Any]) -> list[dict[str, Any]]:
     return sorted(findings.values(), key=lambda f: _SEVERITY_ORDER.get(f["severity"], 99))
 
 
+_TASK_TERMINAL_TYPES = {
+    "task_completed",
+    "task_failed",
+    "task_cancelled",
+    "task_timed_out",
+}
+
+
+def collect_findings_from_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Полный набор Находок Рана из persisted-событий: Лид + Сабагенты.
+
+    Лид — из updates-событий (report_finding-tool_calls, полные args); Сабагенты —
+    из task_terminal-событий (готовые camelCase-Находки). Каждая несёт `agent`
+    (кто нашёл). Дедуп по (title, file), сортировка по severity.
+    """
+    merged: dict[tuple[str, str | None], dict[str, Any]] = {}
+
+    def add(finding: dict[str, Any], agent: str) -> None:
+        if not finding.get("title"):
+            return
+        merged[(finding["title"], finding.get("file"))] = {**finding, "agent": agent}
+
+    for event in events:
+        payload = event.get("payload") or {}
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            continue
+        dtype = data.get("type")
+        if dtype in _TASK_TERMINAL_TYPES:
+            agent = data.get("subagent_type") or "subagent"
+            for finding in data.get("findings") or []:
+                add(dict(finding), agent)
+            continue
+        # updates-событие Лида: {node: {"messages": [...]}}
+        if event.get("kind") == "updates":
+            for value in data.values():
+                if not isinstance(value, dict):
+                    continue
+                for msg in value.get("messages") or []:
+                    if not isinstance(msg, dict) or msg.get("type") != "ai":
+                        continue
+                    for call in msg.get("tool_calls") or []:
+                        if call.get("name") == _FINDING_TOOL:
+                            add(_finding_from_args(call.get("args") or {}), "lead")
+    return sorted(merged.values(), key=lambda f: _SEVERITY_ORDER.get(f["severity"], 99))
+
+
+def summarize_findings(findings: list[dict[str, Any]]) -> dict[str, Any]:
+    """Сводка: распределение по severity + счётчики."""
+    counts = dict.fromkeys(SEVERITIES, 0)
+    for finding in findings:
+        sev = finding.get("severity", "info")
+        counts[sev] = counts.get(sev, 0) + 1
+    agents = {f.get("agent") for f in findings if f.get("agent")}
+    return {
+        "severityCounts": counts,
+        "total": len(findings),
+        "agents": sorted(a for a in agents if a),
+    }
+
+
 def build_security_tools() -> list[BaseTool]:
     """Инструменты, общие для Лида и Сабагентов в security-режиме."""
     from core.skills import load_skills, validate_requested_skills

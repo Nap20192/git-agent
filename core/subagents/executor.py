@@ -22,6 +22,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
 from langgraph.errors import GraphRecursionError
 
+from core.agents.findings import collect_findings
 from core.subagents.contract import SubagentResult, SubagentStatus
 from core.subagents.receipts import (
     build_acceptance_criteria_system_note,
@@ -190,6 +191,8 @@ class SubagentExecutor:
                     for step in new_steps:
                         self.on_step(step)
                 result.update_token_usage_records(collector.snapshot_records())
+                # Находки Сабагента — из его хода (полные args, не усечённый preview)
+                result.findings = collect_findings(messages)
         except GraphRecursionError:  # раньше generic-обработчика
             partial = _extract_final_result(final_state)
             if partial != "No response generated":

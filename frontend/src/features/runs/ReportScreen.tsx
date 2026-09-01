@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useReport } from "@/hooks";
 import { Badge, KeyValueList, Meter, Panel, PanelHeader } from "@/components/primitives";
 import type { KeyValueRow } from "@/components/primitives";
-import type { Finding, Severity } from "@/api";
+import type { Finding, ReportMeta, Severity } from "@/api";
 import styles from "./report.module.css";
 
 const SEVERITY_TONE: Record<Severity, "crit" | "high" | "amber" | "muted"> = {
@@ -14,56 +14,105 @@ const SEVERITY_TONE: Record<Severity, "crit" | "high" | "amber" | "muted"> = {
   low: "muted",
   info: "muted",
 };
+const SEVERITY_COLOR: Record<Severity, string> = {
+  critical: "var(--crit)",
+  high: "var(--high)",
+  medium: "var(--amber, #d9a441)",
+  low: "var(--low, #6b8caf)",
+  info: "var(--muted)",
+};
 const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low", "info"];
 
-function FindingsPanel({ findings }: { findings: Finding[] }) {
-  const counts = SEVERITY_ORDER.map(
-    (s) => [s, findings.filter((f) => f.severity === s).length] as const,
-  ).filter(([, n]) => n > 0);
+/** Horizontal severity distribution bar + per-severity counts. */
+function SeverityBar({ meta }: { meta: ReportMeta }) {
+  const total = meta.total || 1;
+  const present = SEVERITY_ORDER.filter((s) => meta.severityCounts[s] > 0);
   return (
-    <Panel className={styles.section}>
-      <PanelHeader icon="⚠" iconTone="high" title="FINDINGS" right={<span>{findings.length}</span>} />
-      <div className={styles.chips}>
-        {counts.length === 0 ? (
-          <span className={styles.emptyDim}>no findings</span>
-        ) : (
-          counts.map(([s, n]) => (
-            <Badge key={s} tone={SEVERITY_TONE[s]}>
-              {s} · {n}
-            </Badge>
-          ))
-        )}
-      </div>
-      <div className={styles.findings}>
-        {findings.map((f, i) => (
-          <div key={`${f.title}-${i}`} className={styles.finding}>
-            <div className={styles.findingHead}>
-              <Badge tone={SEVERITY_TONE[f.severity]}>{f.severity}</Badge>
-              <span className={styles.findingTitle}>{f.title}</span>
-              {f.cwe && <span className={styles.findingTag}>{f.cwe}</span>}
-              {f.cve && <span className={styles.findingTag}>{f.cve}</span>}
-            </div>
-            {f.file && (
-              <div className={styles.findingLoc}>
-                {f.file}
-                {f.startLine ? `:${f.startLine}` : ""}
-              </div>
-            )}
-            <p className={styles.findingDesc}>{f.description}</p>
-            {f.evidence && <pre className={styles.findingEvidence}>{f.evidence}</pre>}
-            {f.impact && (
-              <p className={styles.findingMeta}>
-                <span className={styles.findingMetaLabel}>impact</span> {f.impact}
-              </p>
-            )}
-            {f.remediation && (
-              <p className={styles.findingMeta}>
-                <span className={styles.findingMetaLabel}>fix</span> {f.remediation}
-              </p>
-            )}
-          </div>
+    <div className={styles.sevWrap}>
+      <div className={styles.sevBar}>
+        {present.map((s) => (
+          <div
+            key={s}
+            className={styles.sevSeg}
+            style={{ width: `${(meta.severityCounts[s] / total) * 100}%`, background: SEVERITY_COLOR[s] }}
+            title={`${s}: ${meta.severityCounts[s]}`}
+          />
         ))}
       </div>
+      <div className={styles.sevLegend}>
+        {SEVERITY_ORDER.map((s) => (
+          <span key={s} className={styles.sevItem} data-zero={meta.severityCounts[s] === 0}>
+            <span className={styles.sevDot} style={{ background: SEVERITY_COLOR[s] }} />
+            {s} <b>{meta.severityCounts[s]}</b>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FindingCard({ f }: { f: Finding }) {
+  return (
+    <div className={styles.finding} style={{ borderLeftColor: SEVERITY_COLOR[f.severity] }}>
+      <div className={styles.findingHead}>
+        <Badge tone={SEVERITY_TONE[f.severity]}>{f.severity}</Badge>
+        <span className={styles.findingTitle}>{f.title}</span>
+        <span className={styles.findingSpacer} />
+        {f.cwe && <span className={styles.findingTag}>{f.cwe}</span>}
+        {f.cve && <span className={styles.findingTag}>{f.cve}</span>}
+        {f.agent && <span className={styles.findingAgent}>◆ {f.agent}</span>}
+      </div>
+      {f.file && (
+        <div className={styles.findingLoc}>
+          {f.file}
+          {f.startLine ? `:${f.startLine}${f.endLine && f.endLine !== f.startLine ? `-${f.endLine}` : ""}` : ""}
+        </div>
+      )}
+      <p className={styles.findingDesc}>{f.description}</p>
+      {f.evidence && <pre className={styles.findingEvidence}>{f.evidence}</pre>}
+      {f.impact && (
+        <p className={styles.findingMeta}>
+          <span className={styles.findingMetaLabel}>impact</span> {f.impact}
+        </p>
+      )}
+      {f.remediation && (
+        <p className={styles.findingMeta}>
+          <span className={styles.findingMetaLabel}>fix</span> {f.remediation}
+        </p>
+      )}
+      {f.confidence && (
+        <p className={styles.findingMeta}>
+          <span className={styles.findingMetaLabel}>confidence</span> {f.confidence}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function FindingsPanel({ findings, meta }: { findings: Finding[]; meta?: ReportMeta }) {
+  return (
+    <Panel className={styles.section}>
+      <PanelHeader
+        icon="⚠"
+        iconTone="high"
+        title="FINDINGS"
+        right={
+          <span>
+            {findings.length}
+            {meta && meta.filesReviewed > 0 ? ` · ${meta.filesReviewed} files` : ""}
+          </span>
+        }
+      />
+      {meta && meta.total > 0 && <SeverityBar meta={meta} />}
+      {findings.length === 0 ? (
+        <div className={styles.emptyDim}>no vulnerabilities recorded</div>
+      ) : (
+        <div className={styles.findings}>
+          {findings.map((f, i) => (
+            <FindingCard key={`${f.title}-${i}`} f={f} />
+          ))}
+        </div>
+      )}
     </Panel>
   );
 }
@@ -117,7 +166,7 @@ export function ReportScreen() {
           </Panel>
         ) : (
           <>
-            {report.findings && <FindingsPanel findings={report.findings} />}
+            {report.findings && <FindingsPanel findings={report.findings} meta={report.meta} />}
 
             <Panel className={styles.section}>
               <PanelHeader icon="◈" title={report.findings ? "SUMMARY" : "DESCRIPTION"} />

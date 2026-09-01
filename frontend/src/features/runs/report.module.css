@@ -149,3 +149,15 @@
 .findingEvidence { margin: 8px 0 0; padding: 8px; background: var(--hover); border-radius: 3px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; }
 .findingMeta { color: var(--dim); margin: 6px 0 0; font-size: 12px; }
 .findingMetaLabel { color: var(--muted); text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; margin-right: 6px; }
+
+/* severity distribution */
+.sevWrap { margin: 10px 0 14px; }
+.sevBar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--border); }
+.sevSeg { height: 100%; }
+.sevLegend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.sevItem { display: inline-flex; align-items: center; gap: 5px; }
+.sevItem[data-zero="true"] { opacity: 0.35; }
+.sevItem b { color: var(--text); font-variant-numeric: tabular-nums; }
+.sevDot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.findingSpacer { flex: 1; }
+.findingAgent { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }

@@ -91,6 +91,12 @@ def _runtime(request: Request, mode: str = "pipeline") -> Any:
     return runtimes.get(mode) or runtimes["pipeline"]
 
 
+def _lead_tool_calls(events: list[dict[str, Any]]) -> int:
+    from server.graphview import _lead_activity
+
+    return _lead_activity(events)[0]
+
+
 async def _run_mode(request: Request, run_id: int) -> str:
     """Фактический режим Рана — по событиям (агентность видна из updates/task_*)."""
     from server.graphview import _is_agent_run, _task_events, pipeline_topology
@@ -214,7 +220,20 @@ def _register_routes(application: FastAPI) -> None:
         row = await _run_row_or_404(request, run_id)
         if row.get("report") is None:
             raise _error(404, "not_found", f"run {run_id} has no report")
-        return wire.report_to_wire(row["report"])
+        report = wire.report_to_wire(row["report"])
+        # security-режим: полный набор Находок из событий (Лид + Сабагенты)
+        if "findings" in report:
+            from core.agents.findings import collect_findings_from_events, summarize_findings
+
+            events = await _runtime(request, "agent").events(int(run_id))
+            findings = collect_findings_from_events(events)
+            report["findings"] = findings
+            report["meta"] = {
+                **summarize_findings(findings),
+                "toolCalls": _lead_tool_calls(events),
+                "filesReviewed": len({f["file"] for f in findings if f.get("file")}),
+            }
+        return report
 
     # ── graph ──
 

@@ -213,4 +213,6 @@ def _terminal_event(
         # usage кумулятивный, replace-семантика для потребителей (не суммируйте
         # с прогресс-кадрами)
         "usage": usage,
+        # Находки Сабагента (camelCase) — для сводного отчёта Рана
+        "findings": result.findings,
     }

@@ -211,7 +211,7 @@ export interface ReportStructure {
 
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
 
-/** A security finding recorded by the lead in agent security-review mode. */
+/** A security finding recorded in agent security-review mode. */
 export interface Finding {
   title: string;
   severity: Severity;
@@ -225,6 +225,16 @@ export interface Finding {
   evidence: string | null;
   remediation: string | null;
   confidence: string | null;
+  /** Who found it — "lead" or a sub-agent type. */
+  agent?: string;
+}
+
+export interface ReportMeta {
+  severityCounts: Record<Severity, number>;
+  total: number;
+  agents: string[];
+  toolCalls: number;
+  filesReviewed: number;
 }
 
 export interface Report {
@@ -238,6 +248,7 @@ export interface Report {
   /** Present in agent security-review runs. */
   findings?: Finding[];
   summary?: string;
+  meta?: ReportMeta;
   error?: string;
 }
 

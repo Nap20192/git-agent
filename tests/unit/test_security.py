@@ -67,3 +67,70 @@ def test_mcp_config_off_by_default(monkeypatch):
     assert _server_configs() == {}
     monkeypatch.setattr(settings, "cve_mcp_path", "/nonexistent/path/xyz")
     assert _server_configs() == {}  # путь не существует → выкл
+
+
+def test_collect_findings_from_events_merges_lead_and_subagents():
+    from core.agents.findings import collect_findings_from_events, summarize_findings
+
+    events = [
+        {
+            "kind": "updates",
+            "payload": {
+                "data": {
+                    "model": {
+                        "messages": [
+                            {
+                                "type": "ai",
+                                "content": "",
+                                "tool_calls": [
+                                    {
+                                        "name": "report_finding",
+                                        "args": {
+                                            "title": "XSS",
+                                            "severity": "medium",
+                                            "description": "d",
+                                            "file": "a.js",
+                                        },
+                                    },
+                                ],
+                            },
+                        ]
+                    }
+                }
+            },
+        },
+        {
+            "kind": "custom",
+            "payload": {
+                "data": {
+                    "type": "task_completed",
+                    "subagent_type": "general-purpose",
+                    "findings": [
+                        {
+                            "title": "SQLi",
+                            "severity": "critical",
+                            "description": "d2",
+                            "file": "db.py",
+                        }
+                    ],
+                }
+            },
+        },
+    ]
+    findings = collect_findings_from_events(events)
+    assert [(f["title"], f["agent"]) for f in findings] == [
+        ("SQLi", "general-purpose"),
+        ("XSS", "lead"),
+    ]
+    summary = summarize_findings(findings)
+    assert summary["severityCounts"]["critical"] == 1 and summary["total"] == 2
+    assert summary["agents"] == ["general-purpose", "lead"]
+
+
+def test_subagent_result_carries_findings():
+    from core.subagents.contract import SubagentResult
+
+    r = SubagentResult(task_id="t")
+    assert r.findings == []
+    r.findings = [{"title": "x", "severity": "high"}]
+    assert r.findings[0]["title"] == "x"

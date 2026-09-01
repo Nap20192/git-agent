@@ -89,6 +89,9 @@ class SubagentResult:
     completed_at: datetime | None = None
     token_usage_records: list[dict[str, Any]] = field(default_factory=list)
     tool_receipts: list[dict[str, Any]] | None = field(default=None, kw_only=True)
+    # Находки, зафиксированные Сабагентом (report_finding); ставит исполнитель
+    # до терминала, вне first-writer-wins контракта — как и usage-записи
+    findings: list[dict[str, Any]] = field(default_factory=list)
 
     def try_set_terminal(
         self,

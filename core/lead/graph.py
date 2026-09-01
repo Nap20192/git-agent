@@ -113,13 +113,13 @@ def build_lead_profile(mcp_tools: list[BaseTool] = ()) -> GraphProfile:
     def _build(sandbox: Sandbox, model: BaseChatModel, *, checkpointer: Any = None) -> Any:
         capacity = SubagentCapacity()
         security_tools = build_security_tools()
-        # load_skill — детям (справочник); report_finding консолидирует лид
-        child_skill = [t for t in security_tools if t.name == "load_skill"]
+        # детям — и load_skill, и report_finding: их Находки собираются из
+        # хода Сабагента и попадают в сводный отчёт с атрибуцией
         candidates = [
             *build_sandbox_tools(sandbox),
             *security_tools,
             build_task_tool(
-                sandbox=sandbox, model=model, capacity=capacity, extra_tools=child_skill
+                sandbox=sandbox, model=model, capacity=capacity, extra_tools=security_tools
             ),
             *mcp_tools,
         ]
