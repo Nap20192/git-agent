@@ -49,6 +49,7 @@
 
   /* typography */
   --font-mono: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --fs-root: 13px;
   --lh-root: 1.35;
 
