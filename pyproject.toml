@@ -20,4 +20,33 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "ruff>=0.16.5",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle + pyflakes
+    "I",             # isort
+    "UP",            # pyupgrade
+    "B",             # bugbear
+    "SIM",           # flake8-simplify
+    "C4",            # comprehensions
+    "RUF",           # ruff-specific
+]
+ignore = [
+    "E501",    # длину строк держит formatter, а не линтер
+    "B008",    # вызовы в дефолтах аргументов (Depends-стиль)
+    "RUF001", "RUF002", "RUF003",  # кириллица в строках/комментариях — намеренно
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "C408"]     # assert и dict(**spread) в тестах — норма
+"migrations/*.py" = ["E402"]           # sys.path до импортов при прямом запуске

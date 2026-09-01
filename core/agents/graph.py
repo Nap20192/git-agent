@@ -26,7 +26,7 @@ def _guarded(
     async def wrapper(state: RepoState) -> dict[str, Any]:
         try:
             return await node(state)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.exception("node failed", node=name)
             return {"error": f"{name}: {exc}"}
 
@@ -37,16 +37,16 @@ def _next_or_report(state: RepoState) -> str:
     return "report" if state.get("error") else "next"
 
 
-def build_graph(sandbox: Sandbox, model: BaseChatModel) -> CompiledStateGraph:
+def build_graph(
+    sandbox: Sandbox, model: BaseChatModel, *, checkpointer: Any | None = None
+) -> CompiledStateGraph:
     builder = StateGraph(RepoState)
     builder.add_node("scan", _guarded("scan", lambda s: nodes.scan(s, sandbox)))
     builder.add_node("parse", _guarded("parse", lambda s: nodes.parse(s, sandbox, model)))
     builder.add_node("report", nodes.report)
 
     builder.add_edge(START, "scan")
-    builder.add_conditional_edges(
-        "scan", _next_or_report, {"next": "parse", "report": "report"}
-    )
+    builder.add_conditional_edges("scan", _next_or_report, {"next": "parse", "report": "report"})
     builder.add_edge("parse", "report")
     builder.add_edge("report", END)
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)

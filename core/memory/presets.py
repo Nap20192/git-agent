@@ -10,9 +10,7 @@ from core.memory.prompts import (
 MEMORY_PRESETS: dict[str, MemoryConfig] = {
     # No compaction at all: the quality/memory upper bound and the
     # token-cost worst case.
-    "full_history": MemoryConfig(
-        name="full_history", summarization=False, context_editing=False
-    ),
+    "full_history": MemoryConfig(name="full_history", summarization=False, context_editing=False),
     # --- DeepSeek long-context compaction experiment ----------------------
     # Four mechanism-isolation arms. All disable age-based context editing;
     # the capped arms instead perform one stable rewrite when tool output first
@@ -103,9 +101,7 @@ MEMORY_PRESETS: dict[str, MemoryConfig] = {
         tool_output_cap_bytes=40_000,
         experiment_mode=True,
     ),
-    "summarization_only": MemoryConfig(
-        name="summarization_only", context_editing=False
-    ),
+    "summarization_only": MemoryConfig(name="summarization_only", context_editing=False),
     "editing_only": MemoryConfig(name="editing_only", summarization=False),
     # How bad can cheap get: compaction fires early and keeps little.
     "aggressive": MemoryConfig(
@@ -119,9 +115,7 @@ MEMORY_PRESETS: dict[str, MemoryConfig] = {
     "profile_memory": MemoryConfig(name="profile_memory", longterm_memory=True),
     # Part C / Axis B (F3): prod, but ClearToolUsesEdit also clears retrieval + KB
     # outputs (where the tokens are), so context editing actually fires.
-    "clear_retrieval_kb": MemoryConfig(
-        name="clear_retrieval_kb", clear_excludes_retrieval=False
-    ),
+    "clear_retrieval_kb": MemoryConfig(name="clear_retrieval_kb", clear_excludes_retrieval=False),
     # --- Part C / Axis B: retrieval & tool outputs -------------------------
     # prod + head/tail truncation of large tool outputs (incl. KB). Tests F1
     # (tokens live in tool outputs) by trimming the dominant source while
@@ -211,9 +205,7 @@ PRODUCTION_FALLBACK_MEMORY_PRESET = "prod"
 # The gate is provider-granular, so any openrouter:* model resolves to the
 # long-context production preset by default; eval runs pin presets by name,
 # so in practice this only decides the served chat path.
-PRODUCTION_LONG_CONTEXT_PROVIDERS = frozenset(
-    {"deepseek", "google-genai", "openrouter"}
-)
+PRODUCTION_LONG_CONTEXT_PROVIDERS = frozenset({"deepseek", "google-genai", "openrouter"})
 
 # Backward-compatible import for callers that need a single default name. New
 # runtime code should call resolve_memory_preset(..., model_name=...) so model

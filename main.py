@@ -6,7 +6,8 @@ import json
 from typing import Any
 
 from core.agents.graph import build_graph
-from core.agents.llm import langfuse_callbacks, make_model
+from core.agents.llm import make_model
+from core.tracing import build_tracing_callbacks, inject_langfuse_metadata
 from infra.sandboxes import DEFAULT_SANDBOX, create_sandbox_by_name
 from pkg.logger import get_logger
 
@@ -18,10 +19,11 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
     sandbox = await create_sandbox_by_name(args.sandbox)
     try:
         graph = build_graph(sandbox, model)
-        final = await graph.ainvoke(
-            {"repo_url": args.repo_url},
-            config={"callbacks": langfuse_callbacks()},
+        config: dict[str, Any] = {"callbacks": build_tracing_callbacks()}
+        inject_langfuse_metadata(
+            config, thread_id=None, model_name=args.model, environment="cli"
         )
+        final = await graph.ainvoke({"repo_url": args.repo_url}, config=config)
         return final["report"]
     finally:
         await sandbox.close()

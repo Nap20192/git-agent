@@ -62,9 +62,7 @@ async def scan(state: RepoState, sandbox: Sandbox) -> dict[str, Any]:
     )
     commit = (await sandbox.run(f"git -C {repo_dir} rev-parse HEAD")).strip()
 
-    listing = await sandbox.run(
-        f"cd {repo_dir} && find . -type f -exec stat -c '%s %n' {{}} \\;"
-    )
+    listing = await sandbox.run(f"cd {repo_dir} && find . -type f -exec stat -c '%s %n' {{}} \\;")
     files: list[dict[str, Any]] = []
     truncated = False
     for line in listing.splitlines():
@@ -111,9 +109,7 @@ def _parse_python(path: str, source: str) -> dict[str, Any] | None:
         "docstring": (ast.get_docstring(tree) or "")[:200] or None,
         "classes": [n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)],
         "functions": [
-            n.name
-            for n in tree.body
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
         ],
     }
 
@@ -123,7 +119,7 @@ async def _read_dependencies(sandbox: Sandbox, key_files: list[str]) -> list[str
         try:
             data = tomllib.loads(await _read_file(sandbox, "pyproject.toml"))
             return list(data.get("project", {}).get("dependencies", []))
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.warning("pyproject.toml unreadable")
     if "requirements.txt" in key_files:
         raw = await _read_file(sandbox, "requirements.txt")
@@ -145,9 +141,7 @@ _DESCRIBE_PROMPT = """Ты разбираешь git-репозиторий. По
 """
 
 
-async def parse(
-    state: RepoState, sandbox: Sandbox, model: BaseChatModel
-) -> dict[str, Any]:
+async def parse(state: RepoState, sandbox: Sandbox, model: BaseChatModel) -> dict[str, Any]:
     scan_result = state["scan"]
     log.info("parse start", repo_url=state["repo_url"])
 
@@ -161,7 +155,7 @@ async def parse(
     for path in py_files:
         try:
             module = _parse_python(path, await _read_file(sandbox, path))
-        except Exception:  # noqa: BLE001
+        except Exception:
             module = None
             log.warning("file unreadable, skipped", path=path)
         if module is None:
@@ -172,8 +166,7 @@ async def parse(
     dependencies = await _read_dependencies(sandbox, scan_result["key_files"])
 
     modules_brief = "\n".join(
-        f"- {m['path']}: classes={m['classes']}, functions={m['functions']}"
-        for m in modules
+        f"- {m['path']}: classes={m['classes']}, functions={m['functions']}" for m in modules
     )
     prompt = _DESCRIBE_PROMPT.format(
         key_files=scan_result["key_files"],

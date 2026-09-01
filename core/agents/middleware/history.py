@@ -72,9 +72,7 @@ class HistoryMiddleware(AgentMiddleware):
                 self._seen_ids.add(m.id)
 
     async def abefore_agent(self, state: Any, runtime: Any) -> None:
-        await self._asave(
-            "agent_start", {"message_count": len(state.get("messages", []))}
-        )
+        await self._asave("agent_start", {"message_count": len(state.get("messages", []))})
         await self._asave_new_messages(state)
 
     async def aafter_model(self, state: Any, runtime: Any) -> None:

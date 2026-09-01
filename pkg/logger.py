@@ -27,7 +27,7 @@ def _setup() -> None:
     _LOG_DIR.mkdir(exist_ok=True)
 
     structlog.configure(
-        processors=_shared + [structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
+        processors=[*_shared, structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,
@@ -56,9 +56,7 @@ def _setup() -> None:
     handlers: list[logging.Handler] = [console]
     for name in ("debug", "info", "warning", "error", "critical"):
         levelno = getattr(logging, name.upper())
-        h = RotatingFileHandler(
-            _LOG_DIR / f"{name}.jsonl", maxBytes=10_000_000, backupCount=3
-        )
+        h = RotatingFileHandler(_LOG_DIR / f"{name}.jsonl", maxBytes=10_000_000, backupCount=3)
         h.addFilter(lambda record, lv=levelno: record.levelno == lv)
         h.setFormatter(json_formatter)
         handlers.append(h)

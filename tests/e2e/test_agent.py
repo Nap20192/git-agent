@@ -25,9 +25,7 @@ async def _run() -> dict:
     sandbox = await create_sandbox()
     try:
         await sandbox.run(FIXTURE_SETUP)
-        model = GenericFakeChatModel(
-            messages=iter([AIMessage(content="Учебный демо-проект.")])
-        )
+        model = GenericFakeChatModel(messages=iter([AIMessage(content="Учебный демо-проект.")]))
         graph = build_graph(sandbox, model)
         final = await graph.ainvoke({"repo_url": "/fixture"})
         return final["report"]

@@ -40,12 +40,12 @@ __all__ = [
     "DEFAULT_MEMORY_PRESET",
     "DELTA_SUMMARY_PROMPT",
     "MEMORY_PRESETS",
-    "MemoryConfig",
     "PRESET_PROVIDER_ALLOWLIST",
     "PRODUCTION_FALLBACK_MEMORY_PRESET",
     "PRODUCTION_LONG_CONTEXT_PROVIDERS",
     "PRODUCTION_MEMORY_PRESET",
     "SELECTIVE_RETENTION_SUMMARY_PROMPT",
+    "MemoryConfig",
     "memory_preset_supports_model",
     "production_memory_preset_name",
     "resolve_memory_preset",
@@ -87,9 +87,7 @@ def memory_preset_supports_model(preset_name: str, model_name: str) -> bool:
     return _model_provider(model_name) in allowed
 
 
-def resolve_memory_preset(
-    name: str | None = None, *, model_name: str = ""
-) -> MemoryConfig:
+def resolve_memory_preset(name: str | None = None, *, model_name: str = "") -> MemoryConfig:
     explicit = (name or "").strip()
     environment = os.environ.get("GIT_AGENT_MEMORY_PRESET", "").strip()
     requested = explicit or environment or production_memory_preset_name(model_name)

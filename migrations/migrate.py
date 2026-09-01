@@ -25,9 +25,7 @@ def main() -> None:
             if sql_file.name in applied:
                 continue
             conn.execute(sql_file.read_text())
-            conn.execute(
-                "INSERT INTO schema_migrations (version) VALUES (%s)", (sql_file.name,)
-            )
+            conn.execute("INSERT INTO schema_migrations (version) VALUES (%s)", (sql_file.name,))
             log.info("migration applied", version=sql_file.name)
 
     # Таблицы чекпоинтов LangGraph (setup идемпотентен)

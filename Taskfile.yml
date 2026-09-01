@@ -1,0 +1,81 @@
+version: "3"
+
+vars:
+  COMPOSE: docker compose -f deploy/docker-compose.yml
+
+tasks:
+  default:
+    desc: Список задач
+    cmds:
+      - task --list
+    silent: true
+
+  install:
+    desc: Установить окружение из lock-файла
+    cmds:
+      - uv sync
+
+  up:
+    desc: Поднять инфраструктуру (OpenSandbox + Postgres)
+    cmds:
+      - "{{.COMPOSE}} up -d"
+
+  down:
+    desc: Остановить инфраструктуру
+    cmds:
+      - "{{.COMPOSE}} down"
+
+  migrate:
+    desc: Применить миграции БД (идемпотентно)
+    cmds:
+      - uv run python -m migrations.migrate
+
+  lint:
+    desc: Проверить код линтером (ruff)
+    cmds:
+      - uv run ruff check .
+
+  fix:
+    desc: Автоисправления линтера + форматирование
+    cmds:
+      - uv run ruff check --fix .
+      - uv run ruff format .
+
+  fmt:
+    desc: Отформатировать код
+    cmds:
+      - uv run ruff format .
+
+  test:
+    desc: Все тесты (unit + integration + e2e; нужны OpenSandbox + Postgres)
+    cmds:
+      - uv run pytest -q
+
+  test:unit:
+    desc: Только unit-тесты (без внешних сервисов)
+    cmds:
+      - uv run pytest tests/unit -q
+
+  test:integration:
+    desc: Интеграционные тесты (нужен Postgres)
+    cmds:
+      - uv run pytest tests/integration -q
+
+  test:e2e:
+    desc: E2E-тесты (нужен OpenSandbox)
+    cmds:
+      - uv run pytest tests/e2e -q
+
+  formal:
+    desc: Проверить только формальную модель рантайма (Lean)
+    cmds:
+      - ./formal/check.sh
+
+  check:
+    desc: Полная проверка — линтер + тесты (тесты включают Lean-верификацию)
+    deps: [lint, test]
+
+  run:
+    desc: 'Запустить агента: task run -- <repo-url> [флаги]'
+    cmds:
+      - uv run main.py {{.CLI_ARGS}}

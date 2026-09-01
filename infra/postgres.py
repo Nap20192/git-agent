@@ -18,9 +18,7 @@ _apool_lock = asyncio.Lock()
 def get_pool() -> ConnectionPool:
     global _pool
     if _pool is None:
-        _pool = ConnectionPool(
-            settings.database_url, kwargs={"row_factory": dict_row}, open=True
-        )
+        _pool = ConnectionPool(settings.database_url, kwargs={"row_factory": dict_row}, open=True)
         atexit.register(_pool.close)
     return _pool
 

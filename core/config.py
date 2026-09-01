@@ -8,15 +8,8 @@ load_dotenv()
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # LangSmith (трейсинг включается самим langchain по этим env-переменным)
-    langsmith_tracing: bool = False
-    langsmith_api_key: str = ""
-    langsmith_project: str = "git-agent"
-
-    # Langfuse
-    langfuse_public_key: str = ""
-    langfuse_secret_key: str = ""
-    langfuse_host: str = "https://cloud.langfuse.com"
+    # Трейсинг (LANGSMITH_*/LANGFUSE_*) читает core/tracing/config.py напрямую
+    # из env — здесь не дублируем, чтобы не было двух источников правды.
 
     # OpenSandbox
     opensandbox_domain: str = "localhost:8090"
