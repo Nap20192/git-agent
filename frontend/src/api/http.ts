@@ -1,8 +1,8 @@
 /**
- * HTTP + SSE adapter for the future git-agent FastAPI backend (~6 routes over the
- * Runtime facade). Endpoint shapes: docs/API_CONTRACT.md. Base path "/api",
- * proxied in dev (vite.config.ts). Not wired to a live backend yet — VITE_API
- * defaults to the mock.
+ * HTTP + SSE adapter for the git-agent FastAPI backend (server/app.py).
+ * Endpoint shapes: docs/openapi.yaml. Base path "/api", proxied in dev to
+ * :8080 (vite.config.ts). This is the only adapter — the UI always talks to
+ * the real backend.
  */
 import type {
   Capability,

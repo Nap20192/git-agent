@@ -1,6 +1,6 @@
 /**
- * The API surface the UI depends on. Two implementations: mock.ts (default, the
- * executable spec) and http.ts (the future FastAPI backend). Components get this
+ * The API surface the UI depends on. Implemented by http.ts over the FastAPI
+ * backend (server/app.py, contract in docs/openapi.yaml). Components get this
  * interface via useApi(); they never import an adapter directly.
  */
 import type {

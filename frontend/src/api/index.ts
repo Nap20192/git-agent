@@ -1,15 +1,13 @@
 /**
- * API entry point. Selects the adapter (mock vs http) and exposes it via React
- * context. VITE_API=http hits the real backend; default is the mock.
+ * API entry point: the real HTTP backend (see docs/openapi.yaml), exposed via
+ * React context.
  */
 import { createContext, useContext } from "react";
 import type { GitAgentApi } from "./client.ts";
-import { createMockApi } from "./mock.ts";
 import { createHttpApi } from "./http.ts";
 
 export function createApi(): GitAgentApi {
-  const mode = import.meta.env.VITE_API ?? "mock";
-  return mode === "http" ? createHttpApi() : createMockApi();
+  return createHttpApi();
 }
 
 export const api: GitAgentApi = createApi();
