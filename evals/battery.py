@@ -117,7 +117,9 @@ def check_fact_structured(fact: dict[str, Any], report: dict[str, Any] | None) -
         return None
     resolved = _resolve_path(report, fact["path"])
     if resolved is _MISSING:
-        return None if fact["rule"] != "absent" else True
+        # и для absent тоже: отсутствие всей секции отчёта — неизмеримо,
+        # не «значения нет» (иначе agent-mode вакуумно проходит struct-absent)
+        return None
     rule = fact["rule"]
     if rule == "structured_eq":
         return str(resolved) == str(fact.get("value"))
@@ -148,15 +150,11 @@ def check_fact_prose(fact: dict[str, Any], proseview: str | None) -> bool | None
     if proseview is None or not prose:
         return None
     rule = fact["rule"]
-    if rule == "prose_substring":
+    # substring для всех, кроме явных regex-правил: prose structured-фактов
+    # пишется как литерал («psycopg[binary]») и regex-ом ломался бы молча
+    if rule in ("prose_substring", "structured_eq", "structured_contains", "structured_set_superset"):
         return prose.lower() in proseview.lower()
-    if rule in (
-        "prose_regex",
-        "absent",
-        "structured_eq",
-        "structured_contains",
-        "structured_set_superset",
-    ):
+    if rule in ("prose_regex", "absent"):
         found = re.search(prose, proseview, re.IGNORECASE) is not None
         return (not found) if rule == "absent" else found
     return None

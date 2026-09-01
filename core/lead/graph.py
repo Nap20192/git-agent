@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import shlex
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -18,10 +17,9 @@ from core.agents.features import RuntimeFeatures
 from core.agents.subagents import SubagentCapacity, build_task_tool
 from core.agents.tools import build_sandbox_tools
 from core.ports import Sandbox
-from core.runtime.profile import GraphProfile
+from core.runtime.profile import GraphProfile, prepare_repo
 
 LEAD_MAX_TURNS = 100000
-_CLONE_TIMEOUT_SECONDS = 180.0
 
 LEAD_SYSTEM_PROMPT = """Ты — ведущий агент, который исследует git-репозиторий и \
 составляет о нём структурированный отчёт. Репозиторий УЖЕ СКЛОНИРОВАН в директорию \
@@ -52,21 +50,6 @@ _LEAD_TASK = (
 )
 
 
-async def _clone(sandbox: Sandbox, repo_url: str, checkout_ref: str | None = None) -> None:
-    repo_dir = shlex.quote(sandbox.repo_dir)
-    await sandbox.run(
-        f"rm -rf {repo_dir} && git clone --depth 1 {shlex.quote(repo_url)} {repo_dir}",
-        timeout_seconds=_CLONE_TIMEOUT_SECONDS,
-    )
-    if checkout_ref:
-        ref = shlex.quote(checkout_ref)
-        await sandbox.run(
-            f"git -C {repo_dir} fetch --depth 1 origin {ref}"
-            f" && git -C {repo_dir} checkout --detach {ref}",
-            timeout_seconds=_CLONE_TIMEOUT_SECONDS,
-        )
-
-
 def _lead_report(values: dict[str, Any]) -> dict[str, Any] | None:
     messages = (values or {}).get("messages") or []
     for message in reversed(messages):
@@ -95,7 +78,7 @@ def build_lead_profile() -> GraphProfile:
 
     return GraphProfile(
         build=_build,
-        prepare=_clone,
+        prepare=prepare_repo,
         make_input=lambda repo_url, checkout_ref=None: {
             "messages": [HumanMessage(content=_LEAD_TASK.format(repo_url=repo_url))]
         },

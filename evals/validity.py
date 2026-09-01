@@ -46,7 +46,13 @@ def gate_bundle(bundle: dict[str, Any], manifest: dict[str, Any]) -> list[str]:
             f"preset_drift: resolved={memory_config.get('name')} requested={bundle.get('preset')}"
         )
 
-    if memory_config.get("experiment_mode") and bundle.get("usage") is None:
+    if (
+        memory_config.get("experiment_mode")
+        and bundle.get("db_status") == "succeeded"
+        and bundle.get("usage") is None
+    ):
+        # только для succeeded: у failed-рана (в т.ч. expected_status=failed
+        # юнитов) usage легитимно отсутствует — гейтить его = убить behavior_pass
         problems.append("usage_missing: experiment-mode preset without usage telemetry")
 
     report_commit = bundle.get("report_commit")

@@ -54,6 +54,7 @@ async def run_agent(
     stop_reason: str | None = None
     report: dict[str, Any] | None = None
     sandbox: Sandbox | None = None
+    usage_collector: Any = None
 
     try:
         if is_resume:
@@ -116,19 +117,6 @@ async def run_agent(
                     await store.add_event(run_id, mode, {"data": data})
                 except Exception:
                     log.exception("event persistence failed", run_id=run_id)
-            # Терминальное usage-событие (контракт eval-харнеса): токены/вызовы
-            # рана одним machine-readable событием; best-effort, ран не роняет
-            try:
-                usage_payload = {
-                    "type": "usage",
-                    "usage": usage_collector.cumulative_usage(),
-                    "llm_calls": len(usage_collector.snapshot_records()),
-                    "records": usage_collector.snapshot_records(),
-                }
-                await bridge.publish(run_id, "custom", usage_payload)
-                await store.add_event(run_id, "usage", usage_payload)
-            except Exception:
-                log.exception("usage event emission failed", run_id=run_id)
             if outcome is RunStatus.succeeded:
                 state = await graph.aget_state(config)
                 report = profile.extract_report(state.values or {})
@@ -165,6 +153,22 @@ async def run_agent(
             try:
                 if sandbox is not None:
                     await _close_quietly(sandbox)
+                # Терминальное usage-событие (контракт eval-харнеса) — на ЛЮБОМ
+                # исходе (succeeded/turn_capped/failed/cancelled): потраченные
+                # токены — факт, независимый от статуса. Одно событие на попытку;
+                # харнес суммирует по всем попыткам. Best-effort, ран не роняет.
+                if usage_collector is not None and not record.ownership_lost:
+                    try:
+                        usage_payload = {
+                            "type": "usage",
+                            "usage": usage_collector.cumulative_usage(),
+                            "llm_calls": len(usage_collector.snapshot_records()),
+                            "records": usage_collector.snapshot_records(),
+                        }
+                        await bridge.publish(run_id, "custom", usage_payload)
+                        await store.add_event(run_id, "usage", usage_payload)
+                    except Exception:
+                        log.exception("usage event emission failed", run_id=run_id)
                 if not record.ownership_lost:
                     await _finalize(
                         store,

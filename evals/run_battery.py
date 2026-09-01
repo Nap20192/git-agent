@@ -47,8 +47,10 @@ from evals.common import (  # noqa: E402
 
 UNIT_TIMEOUT_SECONDS = float(os.environ.get("EVAL_UNIT_TIMEOUT", "900"))
 
-# Аргументы, НЕ входящие в fingerprint: «куда писать/сколько», не «что меряем»
-_NON_SCIENTIFIC_ARGS = {"out", "limit", "ids", "allow_deprecated"}
+# Аргументы, НЕ входящие в fingerprint: «куда писать/сколько», не «что меряем».
+# trials — аддитивное расширение кампании (как limit); battery — путь-строка,
+# содержимое пиннится battery_sha256.
+_NON_SCIENTIFIC_ARGS = {"out", "limit", "ids", "allow_deprecated", "trials", "battery"}
 
 
 def _git(cmd: list[str]) -> str:
@@ -63,22 +65,27 @@ def _git(cmd: list[str]) -> str:
 def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
     from dataclasses import asdict
 
-    from core.memory import resolve_memory_preset  # функционально-локально (R2)
+    from core.config import settings  # функционально-локально (R2)
+    from core.memory import resolve_memory_preset
 
     memory_config = asdict(resolve_memory_preset(args.preset, model_name=args.model))
+    # Научная конфигурация — ровно то, что меняет поведение агента/оценку.
+    # git_status тут НЕ живёт (незакоммиченный мусор в дереве — не наука;
+    # правки кода ловит source_tree_sha256); путь батареи — тоже (контент
+    # пиннится хэшем, имя — для DEPRECATED_BATTERIES).
     return {
         "schema_version": SCHEMA_VERSION,
         "git_sha": _git(["rev-parse", "HEAD"]),
-        "git_status": _git(["status", "--short"]),
         "source_tree_sha256": source_tree_sha256(_ROOT),
         "uv_lock_sha256": sha256_file(_ROOT / "uv.lock"),
-        "battery_path": str(Path(args.battery).resolve()),
+        "battery_name": Path(args.battery).name,
         "battery_sha256": sha256_file(args.battery),
         "mode": args.mode,
         "preset": args.preset,
         "model": args.model,
+        "llm_api_base": settings.llm_api_base,
         "sandbox": args.sandbox,
-        "trials": args.trials,
+        "unit_timeout_s": UNIT_TIMEOUT_SECONDS,
         "memory_config": memory_config,
         "pricing_snapshot_usd_per_million": PRICING_USD_PER_MILLION,
         "runner_args": {k: v for k, v in vars(args).items() if k not in _NON_SCIENTIFIC_ARGS},
@@ -90,7 +97,13 @@ def write_or_validate_run_config(
 ) -> None:
     config_path = out / "run_config.json"
     bundles_path = out / "bundles.jsonl"
-    if config_path.exists() and bundles_path.exists() and bundles_path.stat().st_size > 0:
+    has_bundles = bundles_path.exists() and bundles_path.stat().st_size > 0
+    if has_bundles and not config_path.exists():
+        raise SystemExit(
+            f"REFUSED: {bundles_path} exists but run_config.json is missing —"
+            " provenance unknown. Restore the config or use a fresh --out."
+        )
+    if config_path.exists() and has_bundles:
         stored = json.loads(config_path.read_text())
         if stored.get("_fingerprint") != fp:
             raise SystemExit(
@@ -102,7 +115,13 @@ def write_or_validate_run_config(
     out.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
         json.dumps(
-            {**vars(args), "_fingerprint": fp, "_manifest": manifest},
+            {
+                **vars(args),
+                "_fingerprint": fp,
+                "_manifest": manifest,
+                # инфо-поле вне fingerprint: помогает при разборе, не меняет науку
+                "_git_status": _git(["status", "--short"]),
+            },
             indent=2,
             ensure_ascii=False,
             default=str,
@@ -119,6 +138,21 @@ def completed_unit_keys(bundles_path: Path) -> set[str]:
         for row in load_jsonl(bundles_path)
         if row.get("error") is None and row.get("unit_key")
     }
+
+
+async def _all_events(store: Any, run_id: int, page: int = 1000) -> list[dict[str, Any]]:
+    """Вся durable-история по курсору: один запрос с limit молча резал хвост,
+    а терминальное usage-событие — последнее и выпадало первым."""
+    events: list[dict[str, Any]] = []
+    cursor: int | None = None
+    while True:
+        batch = await store.list_events_after(run_id, cursor, limit=page)
+        if not batch:
+            return events
+        events.extend(batch)
+        cursor = batch[-1]["id"]
+        if len(batch) < page:
+            return events
 
 
 async def run_unit(
@@ -152,6 +186,7 @@ async def run_unit(
         "trial": trial,
         "error": None,
     }
+    run_id: int | None = None
     try:
         async with asyncio.timeout(UNIT_TIMEOUT_SECONDS):
             result = await runtime.submit(
@@ -164,10 +199,18 @@ async def run_unit(
                 checkout_ref=unit["commit_sha"],
             )
             run_id = result.run["id"]
+            bundle["submit_disposition"] = result.disposition.value
             row = await runtime.wait(run_id)
-            events = await store.list_events_after(run_id, None, limit=10_000)
+            events = await _all_events(store, run_id)
     except TimeoutError:
         bundle["error"] = f"TimeoutError: unit exceeded {UNIT_TIMEOUT_SECONDS}s"
+        # обязательная отмена: asyncio.wait в runtime.wait НЕ отменяет воркер —
+        # без cancel зомби-ран продолжает жечь деньги параллельно следующим юнитам
+        if run_id is not None:
+            try:
+                await runtime.cancel(run_id)
+            except Exception as exc:
+                print(f"    ! cancel after timeout failed: {exc}", file=sys.stderr)
         return bundle
     except Exception as exc:
         bundle["error"] = f"{type(exc).__name__}: {exc}"

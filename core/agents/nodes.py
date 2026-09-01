@@ -56,20 +56,25 @@ async def scan(state: RepoState, sandbox: Sandbox) -> dict[str, Any]:
     repo_url = state["repo_url"]
     repo_dir = shlex.quote(sandbox.repo_dir)
     log.info("scan start", repo_url=repo_url)
-    await sandbox.run(
-        f"git clone --depth 1 {shlex.quote(repo_url)} {repo_dir}",
-        timeout_seconds=CLONE_TIMEOUT_SECONDS,
-    )
-    checkout_ref = state.get("checkout_ref")
-    if checkout_ref:
-        # пин коммита (воспроизводимость evals): depth-1 клон не содержит
-        # произвольный sha — дотягиваем его точечно и переключаемся
-        ref = shlex.quote(checkout_ref)
+    # Клон идемпотентен: в durable-рантайме репо уже готовит profile.prepare
+    # (обязательно для resume — свежая песочница, scan не перезапускается);
+    # клон здесь — для прямого запуска графа без prepare (тесты, demo).
+    present = (await sandbox.run(f"test -d {repo_dir}/.git && echo yes || true")).strip()
+    if present != "yes":
         await sandbox.run(
-            f"git -C {repo_dir} fetch --depth 1 origin {ref}"
-            f" && git -C {repo_dir} checkout --detach {ref}",
+            f"git clone --depth 1 {shlex.quote(repo_url)} {repo_dir}",
             timeout_seconds=CLONE_TIMEOUT_SECONDS,
         )
+        checkout_ref = state.get("checkout_ref")
+        if checkout_ref:
+            # пин коммита (воспроизводимость evals): depth-1 клон не содержит
+            # произвольный sha — дотягиваем его точечно и переключаемся
+            ref = shlex.quote(checkout_ref)
+            await sandbox.run(
+                f"git -C {repo_dir} fetch --depth 1 origin {ref}"
+                f" && git -C {repo_dir} checkout --detach {ref}",
+                timeout_seconds=CLONE_TIMEOUT_SECONDS,
+            )
     commit = (await sandbox.run(f"git -C {repo_dir} rev-parse HEAD")).strip()
 
     listing = await sandbox.run(f"cd {repo_dir} && find . -type f -exec stat -c '%s %n' {{}} \\;")

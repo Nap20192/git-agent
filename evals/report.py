@@ -27,8 +27,19 @@ def _arm(row: dict[str, Any]) -> tuple[str, str, str]:
 
 
 def aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    by_arm: dict[tuple, list[dict]] = defaultdict(list)
+    # дедуп по row_id: один физический ран, попавший в несколько --out
+    # (reuse через submit-идемпотентность), — одна выборка, не «реплики»
+    seen: set[str] = set()
+    unique = []
     for row in rows:
+        rid = row.get("row_id")
+        if rid and rid in seen:
+            continue
+        if rid:
+            seen.add(rid)
+        unique.append(row)
+    by_arm: dict[tuple, list[dict]] = defaultdict(list)
+    for row in unique:
         by_arm[_arm(row)].append(row)
 
     out = []
@@ -57,6 +68,7 @@ def aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "output_tokens": sum(u["output_tokens"] for u in usages) if usages else None,
                 "cost_usd_upper": round(sum(costs), 4) if costs else None,
                 "usage_n": len(usages),
+                "cost_n": len(costs),
                 "gated": gated,
                 "errors": errors,
             }
@@ -82,11 +94,14 @@ def report(outs: list[Path]) -> None:
     for a in arms:
         arm_name = f"{a['mode']}/{a['preset']}/{a['model']}"
         pct = f" ({a['fact_cov_prose_pct']}%)" if a["fact_cov_prose_pct"] is not None else ""
+        cost = "—" if a["cost_usd_upper"] is None else str(a["cost_usd_upper"])
+        if a["cost_usd_upper"] is not None and a["cost_n"] < a["n"]:
+            cost += f"({a['cost_n']}/{a['n']})"  # частично оценённый арм — честно пометить
         print(
             f"{arm_name:44} {a['n']:>3} {a['fact_cov_prose'] + pct:>13} {a['fact_cov_struct']:>14}"
             f" {a['behavior_pass']:>9} {a['input_tokens'] if a['input_tokens'] is not None else '—':>10}"
             f" {a['output_tokens'] if a['output_tokens'] is not None else '—':>9}"
-            f" {a['cost_usd_upper'] if a['cost_usd_upper'] is not None else '—':>8}"
+            f" {cost:>8}"
             f" {a['gated']:>6} {a['errors']:>4}"
         )
     print(

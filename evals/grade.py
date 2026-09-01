@@ -41,8 +41,21 @@ def grade_bundle(
     bundle: dict[str, Any],
     unit: dict[str, Any],
     manifest: dict[str, Any],
+    *,
+    expected_fingerprint: str | None = None,
 ) -> dict[str, Any]:
     gate_problems = gate_bundle_cached(bundle, manifest)
+    if (
+        expected_fingerprint
+        and bundle.get("fingerprint")
+        and bundle["fingerprint"] != expected_fingerprint
+    ):
+        # бандл из чужого прогона подложен в этот out-дир — не грейдим
+        gate_problems = [
+            f"fingerprint_mismatch: bundle {bundle['fingerprint'][:12]}"
+            f" != config {expected_fingerprint[:12]}",
+            *gate_problems,
+        ]
     gated = bool(gate_problems)
 
     row: dict[str, Any] = {
@@ -79,6 +92,10 @@ def grade_bundle(
         )
         return row
 
+    # expected succeeded: behavior = ран реально дошёл до succeeded. Иначе
+    # app-failed ран невидим (все факты None -> он просто исчезает из покрытия).
+    behavior = None if gated else bundle.get("db_status") == "succeeded"
+
     report = bundle.get("report") if not gated else None
     prose = proseview(report)
     detail = []
@@ -100,7 +117,7 @@ def grade_bundle(
             }
         )
     row.update(
-        behavior_pass=None,
+        behavior_pass=behavior,
         facts_total=len(unit["facts"]),
         facts_measured_prose=measured_p,
         facts_pass_prose=pass_p,
@@ -121,13 +138,14 @@ def gate_bundle_cached(bundle: dict[str, Any], manifest: dict[str, Any]) -> list
 def grade_run(out: Path, battery_path: Path, *, allow_deprecated: bool = False) -> Path:
     config = json.loads((out / "run_config.json").read_text())
     manifest = config["_manifest"]
+    expected_fp = config.get("_fingerprint")
     units = {u["unit_id"]: u for u in load_battery(battery_path, allow_deprecated=allow_deprecated)}
     rows = []
     for bundle in load_jsonl(out / "bundles.jsonl"):
         unit = units.get(bundle["unit_id"])
         if unit is None:
             continue  # юнит вне этой батареи (например, отфильтрован в v2)
-        rows.append(grade_bundle(bundle, unit, manifest))
+        rows.append(grade_bundle(bundle, unit, manifest, expected_fingerprint=expected_fp))
     rows.sort(key=lambda r: r["row_id"])  # детерминированный порядок
     grades_path = out / "grades.jsonl"
     write_jsonl(grades_path, rows)

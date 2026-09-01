@@ -103,9 +103,12 @@ def test_fact_rules_matrix():
     assert check_fact_structured(superset, report) is True
     absent = {"fact_id": "f", "rule": "absent", "path": "structure.languages", "value": ".go"}
     assert check_fact_structured(absent, report) is True
-    # отсутствующий path → None (неизмеримо), НЕ fail
+    # отсутствующий path → None (неизмеримо), НЕ fail — включая absent:
+    # иначе agent-режим (без структурного отчёта) получал бы vacuous pass
     missing = {"fact_id": "f", "rule": "structured_contains", "path": "no.such.path", "value": "x"}
     assert check_fact_structured(missing, report) is None
+    absent_missing = {"fact_id": "f", "rule": "absent", "path": "no.such.path", "value": ".go"}
+    assert check_fact_structured(absent_missing, report) is None
     assert check_fact_structured(eq, None) is None
 
 
@@ -142,6 +145,20 @@ def test_prose_rules_and_absent():
         is True
     )
     assert check_fact_prose({"fact_id": "f", "rule": "prose_substring", "prose": "x"}, None) is None
+    # structured-фолбэк — SUBSTRING, не regex: спецсимволы матчатся буквально
+    assert (
+        check_fact_prose(
+            {
+                "fact_id": "f",
+                "rule": "structured_contains",
+                "path": "x",
+                "value": "y",
+                "prose": "psycopg[binary]",
+            },
+            "зависимости: psycopg[binary] и click",
+        )
+        is True
+    )
 
 
 # -- fingerprint / ids ---------------------------------------------------------
@@ -199,6 +216,38 @@ def test_fold_events_usage_and_subagents():
     assert folded["usage"]["total_tokens"] == 15
     assert folded["served_models"] == ["deepseek-chat"]
     assert fold_events([])["usage"] is None  # tri-state, не нули
+
+
+def test_fold_events_sums_across_attempts():
+    # воркер эмитит usage НА ПОПЫТКУ: resume = второе событие, спенд суммируется
+    def usage_event(tokens, calls, model):
+        return {
+            "kind": "usage",
+            "payload": {
+                "usage": {"input_tokens": tokens, "output_tokens": 1, "total_tokens": tokens + 1},
+                "llm_calls": calls,
+                "records": [{"model_name": model}],
+            },
+        }
+
+    folded = fold_events([usage_event(10, 2, "deepseek-chat"), usage_event(30, 3, "deepseek-r1")])
+    assert folded["usage"]["input_tokens"] == 40
+    assert folded["usage"]["total_tokens"] == 42
+    assert folded["llm_calls"] == 5
+    assert folded["usage_events"] == 2
+    assert folded["served_models"] == ["deepseek-chat", "deepseek-r1"]
+
+
+def test_jsonl_torn_tail_recovery(tmp_path):
+    from evals.common import append_jsonl, load_jsonl
+
+    path = tmp_path / "bundles.jsonl"
+    append_jsonl(path, [{"a": 1}])
+    with open(path, "a") as f:
+        f.write('{"torn": tru')  # жёсткий kill посреди записи
+    append_jsonl(path, [{"b": 2}])  # новая запись не склеивается с обрывком
+    rows = load_jsonl(path)
+    assert rows == [{"a": 1}, {"b": 2}]  # обрывок скипнут, не уронил load
 
 
 # -- validity gate -------------------------------------------------------------
@@ -310,6 +359,47 @@ def test_grade_error_unit_behavior():
     assert ok["behavior_pass"] is True
     bad = grade_bundle(_bundle(db_status="succeeded", report_commit=None), unit, _MANIFEST)
     assert bad["behavior_pass"] is False
+
+
+def test_grade_behavior_pass_on_expected_succeeded():
+    # app-failed ран ВИДЕН: behavior_pass=False, не исчезает в None
+    failed = _bundle(db_status="failed", report=None, report_commit=None)
+    row = grade_bundle(failed, _UNIT, _MANIFEST)
+    assert row["behavior_pass"] is False
+    # gated → None (неизмеримо), не False
+    gated = _bundle(report_commit="drifted99999")
+    assert grade_bundle(gated, _UNIT, _MANIFEST)["behavior_pass"] is None
+
+
+def test_grade_fingerprint_mismatch_gates():
+    bundle = _bundle(fingerprint="a" * 64, report={"description": "python CLI"})
+    row = grade_bundle(bundle, _UNIT, _MANIFEST, expected_fingerprint="b" * 64)
+    assert row["gated"]
+    assert any("fingerprint_mismatch" in p for p in row["gate_problems"])
+
+
+def test_report_dedup_by_row_id():
+    from evals.report import aggregate
+
+    row = {
+        "row_id": "same12chars",
+        "mode": "pipeline",
+        "preset": "prod",
+        "model": "m",
+        "gated": False,
+        "error": None,
+        "facts_measured_prose": 2,
+        "facts_pass_prose": 1,
+        "facts_measured_struct": 0,
+        "facts_pass_struct": 0,
+        "behavior_pass": True,
+        "usage": None,
+        "cost_usd": None,
+    }
+    # один физический ран в двух --out (submit-идемпотентность) — одна выборка
+    arms = aggregate([row, dict(row)])
+    assert arms[0]["n"] == 1
+    assert arms[0]["fact_cov_prose"] == "1/2"
 
 
 def test_grade_twice_byte_identical(tmp_path):

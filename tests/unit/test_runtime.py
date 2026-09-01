@@ -384,6 +384,9 @@ def test_runtime_report_error_means_failed_and_resume():
         )
         final = await rt.wait(result.run["id"])
         assert final["status"] == RunStatus.failed
+        # usage эмитится в финализации — есть и на упавшей попытке
+        kinds = [e["kind"] for e in await rt.events(result.run["id"])]
+        assert kinds.count("usage") == 1
 
         rt2 = _make_runtime(store, bridge, report={"done": 1})
         resumed = await rt2.submit(
@@ -393,6 +396,9 @@ def test_runtime_report_error_means_failed_and_resume():
         assert resumed.run["id"] == result.run["id"]  # тот же Ран
         final2 = await rt2.wait(resumed.run["id"])
         assert final2["status"] == RunStatus.succeeded and final2["attempt"] == 2
+        # по одному usage-событию НА ПОПЫТКУ (fold_events их суммирует)
+        kinds2 = [e["kind"] for e in await rt2.events(resumed.run["id"])]
+        assert kinds2.count("usage") == 2
 
     asyncio.run(main())
 

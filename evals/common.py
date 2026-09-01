@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import sys
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -32,19 +34,37 @@ PRICING_USD_PER_MILLION: dict[str, dict[str, float]] = {
 
 
 def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
+    """Оборванная жёстким килом последняя строка — скипается с warning:
+    такой бандл не «чистый», раннер его перепрогонит; падать нельзя (bricked resume)."""
     rows = []
     with open(path, encoding="utf-8") as f:
-        for line in f:
+        for lineno, line in enumerate(f, 1):
             line = line.strip()
-            if line:
+            if not line:
+                continue
+            try:
                 rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                print(f"WARN {path}:{lineno}: torn jsonl line skipped", file=sys.stderr)
     return rows
 
 
 def append_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> None:
+    path = Path(path)
+    # оборванный хвост от прошлого краша: новая запись — с новой строки,
+    # иначе два бандла склеиваются в одну нечитаемую строку
+    needs_newline = False
+    if path.exists() and path.stat().st_size > 0:
+        with open(path, "rb") as f:
+            f.seek(-1, 2)
+            needs_newline = f.read(1) != b"\n"
     with open(path, "a", encoding="utf-8") as f:
+        if needs_newline:
+            f.write("\n")
         for row in rows:
             f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
 
 
 def write_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> None:
@@ -112,17 +132,31 @@ def price_run(
 def fold_events(events: list[dict[str, Any]]) -> dict[str, Any]:
     """Свернуть run_events в наблюдаемые сигналы (для бандла и гейта).
 
-    usage — tri-state: None если терминального usage-события нет.
+    usage — tri-state: None если терминального usage-события нет. Воркер
+    эмитит одно usage-событие НА ПОПЫТКУ (resume = новая попытка со свежим
+    коллектором) — суммируем по всем, иначе стоимость resumed-рана
+    занижается на спенд прошлых попыток (ломается «верхняя граница»).
     """
     usage: dict[str, Any] | None = None
     llm_calls: int | None = None
+    usage_events = 0
     served_models: set[str] = set()
     subagent_count = 0
     for event in events:
         payload = event.get("payload") or {}
         if event.get("kind") == USAGE_EVENT_KIND:
-            usage = payload.get("usage")
-            llm_calls = payload.get("llm_calls")
+            usage_events += 1
+            attempt_usage = payload.get("usage")
+            if attempt_usage:
+                if usage is None:
+                    usage = dict(attempt_usage)
+                else:
+                    for key, value in attempt_usage.items():
+                        if isinstance(value, (int, float)):
+                            usage[key] = (usage.get(key) or 0) + value
+            attempt_calls = payload.get("llm_calls")
+            if attempt_calls is not None:
+                llm_calls = (llm_calls or 0) + attempt_calls
             for record in payload.get("records") or []:
                 name = record.get("model_name")
                 if name:
@@ -133,6 +167,7 @@ def fold_events(events: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "usage": usage,
         "llm_calls": llm_calls,
+        "usage_events": usage_events,
         "served_models": sorted(served_models),
         "subagent_count": subagent_count,
     }
