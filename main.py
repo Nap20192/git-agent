@@ -76,7 +76,9 @@ async def _print_progress(runtime: Runtime, run_id: int) -> None:
             continue
         kind = data.get("type", "")
         if kind == "task_started":
-            out(f"\n  ▶ spawn subagent [{data.get('subagent_type')}]: {data.get('description', '')}")
+            out(
+                f"\n  ▶ spawn subagent [{data.get('subagent_type')}]: {data.get('description', '')}"
+            )
         elif kind == "task_running":
             line = _fmt_step(data)
             if line:

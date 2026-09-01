@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from core.agents.subagents.capacity import (
+from core.subagents.capacity import (
     SubagentCapacity,
     SubagentCapacityRejected,
     SubagentCapacityTimeout,

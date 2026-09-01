@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.agents.subagents.contract import (
+from core.subagents.contract import (
     SUBAGENT_STATUS_VALUES,
     SUBAGENT_STOP_REASON_VALUES,
     SubagentResult,

@@ -20,10 +20,10 @@ from langchain_core.messages import HumanMessage
 from core.agents.factory import build_agent
 from core.agents.features import RuntimeFeatures
 from core.agents.llm import make_model
-from core.agents.subagents import SubagentCapacity, build_task_tool
-from core.agents.subagents.executor import SubagentExecutor
-from core.agents.subagents.registry import GENERAL_PURPOSE
-from core.agents.tools import build_sandbox_tools
+from core.subagents import SubagentCapacity, build_task_tool
+from core.subagents.executor import SubagentExecutor
+from core.subagents.registry import GENERAL_PURPOSE
+from core.tools.sandbox import build_sandbox_tools
 from core.tracing import build_tracing_callbacks
 from infra.sandboxes import create_sandbox_by_name
 
@@ -126,7 +126,9 @@ async def demo_lead(repo_url: str) -> None:
             if mode == "custom" and isinstance(chunk, dict):
                 t = chunk.get("type", "")
                 if t == "task_started":
-                    _p(f"\n  ▶ СПАВН сабагента [{chunk.get('subagent_type')}]: {chunk.get('description')}")
+                    _p(
+                        f"\n  ▶ СПАВН сабагента [{chunk.get('subagent_type')}]: {chunk.get('description')}"
+                    )
                 elif t == "task_running":
                     line = _fmt_step(chunk)
                     if line:

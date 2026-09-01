@@ -2,11 +2,11 @@
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from core.agents.middleware.subagent_limit import (
+from core.middleware.subagent_limit import (
     SubagentLimitMiddleware,
     clone_ai_message_with_tool_calls,
 )
-from core.agents.subagents.contract import SUBAGENT_STATUS_KEY
+from core.subagents.contract import SUBAGENT_STATUS_KEY
 
 
 def _task_call(i: int) -> dict:

@@ -14,7 +14,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import hook_config
 from langchain_core.messages import AIMessage, RemoveMessage, ToolMessage
 
-from core.agents.middleware._common import append_hidden_human
+from core.middleware._common import append_hidden_human
 from pkg.logger import get_logger
 
 log = get_logger(__name__)

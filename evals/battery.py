@@ -152,7 +152,12 @@ def check_fact_prose(fact: dict[str, Any], proseview: str | None) -> bool | None
     rule = fact["rule"]
     # substring для всех, кроме явных regex-правил: prose structured-фактов
     # пишется как литерал («psycopg[binary]») и regex-ом ломался бы молча
-    if rule in ("prose_substring", "structured_eq", "structured_contains", "structured_set_superset"):
+    if rule in (
+        "prose_substring",
+        "structured_eq",
+        "structured_contains",
+        "structured_set_superset",
+    ):
         return prose.lower() in proseview.lower()
     if rule in ("prose_regex", "absent"):
         found = re.search(prose, proseview, re.IGNORECASE) is not None

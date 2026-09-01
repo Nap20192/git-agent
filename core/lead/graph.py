@@ -14,10 +14,11 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from core.agents.factory import build_agent
 from core.agents.features import RuntimeFeatures
-from core.agents.subagents import SubagentCapacity, build_task_tool
-from core.agents.tools import build_sandbox_tools
 from core.ports import Sandbox
-from core.runtime.profile import GraphProfile, prepare_repo
+from core.repo import prepare_repo
+from core.runtime.profile import GraphProfile
+from core.subagents import SubagentCapacity, build_task_tool
+from core.tools.sandbox import build_sandbox_tools
 
 LEAD_MAX_TURNS = 100000
 

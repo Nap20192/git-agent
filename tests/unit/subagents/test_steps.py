@@ -2,7 +2,7 @@
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from core.agents.subagents.steps import capture_new_step_messages
+from core.subagents.steps import capture_new_step_messages
 
 
 def _run(messages, captured, seen, cursor):
@@ -54,6 +54,6 @@ def test_compaction_resets_cursor():
 
 
 def test_none_content_is_empty_not_none_string():
-    from core.agents.subagents.steps import _content_to_text
+    from core.subagents.steps import _content_to_text
 
     assert _content_to_text(None) == ""  # не строка "None"

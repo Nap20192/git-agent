@@ -23,7 +23,7 @@ from typing import Any
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage
 
-from core.agents.middleware._common import append_hidden_human, strip_all_tool_calls
+from core.middleware._common import append_hidden_human, strip_all_tool_calls
 from pkg.logger import get_logger
 
 log = get_logger(__name__)

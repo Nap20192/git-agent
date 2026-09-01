@@ -16,18 +16,18 @@ from langchain_core.tools import BaseTool, InjectedToolCallId, tool
 from langgraph.config import get_stream_writer
 from langgraph.types import Command
 
-from core.agents.subagents.capacity import SubagentCapacity, SubagentCapacityError
-from core.agents.subagents.contract import (
+from core.ports import Sandbox
+from core.subagents.capacity import SubagentCapacity, SubagentCapacityError
+from core.subagents.contract import (
     SubagentResult,
     SubagentStatus,
     format_subagent_result_message,
     make_subagent_additional_kwargs,
 )
-from core.agents.subagents.executor import SubagentExecutor
-from core.agents.subagents.receipts import render_citation_verdict, verify_receipt_citations
-from core.agents.subagents.registry import available_subagent_names, get_subagent_config
-from core.agents.tools import build_sandbox_tools
-from core.ports import Sandbox
+from core.subagents.executor import SubagentExecutor
+from core.subagents.receipts import render_citation_verdict, verify_receipt_citations
+from core.subagents.registry import available_subagent_names, get_subagent_config
+from core.tools.sandbox import build_sandbox_tools
 from pkg.logger import get_logger
 
 log = get_logger(__name__)

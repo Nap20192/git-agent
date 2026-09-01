@@ -13,6 +13,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 from core.agents.state import RepoState
 from core.ports import Sandbox
+from core.repo import prepare_repo
 from pkg.logger import get_logger
 
 log = get_logger(__name__)
@@ -45,7 +46,6 @@ KEY_FILE_NAMES = {
 MAX_FILES = 5_000
 MAX_PARSE_FILES = 40
 MAX_FILE_BYTES = 80_000
-CLONE_TIMEOUT_SECONDS = 180.0
 
 
 def _skipped(path: str) -> bool:
@@ -61,20 +61,7 @@ async def scan(state: RepoState, sandbox: Sandbox) -> dict[str, Any]:
     # клон здесь — для прямого запуска графа без prepare (тесты, demo).
     present = (await sandbox.run(f"test -d {repo_dir}/.git && echo yes || true")).strip()
     if present != "yes":
-        await sandbox.run(
-            f"git clone --depth 1 {shlex.quote(repo_url)} {repo_dir}",
-            timeout_seconds=CLONE_TIMEOUT_SECONDS,
-        )
-        checkout_ref = state.get("checkout_ref")
-        if checkout_ref:
-            # пин коммита (воспроизводимость evals): depth-1 клон не содержит
-            # произвольный sha — дотягиваем его точечно и переключаемся
-            ref = shlex.quote(checkout_ref)
-            await sandbox.run(
-                f"git -C {repo_dir} fetch --depth 1 origin {ref}"
-                f" && git -C {repo_dir} checkout --detach {ref}",
-                timeout_seconds=CLONE_TIMEOUT_SECONDS,
-            )
+        await prepare_repo(sandbox, repo_url, state.get("checkout_ref"))
     commit = (await sandbox.run(f"git -C {repo_dir} rev-parse HEAD")).strip()
 
     listing = await sandbox.run(f"cd {repo_dir} && find . -type f -exec stat -c '%s %n' {{}} \\;")

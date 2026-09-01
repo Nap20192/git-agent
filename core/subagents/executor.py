@@ -22,16 +22,16 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
 from langgraph.errors import GraphRecursionError
 
-from core.agents.subagents.contract import SubagentResult, SubagentStatus
-from core.agents.subagents.receipts import (
+from core.subagents.contract import SubagentResult, SubagentStatus
+from core.subagents.receipts import (
     build_acceptance_criteria_system_note,
     build_report_contract_section,
     extract_citing_turn_receipts,
     extract_tool_receipts,
     render_acceptance_criteria_block,
 )
-from core.agents.subagents.registry import SubagentConfig
-from core.agents.subagents.steps import capture_new_step_messages
+from core.subagents.registry import SubagentConfig
+from core.subagents.steps import capture_new_step_messages
 from pkg.logger import get_logger
 
 log = get_logger(__name__)
@@ -139,9 +139,9 @@ class SubagentExecutor:
         from datetime import UTC, datetime
 
         from core.agents.factory import build_agent
-        from core.agents.middleware.tool_error_handling import ToolErrorHandlingMiddleware
-        from core.agents.middleware.tool_receipts import ToolReceiptMiddleware
-        from core.agents.middleware.tool_result_sanitization import (
+        from core.middleware.tool_error_handling import ToolErrorHandlingMiddleware
+        from core.middleware.tool_receipts import ToolReceiptMiddleware
+        from core.middleware.tool_result_sanitization import (
             ToolResultSanitizationMiddleware,
         )
 

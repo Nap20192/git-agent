@@ -19,7 +19,7 @@ from typing import Any
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from core.agents.subagents.receipts import (
+from core.subagents.receipts import (
     TOOL_RECEIPT_KEY,
     TOOL_RECEIPT_LEDGER_KEY,
     extract_tool_receipts,

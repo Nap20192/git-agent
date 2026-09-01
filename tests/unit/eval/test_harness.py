@@ -76,6 +76,23 @@ def test_lint_rejects_unknown_rule_and_duplicates():
         )
 
 
+def test_deprecated_battery_refused(tmp_path, monkeypatch):
+    from evals.battery import DEPRECATED_BATTERIES
+
+    unit = {
+        "unit_id": "u",
+        "repo_url": "x",
+        "commit_sha": "y",
+        "facts": [{"fact_id": "f", "rule": "prose_substring", "prose": "a"}],
+    }
+    path = tmp_path / "repos.v0.jsonl"
+    path.write_text(json.dumps(unit) + "\n")
+    monkeypatch.setitem(DEPRECATED_BATTERIES, "repos.v0.jsonl", "superseded by v1")
+    with pytest.raises(BatteryError, match="DEPRECATED"):
+        load_battery(path)
+    assert load_battery(path, allow_deprecated=True)  # явное разрешение работает
+
+
 def test_fact_rules_matrix():
     report = {
         "structure": {
@@ -429,8 +446,8 @@ def test_grade_twice_byte_identical(tmp_path):
 
 
 def test_signal_mirror_matches_app():
-    from core.agents.subagents.task_tool import _terminal_event  # noqa: F401
     from core.runtime.schemas import TERMINAL_STATUSES
+    from core.subagents.task_tool import _terminal_event  # noqa: F401
     from evals import common
 
     assert set(common.RUN_TERMINAL_STATUSES) == {s.value for s in TERMINAL_STATUSES}
@@ -441,6 +458,6 @@ def test_signal_mirror_matches_app():
 
     source = inspect.getsource(worker)
     assert f'"{common.USAGE_EVENT_KIND}"' in source
-    from core.agents.subagents import task_tool
+    from core.subagents import task_tool
 
     assert common.TASK_STARTED_TYPE in inspect.getsource(task_tool)

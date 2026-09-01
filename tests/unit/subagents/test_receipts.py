@@ -2,7 +2,7 @@
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from core.agents.subagents.receipts import (
+from core.subagents.receipts import (
     CITATION_RE,
     TOOL_RECEIPT_KEY,
     TOOL_RECEIPT_LEDGER_KEY,

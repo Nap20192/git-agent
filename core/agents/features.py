@@ -66,7 +66,7 @@ def assemble_from_features(
     plan_mode: bool,
     extra_middleware: list[AgentMiddleware],
 ) -> list[AgentMiddleware]:
-    from core.agents.middleware.tool_result_sanitization import (
+    from core.middleware.tool_result_sanitization import (
         ToolResultSanitizationMiddleware,
     )
 
@@ -112,17 +112,17 @@ def assemble_from_features(
             assembled.append(value)
         elif value is True:
             if field_name == "subagent":
-                from core.agents.middleware.subagent_limit import SubagentLimitMiddleware
+                from core.middleware.subagent_limit import SubagentLimitMiddleware
 
                 assembled.append(SubagentLimitMiddleware())
                 continue
             if field_name == "loop_detection":
-                from core.agents.middleware.loop_detection import LoopDetectionMiddleware
+                from core.middleware.loop_detection import LoopDetectionMiddleware
 
                 assembled.append(LoopDetectionMiddleware())
                 continue
             if field_name == "token_budget":
-                from core.agents.middleware.token_budget import TokenBudgetMiddleware
+                from core.middleware.token_budget import TokenBudgetMiddleware
 
                 assembled.append(TokenBudgetMiddleware())
                 continue
@@ -138,8 +138,8 @@ def assemble_from_features(
     # в обратном порядке — поздняя регистрация видит сырой ответ первой);
     # ToolErrorHandling — ПОСЛЕДНИМ (самый внутренний wrap_tool_call: его
     # error-ToolMessage видят все внешние слои, включая квитанции).
-    from core.agents.middleware.terminal_response import TerminalResponseMiddleware
-    from core.agents.middleware.tool_error_handling import ToolErrorHandlingMiddleware
+    from core.middleware.terminal_response import TerminalResponseMiddleware
+    from core.middleware.tool_error_handling import ToolErrorHandlingMiddleware
 
     assembled.append(TerminalResponseMiddleware())
     assembled.append(ToolErrorHandlingMiddleware())

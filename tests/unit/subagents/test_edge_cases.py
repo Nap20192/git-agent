@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from core.agents.middleware.tool_receipts import ToolReceiptMiddleware
-from core.agents.subagents.contract import (
+from core.middleware.tool_receipts import ToolReceiptMiddleware
+from core.subagents.contract import (
     SUBAGENT_METADATA_TEXT_MAX_CHARS,
     SubagentStatus,
     _truncate_head_tail,
@@ -16,12 +16,12 @@ from core.agents.subagents.contract import (
     make_subagent_additional_kwargs,
     read_subagent_result_metadata,
 )
-from core.agents.subagents.executor import (
+from core.subagents.executor import (
     SubagentExecutor,
     _build_messages,
     _extract_final_result,
 )
-from core.agents.subagents.receipts import (
+from core.subagents.receipts import (
     TOOL_RECEIPT_KEY,
     TOOL_RECEIPT_LEDGER_KEY,
     extract_citing_turn_receipts,
@@ -31,9 +31,9 @@ from core.agents.subagents.receipts import (
     render_tool_receipts_with_snapshot,
     verify_receipt_citations,
 )
-from core.agents.subagents.registry import GENERAL_PURPOSE
-from core.agents.subagents.steps import capture_new_step_messages
-from core.agents.tools import SANDBOX_OUTPUT_MAX_CHARS, build_sandbox_tools
+from core.subagents.registry import GENERAL_PURPOSE
+from core.subagents.steps import capture_new_step_messages
+from core.tools.sandbox import SANDBOX_OUTPUT_MAX_CHARS, build_sandbox_tools
 
 # -- contract: границы усечения ----------------------------------------------
 
@@ -349,7 +349,7 @@ def test_sandbox_tools_clip_and_error_text():
 
 def test_capacity_slot_released_on_exception():
     async def main():
-        from core.agents.subagents.capacity import SubagentCapacity
+        from core.subagents.capacity import SubagentCapacity
 
         cap = SubagentCapacity(max_running=1, max_queued=0, queue_timeout_seconds=1)
         with pytest.raises(RuntimeError):
@@ -363,7 +363,7 @@ def test_capacity_slot_released_on_exception():
 
 
 def test_limit_zero_budget_keeps_plain_tools_no_stop_note():
-    from core.agents.middleware.subagent_limit import SubagentLimitMiddleware
+    from core.middleware.subagent_limit import SubagentLimitMiddleware
 
     mw = SubagentLimitMiddleware(max_concurrent=3, max_total_per_run=0)
     message = AIMessage(

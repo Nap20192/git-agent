@@ -6,7 +6,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from core.agents.factory import build_agent
 from core.agents.features import RuntimeFeatures
-from core.agents.tools import build_sandbox_tools
+from core.tools.sandbox import build_sandbox_tools
 from tests.integration.test_subagents import FakeSandbox, ToolFakeModel, _ai_tool_call
 
 

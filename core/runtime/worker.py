@@ -80,7 +80,7 @@ async def run_agent(
             tracing_callbacks = build_tracing_callbacks()
             # Usage-коллектор на корне: считает ВСЕ LLM-вызовы рана (лид,
             # pipeline-parse, сабагенты) с дедупом по run_id вызова
-            from core.agents.subagents.executor import SubagentTokenCollector
+            from core.subagents.executor import SubagentTokenCollector
 
             usage_collector = SubagentTokenCollector(caller="run")
         except asyncio.CancelledError:

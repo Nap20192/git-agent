@@ -18,11 +18,11 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, ToolMessage
 
 # ре-экспорт для обратной совместимости импортов
-from core.agents.middleware._common import (  # noqa: F401
+from core.middleware._common import (  # noqa: F401
     _TOTAL_LIMIT_STOP_MSG,
     clone_ai_message_with_tool_calls,
 )
-from core.agents.subagents.contract import SUBAGENT_STATUS_KEY
+from core.subagents.contract import SUBAGENT_STATUS_KEY
 from pkg.logger import get_logger
 
 log = get_logger(__name__)

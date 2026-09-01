@@ -13,23 +13,23 @@ Wiring-рецепт:
     # для прогресс-событий task_* добавьте "custom" в stream_mode инвокации
 """
 
-from core.agents.subagents.capacity import (
+from core.subagents.capacity import (
     SubagentCapacity,
     SubagentCapacityError,
     SubagentCapacityRejected,
     SubagentCapacityTimeout,
 )
-from core.agents.subagents.contract import (
+from core.subagents.contract import (
     SubagentResult,
     SubagentStatus,
     read_subagent_result_metadata,
 )
-from core.agents.subagents.registry import (
+from core.subagents.registry import (
     SubagentConfig,
     available_subagent_names,
     get_subagent_config,
 )
-from core.agents.subagents.task_tool import build_task_tool
+from core.subagents.task_tool import build_task_tool
 
 __all__ = [
     "SubagentCapacity",

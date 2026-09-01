@@ -6,18 +6,18 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from core.agents.middleware._common import HIDE_FROM_UI_KEY
-from core.agents.middleware.loop_detection import (
+from core.middleware._common import HIDE_FROM_UI_KEY
+from core.middleware.loop_detection import (
     STOP_REASON_LOOP,
     LoopDetectionMiddleware,
 )
-from core.agents.middleware.terminal_response import (
+from core.middleware.terminal_response import (
     ERROR_FALLBACK_KEY,
     TerminalResponseMiddleware,
 )
-from core.agents.middleware.token_budget import STOP_REASON_TOKEN, TokenBudgetMiddleware
-from core.agents.middleware.tool_error_handling import ToolErrorHandlingMiddleware
-from core.agents.middleware.tool_result_sanitization import (
+from core.middleware.token_budget import STOP_REASON_TOKEN, TokenBudgetMiddleware
+from core.middleware.tool_error_handling import ToolErrorHandlingMiddleware
+from core.middleware.tool_result_sanitization import (
     SANITIZED_KEY,
     ToolResultSanitizationMiddleware,
     neutralize_framework_tags,
