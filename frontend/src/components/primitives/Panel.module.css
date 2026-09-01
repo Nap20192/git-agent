@@ -1,0 +1,26 @@
+.panel {
+  border: 1px solid var(--border);
+}
+.panel.soft {
+  border-color: var(--border-soft);
+}
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.title {
+  letter-spacing: 0.05em;
+  font-size: 12px;
+}
+.right {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

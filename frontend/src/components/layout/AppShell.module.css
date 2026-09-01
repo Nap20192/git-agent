@@ -1,0 +1,12 @@
+.shell {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}

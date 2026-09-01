@@ -1,0 +1,37 @@
+.strip {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-bottom: 1px solid var(--border-soft);
+  overflow-x: auto;
+}
+.tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 8px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tab:hover:not(:disabled) {
+  color: var(--amber);
+}
+.tab:disabled {
+  color: var(--dim);
+  cursor: not-allowed;
+}
+.active {
+  color: var(--amber);
+  border-bottom-color: var(--amber);
+}
+.badge {
+  font-size: 10px;
+  color: var(--dim);
+}

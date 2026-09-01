@@ -1,0 +1,44 @@
+.backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: flex-end;
+}
+.panel {
+  max-width: 92vw;
+  height: 100%;
+  background: var(--panel);
+  border-left: 1px solid var(--muted);
+  display: flex;
+  flex-direction: column;
+  animation: vk-in 0.14s ease-out;
+}
+.head {
+  display: flex;
+  align-items: center;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+.title {
+  letter-spacing: 0.04em;
+  font-size: 13px;
+}
+.close {
+  margin-left: auto;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+}
+.close:hover {
+  color: var(--amber);
+}
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}

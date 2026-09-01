@@ -1,0 +1,71 @@
+/* Design tokens — derived from the vnkjd monochrome design system and the
+   Vulnhunt reference (docs/design-reference/Vulnhunt.dc.html).
+
+   The reference hardcodes a dark palette in body{}. We keep dark as the app
+   default (data-theme="dark" on <html>) and expose everything as CSS custom
+   properties so components never hardcode a hex value. A light scope is stubbed
+   for future use; the reference only ships dark.
+
+   To retheme: override these variables under a new [data-theme] scope. Nothing
+   else in the app should reference raw colors. */
+
+:root,
+:root[data-theme="dark"] {
+  /* surfaces */
+  --bg: #080706;
+  --bg-deep: #050403; /* status bars, inputs, terminal panes */
+  --panel: #0e0d0b;
+  --panel-2: #12100d;
+  --elevated: #1c1c1c;
+  --subtle: #2a2a2a;
+
+  /* borders */
+  --border: #333130;
+  --border-soft: #211f1d;
+
+  /* text */
+  --text: #dadada;
+  --muted: #7a7468;
+  --comment: #9a9a9a;
+  --dim: #565049;
+
+  /* brand accents */
+  --amber: #ffaf00;
+  --amber-hover: #ff7a1a;
+  --amber-bright: #ffc23d;
+  --burnt: #cc5200;
+  --blue: #00afff;
+
+  /* severity scale */
+  --crit: #ff3d6e;
+  --high: #d77a61;
+  --med: #ffaf00;
+  --low: #93ad6d;
+  --info: #7a7468;
+
+  /* hover fills */
+  --hover: #171410;
+  --hover-2: #141210;
+
+  /* typography */
+  --font-mono: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --fs-root: 13px;
+  --lh-root: 1.35;
+
+  /* spacing scale (px) */
+  --sp-1: 4px;
+  --sp-2: 6px;
+  --sp-3: 8px;
+  --sp-4: 12px;
+  --sp-5: 14px;
+  --sp-6: 16px;
+  --sp-7: 20px;
+  --sp-8: 26px;
+
+  /* chrome heights */
+  --topbar-h: 30px;
+  --statusbar-h: 22px;
+
+  /* z-index */
+  --z-modal: 50;
+}

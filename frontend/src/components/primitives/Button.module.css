@@ -1,0 +1,35 @@
+.btn {
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  padding: 8px 16px;
+  background: #0b0a08;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    color 0.12s,
+    background 0.12s;
+}
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.btn.primary {
+  background: var(--amber);
+  color: #000;
+  font-weight: 700;
+  border-color: var(--amber);
+}
+.btn.primary:hover:not(:disabled) {
+  background: var(--amber-bright);
+}
+.btn.outline:hover:not(:disabled),
+.btn.ghost:hover:not(:disabled) {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+.btn.ghost {
+  background: transparent;
+}

@@ -1,0 +1,138 @@
+.tabsWrap {
+  flex-shrink: 0;
+}
+.body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 14px;
+}
+.close {
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0 2px;
+}
+.close:hover {
+  color: var(--amber);
+}
+.note {
+  color: var(--dim);
+  font-size: 12px;
+  padding: 8px 0;
+}
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tool {
+  border: 1px solid var(--border-soft);
+  background: var(--bg-deep);
+  padding: 8px 10px;
+}
+.toolHead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.toolName {
+  font-size: 12px;
+  color: var(--text);
+}
+.toolDesc {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 3px 0 5px;
+}
+.sig {
+  display: block;
+  font-size: 11px;
+  color: var(--amber);
+  background: #0b0a08;
+  padding: 4px 6px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.skill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-deep);
+  cursor: pointer;
+}
+.skill:hover {
+  border-color: var(--amber);
+}
+.skillName {
+  font-size: 12px;
+  color: var(--text);
+}
+.skillLink {
+  margin-left: auto;
+  color: var(--amber);
+}
+.section {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 12px 0 6px;
+}
+.criteria {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.6;
+}
+.receipt {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-deep);
+  font-size: 11px;
+}
+.receiptId {
+  color: var(--amber);
+  flex-shrink: 0;
+}
+.receiptTool {
+  color: var(--blue);
+  flex-shrink: 0;
+}
+.receiptSummary {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.event {
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: 6px;
+}
+.eventHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.eventType {
+  font-size: 10px;
+  color: var(--blue);
+  width: 92px;
+  flex-shrink: 0;
+}
+.eventMsg {
+  font-size: 11px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eventChevron {
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 10px;
+}
