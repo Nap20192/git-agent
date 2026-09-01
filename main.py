@@ -72,7 +72,12 @@ async def _print_progress(runtime: Runtime, run_id: int) -> None:
 
 
 async def run(args: argparse.Namespace) -> dict[str, Any]:
-    profile = build_lead_profile() if args.mode == "agent" else PIPELINE_PROFILE
+    if args.mode == "agent":
+        from infra.mcp import load_mcp_tools
+
+        profile = build_lead_profile(await load_mcp_tools())
+    else:
+        profile = PIPELINE_PROFILE
 
     async def repository(url: str) -> dict[str, Any]:
         return await asyncio.to_thread(get_or_create_repository, url)

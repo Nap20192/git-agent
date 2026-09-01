@@ -46,7 +46,9 @@ async def _lifespan(app: FastAPI):
         return await asyncio.to_thread(get_or_create_repository, url)
 
     from core.lead import build_lead_profile
+    from infra.mcp import load_mcp_tools
 
+    mcp_tools = await load_mcp_tools()
     store, bridge = PostgresRunStore(), MemoryStreamBridge()
     async with AsyncPostgresSaver.from_conn_string(settings.database_url) as checkpointer:
 
@@ -63,7 +65,7 @@ async def _lifespan(app: FastAPI):
 
         runtimes = {
             "pipeline": make_runtime(PIPELINE_PROFILE),
-            "agent": make_runtime(build_lead_profile()),
+            "agent": make_runtime(build_lead_profile(mcp_tools)),
         }
         for runtime in runtimes.values():
             await runtime.start()

@@ -1,8 +1,9 @@
-"""Лид-агент как GraphProfile: ReAct-лид с sandbox-тулами + делегированием.
+"""Лид-агент как GraphProfile: ReAct-лид, security-ревью кода репозитория.
 
-Отличие от линейного pipeline: лид сам решает, что читать и когда делегировать
-исследование сабагентам; вход — задача текстом, отчёт — финальный ответ модели.
-Подключается в рантайм как профиль, воркер не меняется.
+Отличие от линейного pipeline: лид сам решает, что читать и когда делегировать;
+вход — задача текстом, отчёт — резюме + структурированные Находки. В security-
+режиме у него есть report_finding, load_skill (skills-справочник) и — при
+подключённых MCP-серверах — их тулы за deferred-каталогом (tool_search).
 """
 
 from __future__ import annotations
@@ -11,43 +12,64 @@ from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.tools import BaseTool
 
 from core.agents.factory import build_agent
 from core.agents.features import RuntimeFeatures
+from core.agents.findings import build_security_tools, collect_findings
 from core.ports import Sandbox
 from core.repo import prepare_repo
 from core.runtime.profile import GraphProfile
+from core.skills import available_skills
 from core.subagents import SubagentCapacity, build_task_tool
+from core.tools import assemble_deferred_tools, get_deferred_tools_prompt_section
 from core.tools.sandbox import build_sandbox_tools
 
 LEAD_MAX_TURNS = 100000
 
-LEAD_SYSTEM_PROMPT = """Ты — ведущий агент, который исследует git-репозиторий и \
-составляет о нём структурированный отчёт. Репозиторий УЖЕ СКЛОНИРОВАН в директорию \
-{repo_dir} внутри песочницы — работай там, повторно клонировать НЕ нужно.
+
+def _skills_catalog() -> str:
+    by_cat: dict[str, list[str]] = {}
+    for skill in available_skills():
+        by_cat.setdefault(skill["category"], []).append(skill["name"])
+    return "\n".join(
+        f"- {cat}: {', '.join(sorted(names))}" for cat, names in sorted(by_cat.items())
+    )
+
+
+LEAD_SYSTEM_PROMPT = """Ты — авторизованный security-ревьюер кода. Репозиторий УЖЕ \
+СКЛОНИРОВАН в {repo_dir} внутри изолированной песочницы (только чтение исходников, \
+без запуска). Твоя задача — найти реальные уязвимости в КОДЕ и составить отчёт \
+из подтверждённых Находок.
 
 Инструменты:
-- sandbox_run(command): shell-команда в песочнице (git, find, cat, grep, ls).
-  Начни с `ls -la {repo_dir}` и осмотра дерева файлов.
-- read_file(path): прочитать файл (абсолютный путь внутри {repo_dir}).
-- task(...): делегировать под-исследование сабагенту с изолированным контекстом.
-  Делегируй ТОЛЬКО когда это явно выгодно (тяжёлое чтение многих файлов, независимые
-  ветки анализа), не ради каждого шага.
+- sandbox_run(command): shell в песочнице (find, grep, cat, git). Начни с обзора дерева.
+- read_file(path): прочитать файл (путь внутри {repo_dir}).
+- load_skill(skills): подгрузить методичку по классу уязвимости/технологии ПЕРЕД \
+  проверкой (точный синтаксис, места, признаки). Максимум 5 за раз.
+- report_finding(...): зафиксировать ПОДТВЕРЖДЁННУЮ уязвимость (severity, файл/строки, \
+  описание, impact, evidence-цитата кода, cwe, remediation). Только по реально \
+  прочитанному коду, не по догадке.
+- task(...): делегировать под-проверку сабагенту (тяжёлое чтение, независимые ветки).
+{mcp_section}
 
-Рабочий процесс (уложись примерно в 15 ходов):
-1. Осмотри структуру {repo_dir}: дерево файлов, языки, README, манифесты зависимостей.
-2. Прочитай ключевые файлы, чтобы понять назначение и устройство проекта.
-3. Дай ФИНАЛЬНЫЙ ОТВЕТ — структурированный отчёт: назначение, стек, структура,
-   ключевые модули, зависимости, точки входа. Опирайся на прочитанное.
+Каталог skills (загружай релевантные через load_skill):
+{skills_catalog}
 
-ВАЖНО: когда данных достаточно, дай финальный ответ ТЕКСТОМ БЕЗ вызова инструментов —
-это единственный сигнал завершения. Не зови инструменты бесконечно; лучше короткий
-честный отчёт, чем ещё один tool-вызов."""
+Рабочий процесс:
+1. Осмотри структуру, стек, точки входа, обработку недоверенного ввода, зависимости.
+2. По каждому подозрению: подгрузи skill, прочитай код, подтверди эксплуатируемость.
+3. Фиксируй КАЖДУЮ подтверждённую уязвимость через report_finding с severity и evidence.
+4. Дай ФИНАЛЬНЫЙ ОТВЕТ ТЕКСТОМ БЕЗ вызова инструментов — краткое резюме ревью \
+   (это единственный сигнал завершения). Находки уже зафиксированы инструментом.
+
+ВАЖНО: severity калибруй консервативно; не выдумывай уязвимости ради количества. \
+Лучше короткий честный отчёт, чем ложные срабатывания."""
 
 _LEAD_TASK = (
-    "Исследуй репозиторий {repo_url} (склонирован в рабочую директорию, путь — в"
-    " системном промпте) и составь структурированный отчёт: что это за проект, из"
-    " чего состоит, как устроен. Начни с осмотра рабочей директории."
+    "Проведи security-ревью кода репозитория {repo_url} (склонирован в рабочую"
+    " директорию, путь — в системном промпте). Найди и зафиксируй реальные"
+    " уязвимости. Начни с осмотра рабочей директории."
 )
 
 
@@ -66,27 +88,58 @@ def _lead_input(
     return {"messages": [HumanMessage(content=text)]}
 
 
-def _lead_report(values: dict[str, Any]) -> dict[str, Any] | None:
-    messages = (values or {}).get("messages") or []
+def _final_answer(messages: list[Any]) -> str:
     for message in reversed(messages):
         if isinstance(message, AIMessage) and not message.tool_calls:
             text = message.text if isinstance(message.text, str) else str(message.content)
             if text and text.strip():
-                return {"answer": text}
-    return {"answer": "", "error": "lead produced no final answer"}
+                return text.strip()
+    return ""
 
 
-def build_lead_profile() -> GraphProfile:
+def _lead_report(values: dict[str, Any]) -> dict[str, Any] | None:
+    messages = (values or {}).get("messages") or []
+    findings = collect_findings(messages)
+    summary = _final_answer(messages)
+    if not summary and not findings:
+        return {"answer": "", "findings": [], "error": "lead produced no final answer"}
+    # answer — совместимость (proseview/старый UI); summary — то же, findings — новое
+    return {"answer": summary, "summary": summary, "findings": findings}
+
+
+def build_lead_profile(mcp_tools: list[BaseTool] = ()) -> GraphProfile:
+    mcp_tools = list(mcp_tools)
+
     def _build(sandbox: Sandbox, model: BaseChatModel, *, checkpointer: Any = None) -> Any:
         capacity = SubagentCapacity()
-        tools = [
+        security_tools = build_security_tools()
+        # load_skill — детям (справочник); report_finding консолидирует лид
+        child_skill = [t for t in security_tools if t.name == "load_skill"]
+        candidates = [
             *build_sandbox_tools(sandbox),
-            build_task_tool(sandbox=sandbox, model=model, capacity=capacity),
+            *security_tools,
+            build_task_tool(
+                sandbox=sandbox, model=model, capacity=capacity, extra_tools=child_skill
+            ),
+            *mcp_tools,
         ]
+        tools, setup = assemble_deferred_tools(candidates, enabled=bool(mcp_tools))
+        mcp_section = ""
+        if setup.deferred_names:
+            mcp_section = (
+                "\n- MCP-тулы (CVE-интеллект и др.): их схемы отложены; найди нужный"
+                " тул через tool_search и вызови.\n"
+                + get_deferred_tools_prompt_section(deferred_names=setup.deferred_names)
+            )
+        prompt = LEAD_SYSTEM_PROMPT.format(
+            repo_dir=sandbox.repo_dir,
+            skills_catalog=_skills_catalog(),
+            mcp_section=mcp_section,
+        )
         return build_agent(
             model,
             tools,
-            system_prompt=LEAD_SYSTEM_PROMPT.format(repo_dir=sandbox.repo_dir),
+            system_prompt=prompt,
             features=RuntimeFeatures(subagent=True, loop_detection=True, token_budget=True),
             checkpointer=checkpointer,
             name="lead",
@@ -97,7 +150,6 @@ def build_lead_profile() -> GraphProfile:
         prepare=prepare_repo,
         make_input=_lead_input,
         extract_report=_lead_report,
-        # custom — прогресс-события сабагентов (task_*); updates — ходы графа
         stream_modes=["updates", "custom"],
         run_config={"recursion_limit": LEAD_MAX_TURNS},
     )

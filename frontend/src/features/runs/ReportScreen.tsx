@@ -4,7 +4,69 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useReport } from "@/hooks";
 import { Badge, KeyValueList, Meter, Panel, PanelHeader } from "@/components/primitives";
 import type { KeyValueRow } from "@/components/primitives";
+import type { Finding, Severity } from "@/api";
 import styles from "./report.module.css";
+
+const SEVERITY_TONE: Record<Severity, "crit" | "high" | "amber" | "muted"> = {
+  critical: "crit",
+  high: "high",
+  medium: "amber",
+  low: "muted",
+  info: "muted",
+};
+const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low", "info"];
+
+function FindingsPanel({ findings }: { findings: Finding[] }) {
+  const counts = SEVERITY_ORDER.map(
+    (s) => [s, findings.filter((f) => f.severity === s).length] as const,
+  ).filter(([, n]) => n > 0);
+  return (
+    <Panel className={styles.section}>
+      <PanelHeader icon="⚠" iconTone="high" title="FINDINGS" right={<span>{findings.length}</span>} />
+      <div className={styles.chips}>
+        {counts.length === 0 ? (
+          <span className={styles.emptyDim}>no findings</span>
+        ) : (
+          counts.map(([s, n]) => (
+            <Badge key={s} tone={SEVERITY_TONE[s]}>
+              {s} · {n}
+            </Badge>
+          ))
+        )}
+      </div>
+      <div className={styles.findings}>
+        {findings.map((f, i) => (
+          <div key={`${f.title}-${i}`} className={styles.finding}>
+            <div className={styles.findingHead}>
+              <Badge tone={SEVERITY_TONE[f.severity]}>{f.severity}</Badge>
+              <span className={styles.findingTitle}>{f.title}</span>
+              {f.cwe && <span className={styles.findingTag}>{f.cwe}</span>}
+              {f.cve && <span className={styles.findingTag}>{f.cve}</span>}
+            </div>
+            {f.file && (
+              <div className={styles.findingLoc}>
+                {f.file}
+                {f.startLine ? `:${f.startLine}` : ""}
+              </div>
+            )}
+            <p className={styles.findingDesc}>{f.description}</p>
+            {f.evidence && <pre className={styles.findingEvidence}>{f.evidence}</pre>}
+            {f.impact && (
+              <p className={styles.findingMeta}>
+                <span className={styles.findingMetaLabel}>impact</span> {f.impact}
+              </p>
+            )}
+            {f.remediation && (
+              <p className={styles.findingMeta}>
+                <span className={styles.findingMetaLabel}>fix</span> {f.remediation}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
 
 /** Byte count -> "12.3 KB" / "4.1 MB". */
 function bytes(n: number): string {
@@ -55,11 +117,15 @@ export function ReportScreen() {
           </Panel>
         ) : (
           <>
+            {report.findings && <FindingsPanel findings={report.findings} />}
+
             <Panel className={styles.section}>
-              <PanelHeader icon="◈" title="DESCRIPTION" />
-              <p className={styles.prose}>{report.description}</p>
+              <PanelHeader icon="◈" title={report.findings ? "SUMMARY" : "DESCRIPTION"} />
+              <p className={styles.prose}>{report.summary || report.description}</p>
             </Panel>
 
+            {structure.fileCount > 0 && (
+            <>
             <Panel className={styles.section}>
               <PanelHeader icon="▤" title="STRUCTURE" right={<span>{structure.fileCount} files</span>} />
               <KeyValueList rows={structRows} />
@@ -127,6 +193,8 @@ export function ReportScreen() {
                 )}
               </div>
             </Panel>
+            </>
+            )}
 
             {report.skippedFiles.length > 0 && (
               <div className={styles.skipped}>{report.skippedFiles.length} files skipped</div>

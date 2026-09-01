@@ -26,5 +26,9 @@ class Settings(BaseSettings):
     # Образ песочницы для сканирования (нужен git + coreutils)
     sandbox_image: str = "alpine/git:latest"
 
+    # MCP: путь к cve-mcp-server (stdio через `uv run --project`); пусто = выкл.
+    cve_mcp_path: str = ""
+    nvd_api_key: str = ""  # прокидывается в env cve-mcp (опционально)
+
 
 settings = Settings()

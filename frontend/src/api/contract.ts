@@ -209,6 +209,24 @@ export interface ReportStructure {
   files: string[];
 }
 
+export type Severity = "critical" | "high" | "medium" | "low" | "info";
+
+/** A security finding recorded by the lead in agent security-review mode. */
+export interface Finding {
+  title: string;
+  severity: Severity;
+  description: string;
+  file: string | null;
+  startLine: number | null;
+  endLine: number | null;
+  cwe: string | null;
+  cve: string | null;
+  impact: string | null;
+  evidence: string | null;
+  remediation: string | null;
+  confidence: string | null;
+}
+
 export interface Report {
   repoUrl: string;
   commit: string;
@@ -217,6 +235,9 @@ export interface Report {
   modules: ReportModule[];
   dependencies: string[];
   skippedFiles: string[];
+  /** Present in agent security-review runs. */
+  findings?: Finding[];
+  summary?: string;
   error?: string;
 }
 

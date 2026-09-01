@@ -38,8 +38,14 @@ def build_task_tool(
     sandbox: Sandbox,
     model: BaseChatModel,
     capacity: SubagentCapacity,
+    extra_tools: list[BaseTool] | None = None,
 ) -> BaseTool:
-    """Замыкание на песочницу/модель/capacity лида — общих глобалов нет."""
+    """Замыкание на песочницу/модель/capacity лида — общих глобалов нет.
+
+    extra_tools — дополнительные тулы Сабагентам поверх sandbox (например
+    load_skill в security-режиме); у детей по-прежнему нет тула task.
+    """
+    child_extra = list(extra_tools or [])
 
     def _writer():
         try:
@@ -108,7 +114,9 @@ def build_task_tool(
         def on_step(step: dict[str, Any]) -> None:
             writer({"type": "task_running", **step})
 
-        executor = SubagentExecutor(config, model, build_sandbox_tools(sandbox), on_step=on_step)
+        executor = SubagentExecutor(
+            config, model, [*build_sandbox_tools(sandbox), *child_extra], on_step=on_step
+        )
         result = SubagentResult(task_id=tool_call_id)
         try:
             async with capacity.slot():

@@ -221,6 +221,11 @@ def report_to_wire(report: dict[str, Any]) -> dict[str, Any]:
         "dependencies": report.get("dependencies", []),
         "skippedFiles": report.get("skipped_files", []),
     }
+    # security-режим: findings уже в camelCase (findings.py::_finding_from_args)
+    findings = report.get("findings")
+    if findings is not None:
+        wire["findings"] = findings
+        wire["summary"] = report.get("summary") or description
     if report.get("error"):
         wire["error"] = report["error"]
     return wire
