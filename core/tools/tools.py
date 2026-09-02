@@ -12,10 +12,7 @@ def _is_host_bash_tool(cfg) -> bool:
 
 
 def get_available_tools(config_entries, builtin_tools, mcp_tools=(), *, host_bash_allowed=True):
-    """config_entries: список (cfg, tool), как в реальном резолве config.yaml.
-
-    Приоритет при дедупе: config > builtins > mcp (issue #1803 — расхождение
-    имени в схеме LLM и в роутере даёт "not a valid tool")."""
+    """config_entries: список (cfg, tool), как в реальном резолве config.yaml."""
     if not host_bash_allowed:
         config_entries = [(cfg, t) for cfg, t in config_entries if not _is_host_bash_tool(cfg)]
     config_tools = [t for _, t in config_entries]

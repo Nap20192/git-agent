@@ -153,30 +153,44 @@ export interface Run {
 export interface RunFeatures {
   /** RuntimeFeatures.subagent — enable the `task` tool + limit middleware. */
   subagent: boolean;
-  /** SubagentCapacity: max concurrent delegations (FIFO admission). */
+  /** SubagentCapacity concurrency + lead-side max_concurrent. */
   maxSubagents: number;
+  /** SubagentLimitMiddleware: total delegations allowed per run. */
+  maxTotalSubagents: number;
   /** Per-run token budget (token_budget feature). null = unlimited. */
   tokenBudget: number | null;
   /** RuntimeFeatures.guardrail — planned. */
   guardrail: boolean;
   /** RuntimeFeatures.loop_detection — planned. */
   loopDetection: boolean;
+  /** Per-subagent execution timeout, seconds. null = type default (600s). */
+  subagentTimeout: number | null;
+  /** Wait for a free capacity slot, seconds. null = default (300s). */
+  queueTimeout: number | null;
 }
 
 export const DEFAULT_RUN_FEATURES: RunFeatures = {
   subagent: true,
   maxSubagents: 4,
+  maxTotalSubagents: 6,
   tokenBudget: null,
   guardrail: false,
   loopDetection: false,
+  subagentTimeout: null,
+  queueTimeout: null,
 };
 
 /** Per-run limits persisted on the run (subset of RunFeatures honored today). */
 export interface RunLimits {
   subagent?: boolean;
   maxSubagents?: number;
+  maxTotalSubagents?: number;
   tokenBudget?: number | null;
   loopDetection?: boolean;
+  /** Per-subagent execution timeout, seconds (null/omit = type default 600s). */
+  subagentTimeout?: number | null;
+  /** Wait for a free capacity slot, seconds (null/omit = default 300s). */
+  queueTimeout?: number | null;
 }
 
 export interface SubmitRunRequest {
@@ -346,6 +360,12 @@ export type RunEventType =
   | "log"
   | "gap"; // StreamGap
 
+/** A persisted post-run chat turn (user question or agent answer). */
+export interface ChatTurn {
+  role: "user" | "agent";
+  text: string;
+}
+
 export interface RunEvent {
   cursor: number;
   ts: string;
@@ -411,6 +431,23 @@ export interface SandboxSpec {
   workdir: string | null;
   createdAt: string;
   runCount: number;
+}
+
+export type SandboxInstanceStatus = "alive" | "dead";
+
+/**
+ * A provisioned sandbox (not a preset): created without TTL, lives past the run
+ * that made it until killed by hand. Resume reconnects to a live instance by id.
+ */
+export interface SandboxInstance {
+  id: string;
+  externalId: string;
+  kind: string;
+  image: string | null;
+  runId: string | null;
+  status: SandboxInstanceStatus;
+  createdAt: string;
+  killedAt: string | null;
 }
 
 // ── capabilities catalog (honest: no "skills" system exists) ──────────────────

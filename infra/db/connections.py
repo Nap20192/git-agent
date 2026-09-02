@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from infra.postgres import get_pool
+from infra.db.postgres import get_pool
 
 
 def list_connections() -> list[dict[str, Any]]:

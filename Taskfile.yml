@@ -75,15 +75,10 @@ tasks:
     desc: Полная проверка — линтер + тесты (тесты включают Lean-верификацию)
     deps: [lint, test]
 
-  run:
-    desc: 'Запустить агента: task run -- <repo-url> [флаги]'
-    cmds:
-      - uv run main.py {{.CLI_ARGS}}
-
   server:
     desc: HTTP-gateway (FastAPI) на :8080 (нужны Postgres + OpenSandbox)
     cmds:
-      - uv run uvicorn server.app:app --port 8080
+      - uv run uvicorn main:app --port 8080
 
   front:
     desc: Фронтенд (vite dev, :5173) с http-адаптером к беку
@@ -99,6 +94,6 @@ tasks:
       - |
         bash -c '
         trap "kill 0" INT TERM
-        uv run uvicorn server.app:app --port 8080 &
+        uv run uvicorn main:app --port 8080 &
         (cd frontend && bun install --silent && bun dev) &
         wait'

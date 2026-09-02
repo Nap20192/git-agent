@@ -12,12 +12,12 @@ def test_skills_catalog_and_load():
     names = {s["name"] for s in skills}
     assert "sql_injection" in names and "authentication_jwt" in names
     body = load_skills(["sql_injection"])
-    assert "sql_injection" in body and "---" not in body["sql_injection"][:5]  # frontmatter снят
+    assert "sql_injection" in body and "---" not in body["sql_injection"][:5]
 
 
 def test_validate_requested_skills():
     assert validate_requested_skills(["sql_injection"]) is None
-    assert validate_requested_skills(["sql-injection"]) is None  # дефис = подчёркивание
+    assert validate_requested_skills(["sql-injection"]) is None
     assert "unknown" in validate_requested_skills(["nope"])
     assert "too many" in validate_requested_skills([f"s{i}" for i in range(6)])
     assert validate_requested_skills([]) is not None
@@ -38,16 +38,16 @@ def test_collect_findings_dedup_and_sort():
     msgs = [
         call(title="XSS", severity="low", description="a"),
         call(title="RCE", severity="critical", description="b", file="app.py", start_line=5),
-        call(title="XSS", severity="low", description="a"),  # дубль
-        AIMessage(content="", tool_calls=[{"name": "task", "args": {}, "id": "2"}]),  # не finding
+        call(title="XSS", severity="low", description="a"),
+        AIMessage(content="", tool_calls=[{"name": "task", "args": {}, "id": "2"}]),
     ]
     findings = collect_findings(msgs)
-    assert [f["title"] for f in findings] == ["RCE", "XSS"]  # critical → low, дедуп
+    assert [f["title"] for f in findings] == ["RCE", "XSS"]
     assert findings[0]["file"] == "app.py" and findings[0]["startLine"] == 5
 
 
 def test_wire_report_surfaces_findings():
-    from server.wire import report_to_wire
+    from infra.server.wire import report_to_wire
 
     report = {
         "answer": "review done",
@@ -66,7 +66,7 @@ def test_mcp_config_off_by_default(monkeypatch):
     monkeypatch.setattr(settings, "cve_mcp_path", "")
     assert _server_configs() == {}
     monkeypatch.setattr(settings, "cve_mcp_path", "/nonexistent/path/xyz")
-    assert _server_configs() == {}  # путь не существует → выкл
+    assert _server_configs() == {}
 
 
 def test_collect_findings_from_events_merges_lead_and_subagents():

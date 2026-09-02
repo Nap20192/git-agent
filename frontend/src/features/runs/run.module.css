@@ -70,9 +70,17 @@
 .streamPane {
   display: flex;
   flex-direction: column;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   min-height: 0;
   background: var(--panel-2);
+}
+.chatCol {
+  width: 420px;
+  flex-shrink: 0;
+  display: flex;
+  min-height: 0;
+  border-left: 1px solid var(--border);
 }
 .streamTools {
   display: flex;

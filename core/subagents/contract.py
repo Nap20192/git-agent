@@ -1,10 +1,4 @@
-"""Контракт статусов/результата сабагента (референс: deerflow/subagents/status_contract.py).
-
-Статусы — закрытый enum; причина обрыва по капу — АДДИТИВНОЕ поле stop_reason
-при нормальном статусе (capped-с-выводом = completed, capped-без = failed),
-новые значения enum ломали бы старых потребителей, неизвестное опциональное
-поле они просто игнорируют.
-"""
+"""Контракт статусов/результата сабагента (референс: deerflow/subagents/status_contract.py)."""
 
 from __future__ import annotations
 
@@ -70,15 +64,7 @@ class SubagentStatus(Enum):
 
 @dataclass
 class SubagentResult:
-    """Результат-холдер одной делегации.
-
-    Терминализация — first-writer-wins: воркер (COMPLETED/FAILED) и обработчики
-    таймаута/отмены в task-туле гонятся за одним холдером; поздняя терминальная
-    запись не меняет ни статус, ни payload. Payload пишется до status —
-    читатели гейтятся на is_terminal между await-точками.
-    # ponytail: без лока — один event loop, все писатели синхронные корутины;
-    # добавить threading.Lock, если писатель уедет в другой поток/луп.
-    """
+    """Результат-холдер одной делегации."""
 
     task_id: str
     status: SubagentStatus = SubagentStatus.PENDING
@@ -118,7 +104,7 @@ class SubagentResult:
         if token_usage_records is not None:
             self.token_usage_records = list(token_usage_records)
         self.completed_at = datetime.now(UTC)
-        self.status = status  # последним: читатели гейтятся на is_terminal
+        self.status = status
         return True
 
     def update_token_usage_records(self, records: list[dict[str, Any]]) -> None:

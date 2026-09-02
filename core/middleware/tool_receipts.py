@@ -1,16 +1,4 @@
-"""ToolReceiptMiddleware — рантайм-слой квитанций (устанавливается ТОЛЬКО на
-детские цепочки; обязан быть самым внешним wrap_tool_call).
-
-Инварианты:
-- штамп ПЕРЕЗАПИСЫВАЕТ ключ безусловно (анти-подделка: тул не может
-  сфабриковать «своё доказательство»);
-- никогда не блокирует исполнение тула (сбой штамповки — warning в лог);
-- леджер инжектится в ЗАПРОС модели (после ведущих system-сообщений),
-  НЕ в состояние — нет стейл-аккумуляции и второго SystemMessage;
-- на каждый AIMessage ответа штампуется снапшот ОТРЕНДЕРЕННОГО подмножества
-  леджера — по нему верифицируются цитаты этого хода (перенумерация после
-  компакции не ломает резолв).
-"""
+"""ToolReceiptMiddleware — рантайм-слой квитанций (устанавливается ТОЛЬКО на"""
 
 from __future__ import annotations
 
@@ -40,7 +28,6 @@ class ToolReceiptMiddleware(AgentMiddleware):
                     TOOL_RECEIPT_KEY: make_tool_receipt(request.tool_call, result),
                 }
             elif hasattr(result, "update") and isinstance(result.update, dict):
-                # Command: штамповать только сообщения этого tool_call
                 for message in result.update.get("messages", []):
                     if isinstance(
                         message, ToolMessage
@@ -70,7 +57,6 @@ class ToolReceiptMiddleware(AgentMiddleware):
         insert_at = 0
         while insert_at < len(messages) and isinstance(messages[insert_at], SystemMessage):
             insert_at += 1
-        # human-роль, не system: строгие провайдеры режут второй system
         messages.insert(insert_at, HumanMessage(content=rendered))
         return request.override(messages=messages), [dict(r) for r in snapshot]
 

@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     # Postgres
     database_url: str = "postgresql://git_agent:git_agent@localhost:5433/git_agent"
 
+    # HTTP-gateway (main.py:app)
+    server_host: str = "0.0.0.0"
+    server_port: int = 8080
+
     # LLM (OpenAI-совместимый endpoint; переопределяются флагами CLI на каждый ран)
     llm_api_base: str = ""
     llm_api_key: str = ""

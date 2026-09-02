@@ -1,14 +1,4 @@
-"""FastAPI-gateway: тонкий HTTP/SSE-слой над фасадом Runtime.
-
-Контракт — frontend/docs/openapi.yaml (авторитетный). Адаптерный слой:
-зависимости направлены внутрь (server → core/infra), core об HTTP не знает.
-Запуск: uv run uvicorn server.app:app --port 8080
-
-Режимы: по Runtime на профиль (pipeline и agent) над ОБЩИМИ store и bridge —
-submit маршрутизируется по body.mode, resume — по фактическому режиму Рана
-(агентность видна из событий). Идентичность Рана режим не включает
-(кросс-режимный resubmit присоединяется — документировано в спеках).
-"""
+"""FastAPI-gateway: тонкий HTTP/SSE-слой над фасадом Runtime."""
 
 from __future__ import annotations
 
@@ -20,8 +10,8 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from server import wire
-from server.graphview import derive_graph, node_spec
+from infra.server import wire
+from infra.server.graphview import derive_graph, node_spec
 
 app: FastAPI  # определяется в конце модуля
 
@@ -32,49 +22,11 @@ def _error(status: int, code: str, message: str) -> HTTPException:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from deps import app_deps
 
-    from core.agents.llm import make_model
-    from core.config import settings
-    from core.runtime import MemoryStreamBridge, Runtime
-    from core.runtime.profile import PIPELINE_PROFILE
-    from infra.postgres import get_or_create_repository
-    from infra.run_store import PostgresRunStore
-    from infra.sandboxes import create_sandbox_by_name
-
-    async def repository(url: str) -> dict[str, Any]:
-        return await asyncio.to_thread(get_or_create_repository, url)
-
-    from core.lead import build_lead_profile
-    from infra.mcp import load_mcp_tools
-
-    mcp_tools = await load_mcp_tools()
-    store, bridge = PostgresRunStore(), MemoryStreamBridge()
-    async with AsyncPostgresSaver.from_conn_string(settings.database_url) as checkpointer:
-
-        def make_runtime(profile):
-            return Runtime(
-                store=store,
-                bridge=bridge,
-                make_model=make_model,
-                create_sandbox=create_sandbox_by_name,
-                get_or_create_repository=repository,
-                profile=profile,
-                checkpointer=checkpointer,
-            )
-
-        runtimes = {
-            "pipeline": make_runtime(PIPELINE_PROFILE),
-            "agent": make_runtime(build_lead_profile(mcp_tools)),
-        }
-        for runtime in runtimes.values():
-            await runtime.start()
-        app.state.runtimes = runtimes
-        try:
-            yield
-        finally:
-            for runtime in runtimes.values():
-                await runtime.shutdown()
+    async with app_deps() as deps:
+        app.state.runtimes = deps.runtimes
+        yield
 
 
 def create_app(runtime: Any | None = None) -> FastAPI:
@@ -91,7 +43,15 @@ def _runtime(request: Request, mode: str = "pipeline") -> Any:
     return runtimes.get(mode) or runtimes["pipeline"]
 
 
-_LIMIT_KEYS = ("subagent", "maxSubagents", "tokenBudget", "loopDetection")
+_LIMIT_KEYS = (
+    "subagent",
+    "maxSubagents",
+    "maxTotalSubagents",
+    "tokenBudget",
+    "loopDetection",
+    "subagentTimeout",
+    "queueTimeout",
+)
 
 
 def _limits_from_body(body: dict[str, Any]) -> dict[str, Any] | None:
@@ -104,14 +64,14 @@ def _limits_from_body(body: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _lead_tool_calls(events: list[dict[str, Any]]) -> int:
-    from server.graphview import _lead_activity
+    from infra.server.graphview import _lead_activity
 
     return _lead_activity(events)[0]
 
 
 async def _run_mode(request: Request, run_id: int) -> str:
     """Фактический режим Рана — по событиям (агентность видна из updates/task_*)."""
-    from server.graphview import _is_agent_run, _task_events, pipeline_topology
+    from infra.server.graphview import _is_agent_run, _task_events, pipeline_topology
 
     events = await _runtime(request).events(run_id)
     node_ids, _ = pipeline_topology()
@@ -121,7 +81,7 @@ async def _run_mode(request: Request, run_id: int) -> str:
 
 
 async def _run_row_or_404(request: Request, run_id: str) -> dict[str, Any]:
-    from infra.postgres import get_run_with_repo
+    from infra.db.postgres import get_run_with_repo
 
     try:
         rid = int(run_id)
@@ -136,11 +96,9 @@ async def _run_row_or_404(request: Request, run_id: str) -> dict[str, Any]:
 def _register_routes(application: FastAPI) -> None:
     api = application
 
-    # ── runs ──
-
     @api.get("/api/runs")
     async def list_runs() -> dict[str, Any]:
-        from infra.postgres import list_runs_with_repo
+        from infra.db.postgres import list_runs_with_repo
 
         rows = await asyncio.to_thread(list_runs_with_repo)
         return {"runs": [wire.run_to_wire(row) for row in rows]}
@@ -166,7 +124,7 @@ def _register_routes(application: FastAPI) -> None:
         api_key = body.get("apiKey") or settings.llm_api_key
         model = body.get("model") or settings.llm_model
         if body.get("connectionId"):
-            from infra.connections import get_connection
+            from infra.db.connections import get_connection
 
             conn = await asyncio.to_thread(get_connection, int(body["connectionId"]))
             if conn is None:
@@ -203,9 +161,6 @@ def _register_routes(application: FastAPI) -> None:
 
     @api.post("/api/runs/{run_id}/resume")
     async def resume_run(request: Request, run_id: str) -> dict[str, Any]:
-        # resubmit той же идентичности: durable-runs гарантирует «тот же Ран»;
-        # профиль — по фактическому режиму (агентный Ран нельзя резюмить пайплайном).
-        # Опц. новые лимиты в body → продолжение с поднятым бюджетом.
         row = await _run_row_or_404(request, run_id)
         mode = await _run_mode(request, int(run_id))
         try:
@@ -220,14 +175,18 @@ def _register_routes(application: FastAPI) -> None:
             llm_api_key=row["llm_api_key"],
             llm_model=row["llm_model"],
             sandbox_name=row.get("sandbox_name") or "git",
-            limits=new_limits,  # None → сохраняются прежние лимиты Рана
+            limits=new_limits,
         )
         fresh = await _run_row_or_404(request, run_id)
         return {"run": wire.run_to_wire(fresh), "disposition": result.disposition.value}
 
     @api.delete("/api/runs/{run_id}", status_code=204)
     async def delete_run(request: Request, run_id: str) -> None:
+        from infra.sandbox.instances import kill_run_instances
+
         await _run_row_or_404(request, run_id)
+        # сначала гасим удалённые сэндбоксы Рана (иначе течёт), потом сносим строки
+        await kill_run_instances(int(run_id))
         try:
             deleted = await _runtime(request).delete_run(int(run_id))
         except RuntimeError as exc:
@@ -241,7 +200,6 @@ def _register_routes(application: FastAPI) -> None:
         if row.get("report") is None:
             raise _error(404, "not_found", f"run {run_id} has no report")
         report = wire.report_to_wire(row["report"])
-        # security-режим: полный набор Находок из событий (Лид + Сабагенты)
         if "findings" in report:
             from core.agents.findings import collect_findings_from_events, summarize_findings
 
@@ -254,8 +212,6 @@ def _register_routes(application: FastAPI) -> None:
                 "filesReviewed": len({f["file"] for f in findings if f.get("file")}),
             }
         return report
-
-    # ── graph ──
 
     @api.get("/api/runs/{run_id}/graph")
     async def get_graph(request: Request, run_id: str) -> dict[str, Any]:
@@ -271,8 +227,6 @@ def _register_routes(application: FastAPI) -> None:
         if spec is None:
             raise _error(404, "not_found", f"node {node_id}")
         return spec
-
-    # ── SSE ──
 
     @api.get("/api/runs/{run_id}/events")
     async def stream_events(request: Request, run_id: str, cursor: int | None = None):
@@ -295,7 +249,6 @@ def _register_routes(application: FastAPI) -> None:
 
             row = await runtime.get_run(int(run_id))
             if row is not None and row["status"] in TERMINAL_STATUSES:
-                # терминальный ран: живого стрима нет — реплей durable-истории
                 for event in await runtime.events(int(run_id), after_id=cursor):
                     payload = wire.event_to_wire(
                         event["id"],
@@ -303,12 +256,11 @@ def _register_routes(application: FastAPI) -> None:
                         event.get("payload") or {},
                         event.get("created_at"),
                     )
-                    if payload is None:  # служебный шум middleware
+                    if payload is None:
                         continue
                     yield f"data: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
                 yield _status_frame(row["status"])
                 return
-            # bridge-id имеет вид "{ms}-{seq}"; wire-курсор — целый seq
             last_event_id = f"0-{cursor}" if cursor is not None else None
             async for item in runtime.subscribe(int(run_id), last_event_id=last_event_id):
                 if item is END_SENTINEL:
@@ -334,7 +286,6 @@ def _register_routes(application: FastAPI) -> None:
                     cur = int(str(item.id).rsplit("-", 1)[-1])
                 except (TypeError, ValueError):
                     cur = -1
-                # live-события бриджа не обёрнуты в {"data": …} (в отличие от durable)
                 payload = wire.event_to_wire(cur, item.event, {"data": item.data})
                 if payload is None:
                     continue
@@ -346,18 +297,49 @@ def _register_routes(application: FastAPI) -> None:
             headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
         )
 
-    # ── connections ──
+    @api.get("/api/runs/{run_id}/chat")
+    async def chat_history(request: Request, run_id: str) -> dict[str, Any]:
+        await _run_row_or_404(request, run_id)
+        turns = await _runtime(request, "agent").chat_history(int(run_id))
+        return {"turns": turns}
+
+    @api.post("/api/runs/{run_id}/chat")
+    async def chat(request: Request, run_id: str):
+        await _run_row_or_404(request, run_id)
+        if await _run_mode(request, int(run_id)) != "agent":
+            raise _error(422, "not_agent", "chat is available only for agent runs")
+        body = await request.json()
+        message = (body.get("message") or "").strip()
+        if not message:
+            raise _error(422, "invalid", "message is required")
+        runtime = _runtime(request, "agent")
+
+        async def sse():
+            seq = 0
+            async for mode, data in runtime.chat(int(run_id), message):
+                seq += 1
+                payload = wire.event_to_wire(seq, mode, {"data": data})
+                if payload is None:
+                    continue
+                yield f"data: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
+            yield 'data: {"type": "chat_done"}\n\n'
+
+        return StreamingResponse(
+            sse(),
+            media_type="text/event-stream",
+            headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
+        )
 
     @api.get("/api/connections")
     async def list_connections() -> dict[str, Any]:
-        from infra.connections import list_connections as _list
+        from infra.db.connections import list_connections as _list
 
         rows = await asyncio.to_thread(_list)
         return {"connections": [wire.connection_to_wire(r) for r in rows]}
 
     @api.post("/api/connections")
     async def create_connection(request: Request) -> dict[str, Any]:
-        from infra.connections import create_connection as _create
+        from infra.db.connections import create_connection as _create
 
         body = await request.json()
         for field in ("name", "apiBase", "apiKey", "model"):
@@ -370,31 +352,29 @@ def _register_routes(application: FastAPI) -> None:
 
     @api.delete("/api/connections/{connection_id}", status_code=204)
     async def delete_connection(connection_id: int) -> None:
-        from infra.connections import delete_connection as _delete
+        from infra.db.connections import delete_connection as _delete
 
         await asyncio.to_thread(_delete, connection_id)
 
     @api.post("/api/connections/{connection_id}/check")
     async def check_connection(connection_id: int) -> dict[str, Any]:
-        from infra.connections import check_connection as _check
+        from infra.db.connections import check_connection as _check
 
         row = await _check(connection_id)
         if row is None:
             raise _error(404, "not_found", f"connection {connection_id}")
         return wire.connection_to_wire(row)
 
-    # ── sandboxes ──
-
     @api.get("/api/sandboxes")
     async def list_sandboxes() -> dict[str, Any]:
-        from infra.postgres import list_sandboxes_with_counts
+        from infra.db.postgres import list_sandboxes_with_counts
 
         rows = await asyncio.to_thread(list_sandboxes_with_counts)
         return {"sandboxes": [wire.sandbox_to_wire(r) for r in rows]}
 
     @api.post("/api/sandboxes")
     async def create_sandbox(request: Request) -> dict[str, Any]:
-        from infra.postgres import create_sandbox_row
+        from infra.db.postgres import create_sandbox_row
 
         body = await request.json()
         if not body.get("name") or not body.get("kind"):
@@ -406,7 +386,21 @@ def _register_routes(application: FastAPI) -> None:
         )
         return wire.sandbox_to_wire({**row, "run_count": 0})
 
-    # ── справочники ──
+    @api.get("/api/sandboxes/instances")
+    async def list_sandbox_instances() -> dict[str, Any]:
+        from infra.sandbox.instances import list_instances
+
+        rows = await asyncio.to_thread(list_instances)
+        return {"instances": [wire.sandbox_instance_to_wire(r) for r in rows]}
+
+    @api.post("/api/sandboxes/instances/{instance_id}/kill")
+    async def kill_sandbox_instance(instance_id: int) -> dict[str, Any]:
+        from infra.sandbox.instances import kill_sandbox
+
+        row = await kill_sandbox(instance_id)
+        if row is None:
+            raise _error(404, "not_found", f"sandbox instance {instance_id} not found")
+        return wire.sandbox_instance_to_wire(row)
 
     @api.get("/api/capabilities")
     async def list_capabilities() -> dict[str, Any]:
@@ -414,7 +408,7 @@ def _register_routes(application: FastAPI) -> None:
 
         from core.agents.features import RuntimeFeatures
         from core.subagents.registry import BUILTIN_SUBAGENTS
-        from server.graphview import _sandbox_toolspecs
+        from infra.server.graphview import _sandbox_toolspecs
 
         caps: list[dict[str, Any]] = []
         for config in BUILTIN_SUBAGENTS.values():

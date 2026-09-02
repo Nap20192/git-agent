@@ -1,14 +1,4 @@
-"""SubagentLimitMiddleware — лид-сторона лимитов делегации.
-
-Два лимита, каждый ловит свой сценарий выхода из-под контроля:
-- max_concurrent: не больше N task-вызовов в одном ходе модели;
-- max_total_per_run: общий бюджет делегаций на запуск — иначе лид обходит
-  лимит конкуренции, запуская легальные батчи на каждом чекпойнте.
-
-При исчерпании: task-вызовы вырезаются из ответа модели, finish_reason
-форсируется в stop, добавляется видимая заметка — лид синтезирует из
-собранного, исключение не бросается.
-"""
+"""SubagentLimitMiddleware — лид-сторона лимитов делегации."""
 
 from __future__ import annotations
 
@@ -43,8 +33,6 @@ class SubagentLimitMiddleware(AgentMiddleware):
         self.max_total_per_run = max_total_per_run
 
     def _prior_delegations(self, state: Any) -> int:
-        # ponytail: счёт по всему треду, консервативен при resume; компакция
-        # истории может недосчитать — апгрейд: выделенный счётчик в состоянии.
         return sum(
             1
             for m in state.get("messages", [])

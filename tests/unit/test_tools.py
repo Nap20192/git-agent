@@ -63,10 +63,10 @@ def test_sync_wrapper_outside_and_inside_loop():
 
     only_async.func = None
     ensure_sync_invocable_tool(only_async)
-    assert only_async.func("1") == "a:1"  # вне loop
+    assert only_async.func("1") == "a:1"
 
     async def in_loop():
-        return only_async.func("2")  # внутри чужого loop — через executor
+        return only_async.func("2")
 
     assert asyncio.run(in_loop()) == "a:2"
 
@@ -78,13 +78,11 @@ def _mcp_pool(n=7):
 def test_catalog_search_modes_and_hash():
     mcp = _mcp_pool()
     catalog = DeferredToolCatalog(tuple(mcp))
-    # select: без капа — имена запрошены явно
     assert len(catalog.search("select:" + ",".join(t.name for t in mcp))) == 7
-    assert len(catalog.search("notebook")) == MAX_RESULTS  # keyword-кап
+    assert len(catalog.search("notebook")) == MAX_RESULTS
     assert catalog.search("+srv__t3")[0].name == "srv__t3"
-    assert catalog.search("((broken") == []  # literal fallback, не падает
+    assert catalog.search("((broken") == []
     assert catalog.search("") == []
-    # hash детерминирован по (name, schema)
     clone = DeferredToolCatalog(tuple(mk(t.name, t.description) for t in mcp))
     assert catalog.hash == clone.hash
 
@@ -131,14 +129,12 @@ def test_mcp_tools_get_tagged_by_assembler():
     assert not is_mcp_tool(plain)
     get_available_tools([], [], [plain])
     assert is_mcp_tool(plain)
-    # строгий is True: truthy-подделка — не тег
     fake = mk("fake")
     fake.metadata = {"git_agent_mcp": "yes"}
     assert not is_mcp_tool(fake)
 
 
 def test_fail_closed_guard():
-    # рукотворная рассинхронизация предикатов: enabled, MCP есть, набор пуст
     from unittest.mock import patch
 
     mcp = [tag_mcp_tool(mk("m1"))]

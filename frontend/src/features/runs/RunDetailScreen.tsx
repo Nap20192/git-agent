@@ -11,6 +11,7 @@ import { GraphCanvas } from "./GraphCanvas.tsx";
 import { AgentList } from "./AgentList.tsx";
 import { NodeInspector } from "./NodeInspector.tsx";
 import { EventStream } from "./EventStream.tsx";
+import { ChatPanel } from "./ChatPanel.tsx";
 import styles from "./run.module.css";
 
 export function RunDetailScreen() {
@@ -151,9 +152,14 @@ export function RunDetailScreen() {
         <NodeInspector runId={id} node={selectedNode} events={selected ? stream.eventsByNode[selected] ?? [] : []} onClose={() => setSelected(null)} />
       </div>
 
-      {/* event stream */}
+      {/* event stream + post-run chat (agent runs, once finished) share the row */}
       <div className={styles.bottom}>
         <EventStream logs={stream.logs} nodes={nodes} selectedNodeId={selected} live={live} />
+        {!live && nodes.some((n) => n.id === "lead") && (
+          <div className={styles.chatCol}>
+            <ChatPanel runId={id} />
+          </div>
+        )}
       </div>
     </div>
   );

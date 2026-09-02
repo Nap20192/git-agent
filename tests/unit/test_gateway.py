@@ -9,9 +9,9 @@ from fastapi.testclient import TestClient
 
 from core.runtime import MemoryRunStore, MemoryStreamBridge, Runtime
 from core.runtime.profile import GraphProfile
-from server import wire
-from server.app import create_app
-from server.graphview import derive_graph, node_spec, pipeline_topology
+from infra.server import wire
+from infra.server.app import create_app
+from infra.server.graphview import derive_graph, node_spec, pipeline_topology
 
 # ── wire: чистые функции ──
 
@@ -54,7 +54,7 @@ def _row(**over):
 
 def test_run_to_wire_redacts_key():
     payload = json.dumps(wire.run_to_wire(_row()))
-    assert "verysecretkey" not in payload  # инвариант redaction
+    assert "verysecretkey" not in payload
     parsed = json.loads(payload)
     assert parsed["connection"]["keyMasked"] == "…tkey"
     assert parsed["id"] == "7" and parsed["repo"] == "org/repo"
@@ -98,7 +98,7 @@ def _event(kind, data):
 
 def test_pipeline_graph_statuses():
     ids, _edges = pipeline_topology()
-    assert ids == ["scan", "parse", "report"]  # из LangGraph get_graph
+    assert ids == ["scan", "parse", "report"]
     row = _row(status="running")
     graph = derive_graph(row, [_event("updates", {"scan": {}})])
     by_id = {n["id"]: n["status"] for n in graph["nodes"]}
@@ -168,8 +168,8 @@ def _make_runtime(store, bridge):
     async def fake_repo(url):
         return {"id": 1, "url": url}
 
-    async def fake_sandbox(name):
-        return _FakeSandbox()
+    async def fake_sandbox(run_id, name, *, is_resume=False):
+        return _FakeSandbox(), False
 
     return Runtime(
         store=store,
@@ -182,7 +182,7 @@ def _make_runtime(store, bridge):
             extract_report=lambda values: (values or {}).get("report"),
         ),
         make_model=lambda **kw: object(),
-        create_sandbox=fake_sandbox,
+        provision_sandbox=fake_sandbox,
         get_or_create_repository=fake_repo,
     )
 
@@ -214,12 +214,11 @@ def test_gateway_routes_over_memory_runtime(monkeypatch):
             rid += 1
         return rows
 
-    import infra.postgres
+    import infra.db.postgres
 
-    monkeypatch.setattr(infra.postgres, "get_run_with_repo", fake_get_run_with_repo)
-    monkeypatch.setattr(infra.postgres, "list_runs_with_repo", fake_list)
+    monkeypatch.setattr(infra.db.postgres, "get_run_with_repo", fake_get_run_with_repo)
+    monkeypatch.setattr(infra.db.postgres, "list_runs_with_repo", fake_list)
 
-    # submit → created; ключ не утёк в ответ
     resp = client.post(
         "/api/runs", json={"repoUrl": "https://github.com/org/repo", "apiKey": "sk-verysecret"}
     )
@@ -229,7 +228,6 @@ def test_gateway_routes_over_memory_runtime(monkeypatch):
     assert "sk-verysecret" not in resp.text
 
     run_id = body["run"]["id"]
-    # воркер живёт в event loop TestClient — ждём терминала поллингом через API
     for _ in range(200):
         single = client.get(f"/api/runs/{run_id}").json()
         if single["status"] not in ("pending", "running"):
@@ -237,27 +235,22 @@ def test_gateway_routes_over_memory_runtime(monkeypatch):
         time.sleep(0.02)
     assert single["status"] == "succeeded"
 
-    # идемпотентность через HTTP
     again = client.post(
         "/api/runs", json={"repoUrl": "https://github.com/org/repo", "apiKey": "sk-verysecret"}
     )
     assert again.json()["disposition"] == "already_succeeded"
     assert again.json()["run"]["id"] == run_id
 
-    # список и одиночный ран
     assert client.get("/api/runs").json()["runs"][0]["id"] == run_id
     single = client.get(f"/api/runs/{run_id}").json()
     assert single["status"] == "succeeded"
 
-    # отчёт в camelCase
     report = client.get(f"/api/runs/{run_id}/report").json()
     assert report["repoUrl"] == "x"
 
-    # граф
     graph = client.get(f"/api/runs/{run_id}/graph").json()
     assert {n["id"] for n in graph["nodes"]} == {"scan", "parse", "report"}
 
-    # SSE: реплей завершённого рана заканчивается терминальным status-событием
     with client.stream("GET", f"/api/runs/{run_id}/events") as stream:
         lines = [ln for ln in stream.iter_lines() if ln.startswith("data: ")]
     events = [json.loads(ln.removeprefix("data: ")) for ln in lines]
@@ -265,7 +258,6 @@ def test_gateway_routes_over_memory_runtime(monkeypatch):
     assert events[-1]["type"] == "status"
     assert events[-1]["data"]["status"] == "succeeded"
 
-    # 404 с ApiError-формой
     missing = client.get("/api/runs/999")
     assert missing.status_code == 404
     assert missing.json()["detail"]["error"]["code"] == "not_found"
@@ -292,11 +284,11 @@ def test_submit_passes_instructions(monkeypatch):
         return "c" * 40
 
     import core.repo
-    import infra.postgres
+    import infra.db.postgres
 
     monkeypatch.setattr(core.repo, "resolve_commit_sha", fake_sha)
     monkeypatch.setattr(
-        infra.postgres,
+        infra.db.postgres,
         "get_run_with_repo",
         lambda rid: {**_row(id=rid), "repo_url": "u", "sandbox_name": "git"},
     )
@@ -331,16 +323,16 @@ def test_submit_routes_by_mode(monkeypatch):
         return "c" * 40
 
     import core.repo
-    import infra.postgres
+    import infra.db.postgres
 
     monkeypatch.setattr(core.repo, "resolve_commit_sha", fake_sha)
     monkeypatch.setattr(
-        infra.postgres,
+        infra.db.postgres,
         "get_run_with_repo",
         lambda rid: {**_row(id=rid), "repo_url": "u", "sandbox_name": "git"},
     )
     client.post("/api/runs", json={"repoUrl": "u", "mode": "agent"})
-    client.post("/api/runs", json={"repoUrl": "u"})  # дефолт — pipeline
+    client.post("/api/runs", json={"repoUrl": "u"})
     assert calls == ["agent", "pipeline"]
     bad = client.post("/api/runs", json={"repoUrl": "u", "mode": "martian"})
     assert bad.status_code == 422
@@ -351,7 +343,7 @@ def test_resume_routes_to_original_mode(monkeypatch):
 
     calls = []
     agent_events = [
-        {"kind": "updates", "payload": {"data": {"model": {}}}},  # ход ReAct-цикла
+        {"kind": "updates", "payload": {"data": {"model": {}}}},
     ]
 
     def rt(name, events):
@@ -372,19 +364,18 @@ def test_resume_routes_to_original_mode(monkeypatch):
     }
     client = TestClient(app)
 
-    import infra.postgres
+    import infra.db.postgres
 
     monkeypatch.setattr(
-        infra.postgres,
+        infra.db.postgres,
         "get_run_with_repo",
         lambda rid: {**_row(id=rid, status="failed"), "repo_url": "u", "sandbox_name": "git"},
     )
     client.post("/api/runs/1/resume")
-    assert calls == ["agent"]  # агентный Ран резюмится агентным профилем
+    assert calls == ["agent"]
 
 
 def test_lead_updates_unpack_to_agent_step():
-    # ход Лида: model-узел с AIMessage (рассуждение + tool_call)
     payload = {
         "data": {
             "model": {
@@ -403,7 +394,6 @@ def test_lead_updates_unpack_to_agent_step():
     assert ev["data"]["text"] == "смотрю дерево"
     assert ev["data"]["toolCalls"][0]["name"] == "sandbox_run"
 
-    # tools-узел: результат
     res = wire.event_to_wire(
         6,
         "updates",
@@ -415,18 +405,16 @@ def test_lead_updates_unpack_to_agent_step():
     )
     assert res["data"]["toolResults"] == ["sandbox_run: a.py"]
 
-    # middleware-шум отбрасывается
     assert (
         wire.event_to_wire(7, "updates", {"data": {"TerminalResponseMiddleware.after_model": None}})
         is None
     )
-    # pipeline-узел — прежний node_update
     pipe = wire.event_to_wire(8, "updates", {"data": {"scan": {"commit": "x"}}})
     assert pipe["type"] == "node_update"
 
 
 def test_lead_graph_activity():
-    from server.graphview import derive_graph
+    from infra.server.graphview import derive_graph
 
     events = [
         {
@@ -470,10 +458,10 @@ def test_delete_run_route(monkeypatch):
 
     app = create_app(runtime=_Rt())
     client = TestClient(app)
-    import infra.postgres
+    import infra.db.postgres
 
     monkeypatch.setattr(
-        infra.postgres,
+        infra.db.postgres,
         "get_run_with_repo",
         lambda rid: {**_row(id=rid), "repo_url": "u", "sandbox_name": "git"},
     )
@@ -485,18 +473,35 @@ def test_delete_run_route(monkeypatch):
 
 def test_lead_features_from_limits():
     from core.lead.graph import _lead_features
+    from core.middleware.subagent_limit import SubagentLimitMiddleware
     from core.middleware.token_budget import TokenBudgetMiddleware
 
-    f, cap = _lead_features({"tokenBudget": 40000, "maxSubagents": 2, "loopDetection": False})
+    f, cap, exec_to = _lead_features(
+        {
+            "tokenBudget": 40000,
+            "maxSubagents": 2,
+            "maxTotalSubagents": 5,
+            "loopDetection": False,
+            "subagentTimeout": 120,
+            "queueTimeout": 45,
+        }
+    )
     assert isinstance(f.token_budget, TokenBudgetMiddleware)
     assert cap.max_running == 2 and f.loop_detection is False
-    f2, cap2 = _lead_features({})
-    assert f2.token_budget is True and cap2.max_running == 3 and f2.subagent is True
+    assert exec_to == 120.0 and cap._queue_timeout == 45.0  # таймауты из лимитов
+    # subagent — middleware-инстанс с лид-сторонними лимитами (concurrent=maxSubagents)
+    assert isinstance(f.subagent, SubagentLimitMiddleware)
+    assert f.subagent.max_concurrent == 2 and f.subagent.max_total_per_run == 5
+    f2, cap2, exec_to2 = _lead_features({})
+    assert f2.token_budget is False and cap2.max_running == 3
+    assert isinstance(f2.subagent, SubagentLimitMiddleware)
+    assert f2.subagent.max_concurrent == 3 and f2.subagent.max_total_per_run == 6  # дефолты
+    assert exec_to2 is None and cap2._queue_timeout == 300.0
     assert _lead_features({"subagent": False})[0].subagent is False
 
 
 def test_limits_from_body():
-    from server.app import _limits_from_body
+    from infra.server.app import _limits_from_body
 
     assert _limits_from_body({"features": {"tokenBudget": 100, "maxSubagents": 2, "x": 1}}) == {
         "tokenBudget": 100,
@@ -526,11 +531,11 @@ def test_submit_persists_limits(monkeypatch):
         return "c" * 40
 
     import core.repo
-    import infra.postgres
+    import infra.db.postgres
 
     monkeypatch.setattr(core.repo, "resolve_commit_sha", fake_sha)
     monkeypatch.setattr(
-        infra.postgres,
+        infra.db.postgres,
         "get_run_with_repo",
         lambda rid: {**_row(id=rid), "repo_url": "u", "sandbox_name": "git"},
     )
@@ -541,17 +546,46 @@ def test_submit_persists_limits(monkeypatch):
 
 
 def test_graph_layout_is_percent_and_all_visible():
-    from server.graphview import derive_graph
+    from infra.server.graphview import derive_graph
 
     events = [
-        {"kind": "custom", "payload": {"data": {"type": "task_started", "task_id": "t1", "subagent_type": "gp", "description": "a"}}},
-        {"kind": "custom", "payload": {"data": {"type": "task_started", "task_id": "t2", "subagent_type": "gp", "description": "b"}}},
-        {"kind": "custom", "payload": {"data": {"type": "task_started", "task_id": "t3", "subagent_type": "gp", "description": "c"}}},
+        {
+            "kind": "custom",
+            "payload": {
+                "data": {
+                    "type": "task_started",
+                    "task_id": "t1",
+                    "subagent_type": "gp",
+                    "description": "a",
+                }
+            },
+        },
+        {
+            "kind": "custom",
+            "payload": {
+                "data": {
+                    "type": "task_started",
+                    "task_id": "t2",
+                    "subagent_type": "gp",
+                    "description": "b",
+                }
+            },
+        },
+        {
+            "kind": "custom",
+            "payload": {
+                "data": {
+                    "type": "task_started",
+                    "task_id": "t3",
+                    "subagent_type": "gp",
+                    "description": "c",
+                }
+            },
+        },
     ]
     g = derive_graph(_row(status="running"), events)
-    # все узлы (лид + 3 сабагента) в пределах холста [0..100] и различны по y
     assert {n["id"] for n in g["nodes"]} == {"lead", "t1", "t2", "t3"}
     for n in g["nodes"]:
         assert 0 <= n["x"] <= 100 and 0 <= n["y"] <= 100
     subs = [n for n in g["nodes"] if n["parentId"] == "lead"]
-    assert len({n["y"] for n in subs}) == 3  # не наложены друг на друга
+    assert len({n["y"] for n in subs}) == 3

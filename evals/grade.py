@@ -1,14 +1,4 @@
-"""Офлайн код-грейд: покрытие фактов по бандлам. Бесплатно, повторяемо вечно.
-
-Никогда не импортирует core.*/infra.* (R1). Tri-state на каждый факт:
-True/False/None, где None = «неизмеримо в этом режиме» и НИКОГДА не fail.
-
-Tool-fair: у каждого факта две оценки — structured (точная, по полям
-pipeline-отчёта) и prose (по текстовому представлению; работает в обоих
-режимах). Кросс-режимный хедлайн — prose.
-
-    uv run python evals/grade.py --out evals/runs/smoke1 --battery evals/data/repos.v1.jsonl
-"""
+"""Офлайн код-грейд: покрытие фактов по бандлам. Бесплатно, повторяемо вечно."""
 
 from __future__ import annotations
 
@@ -50,7 +40,6 @@ def grade_bundle(
         and bundle.get("fingerprint")
         and bundle["fingerprint"] != expected_fingerprint
     ):
-        # бандл из чужого прогона подложен в этот out-дир — не грейдим
         gate_problems = [
             f"fingerprint_mismatch: bundle {bundle['fingerprint'][:12]}"
             f" != config {expected_fingerprint[:12]}",
@@ -79,7 +68,6 @@ def grade_bundle(
 
     expected_status = unit.get("expected_status", "succeeded")
     if expected_status == "failed":
-        # error-кейс: pass = ран управляемо зафейлился (не крах харнеса)
         passed = bundle.get("db_status") == "failed" and bundle.get("error") is None
         row.update(
             behavior_pass=None if gated else passed,
@@ -92,8 +80,6 @@ def grade_bundle(
         )
         return row
 
-    # expected succeeded: behavior = ран реально дошёл до succeeded. Иначе
-    # app-failed ран невидим (все факты None -> он просто исчезает из покрытия).
     behavior = None if gated else bundle.get("db_status") == "succeeded"
 
     report = bundle.get("report") if not gated else None
@@ -144,9 +130,9 @@ def grade_run(out: Path, battery_path: Path, *, allow_deprecated: bool = False) 
     for bundle in load_jsonl(out / "bundles.jsonl"):
         unit = units.get(bundle["unit_id"])
         if unit is None:
-            continue  # юнит вне этой батареи (например, отфильтрован в v2)
+            continue
         rows.append(grade_bundle(bundle, unit, manifest, expected_fingerprint=expected_fp))
-    rows.sort(key=lambda r: r["row_id"])  # детерминированный порядок
+    rows.sort(key=lambda r: r["row_id"])
     grades_path = out / "grades.jsonl"
     write_jsonl(grades_path, rows)
     return grades_path

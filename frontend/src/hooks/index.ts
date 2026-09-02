@@ -8,6 +8,7 @@ export {
   useNodeSpec,
   useConnections,
   useSandboxes,
+  useSandboxInstances,
   useCapabilities,
   useMemoryPresets,
 } from "./resources.ts";

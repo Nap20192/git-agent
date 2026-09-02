@@ -1,11 +1,13 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { SCREENS } from "@/app/screens.ts";
+import { useTheme } from "@/lib/theme.ts";
 import styles from "./TopBar.module.css";
 
 /** Top bar: brand (→ runs), screen tabs, new-run action, clock. Route-driven,
  *  no global run state — the run detail screen owns its own live readouts. */
 export function TopBar() {
   const navigate = useNavigate();
+  const { theme, toggle } = useTheme();
   const clock = new Date().toLocaleTimeString("en-GB");
 
   return (
@@ -34,6 +36,14 @@ export function TopBar() {
       <div className={styles.newRun} onClick={() => navigate("/runs?new=1")}>
         ❯ new run
       </div>
+      <button
+        type="button"
+        className={styles.theme}
+        onClick={toggle}
+        title={`switch to ${theme === "dark" ? "light" : "dark"} theme`}
+      >
+        {theme === "dark" ? "☀" : "☾"}
+      </button>
       <div className={styles.meta}>
         <span style={{ color: "var(--amber)" }}>{clock}</span>
       </div>

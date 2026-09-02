@@ -1,7 +1,4 @@
-"""Формальная модель как часть тестового прогона: pytest проверяет Lean-доказательства.
-
-Зеркала теорем — в test_invariants.py; здесь верифицируется сам источник истины.
-"""
+"""Формальная модель как часть тестового прогона: pytest проверяет Lean-доказательства."""
 
 import os
 import shutil
@@ -34,5 +31,4 @@ def test_runtime_core_proofs_check():
     assert result.returncode == 0, (
         f"RuntimeCore.lean failed to verify:\n{result.stdout}\n{result.stderr}"
     )
-    # sorry/admit — незакрытые дыры в доказательстве; их быть не должно
     assert "sorry" not in _LEAN_FILE.read_text()

@@ -1,9 +1,4 @@
-"""Сериализация в wire-формат контракта (frontend/docs/openapi.yaml).
-
-camelCase на проводе, id — строки. Инвариант redaction: llm_api_key /
-connections.api_key никогда не попадают в ответ — только mask_key().
-Чистые функции без I/O — тестируются без сервера.
-"""
+"""Сериализация в wire-формат контракта (frontend/docs/openapi.yaml)."""
 
 from __future__ import annotations
 
@@ -55,11 +50,7 @@ _PIPELINE_NODES = {"scan", "parse", "report"}
 
 
 def _lead_step_from_messages(node: str, messages: list[Any]) -> dict[str, Any] | None:
-    """Развернуть сообщения хода Лида в читаемый agent_step (или None — пусто).
-
-    model-узел несёт AIMessage (рассуждение + tool_calls); tools-узел — ToolMessage
-    (результаты). Служебные узлы middleware с пустым value сюда не попадают.
-    """
+    """Развернуть сообщения хода Лида в читаемый agent_step (или None — пусто)."""
     text_parts: list[str] = []
     tool_calls: list[dict[str, str]] = []
     tool_results: list[str] = []
@@ -93,6 +84,8 @@ def event_to_wire(
     cursor: int, kind: str, payload: dict[str, Any], ts: Any = None
 ) -> dict[str, Any] | None:
     """run_events-строка / bridge-событие → RunEvent контракта (None = отбросить)."""
+    if kind == "chat":
+        return None
     data = payload.get("data") if isinstance(payload, dict) else None
     wire: dict[str, Any] = {"cursor": cursor, "ts": _iso(ts), "type": "custom"}
 
@@ -107,14 +100,13 @@ def event_to_wire(
                 data={"kind": "node_status", "node": node, "status": "completed"},
             )
             return wire
-        # ход агента (Лид): развернуть сообщения; служебные middleware-узлы пусты
         if isinstance(value, dict) and value.get("messages"):
             step = _lead_step_from_messages(node, value["messages"])
             if step is None:
                 return None
             wire.update(type="custom", agent="lead", data=step)
             return wire
-        return None  # middleware-шум (value None / без messages)
+        return None
 
     if isinstance(data, dict) and isinstance(data.get("type"), str):
         dtype = data["type"]
@@ -230,8 +222,8 @@ def run_to_wire(row: dict[str, Any], events: list[dict[str, Any]] | None = None)
             "keyMasked": mask_key(row.get("llm_api_key")),
         },
         "sandbox": row.get("sandbox_name"),
-        "limits": row.get("limits"),  # пользовательские лимиты Рана (или null)
-        "memoryPreset": None,  # пресет процесса, per-run не хранится
+        "limits": row.get("limits"),
+        "memoryPreset": None,
         "hasReport": row.get("report") is not None,
         "createdAt": _iso(row.get("started_at")),
         "startedAt": _iso(row.get("started_at")),
@@ -242,7 +234,6 @@ def run_to_wire(row: dict[str, Any], events: list[dict[str, Any]] | None = None)
 
 
 def report_to_wire(report: dict[str, Any]) -> dict[str, Any]:
-    # агентный Отчёт — финальный ответ Лида: {"answer": ...}
     description = report.get("description", "") or report.get("answer", "")
     structure = report.get("structure") or {}
     wire: dict[str, Any] = {
@@ -269,7 +260,6 @@ def report_to_wire(report: dict[str, Any]) -> dict[str, Any]:
         "dependencies": report.get("dependencies", []),
         "skippedFiles": report.get("skipped_files", []),
     }
-    # security-режим: findings уже в camelCase (findings.py::_finding_from_args)
     findings = report.get("findings")
     if findings is not None:
         wire["findings"] = findings
@@ -300,4 +290,17 @@ def sandbox_to_wire(row: dict[str, Any]) -> dict[str, Any]:
         "workdir": row.get("workdir"),
         "createdAt": _iso(row.get("created_at")),
         "runCount": row.get("run_count", 0),
+    }
+
+
+def sandbox_instance_to_wire(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "externalId": row["external_id"],
+        "kind": row["kind"],
+        "image": row.get("image"),
+        "runId": str(row["run_id"]) if row.get("run_id") is not None else None,
+        "status": row["status"],
+        "createdAt": _iso(row.get("created_at")),
+        "killedAt": _iso(row.get("killed_at")),
     }

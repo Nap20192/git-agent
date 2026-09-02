@@ -1,16 +1,4 @@
-"""Онлайн-раннер батареи: единственный модуль харнеса, трогающий приложение.
-
-Тратит реальные API-деньги (DeepSeek) и требует Postgres + OpenSandbox.
-Пишет вечные артефакты: runs/<name>/{run_config.json, bundles.jsonl} — один
-бандл на (unit, mode, preset, trial). Грейдинг потом офлайн и бесплатно.
-
-Детерминизм: трейсинг выключается ДО первого импорта core.* (load_dotenv и
-core.tracing читают env при импорте) — все app-импорты функционально-локальны.
-
-Запуск:
-    uv run python evals/run_battery.py --battery evals/data/repos.v1.jsonl \
-        --out evals/runs/smoke1 --mode pipeline --preset prod --limit 2
-"""
+"""Онлайн-раннер батареи: единственный модуль харнеса, трогающий приложение."""
 
 from __future__ import annotations
 
@@ -65,14 +53,10 @@ def _git(cmd: list[str]) -> str:
 def build_manifest(args: argparse.Namespace) -> dict[str, Any]:
     from dataclasses import asdict
 
-    from core.config import settings  # функционально-локально (R2)
+    from core.config import settings
     from core.memory import resolve_memory_preset
 
     memory_config = asdict(resolve_memory_preset(args.preset, model_name=args.model))
-    # Научная конфигурация — ровно то, что меняет поведение агента/оценку.
-    # git_status тут НЕ живёт (незакоммиченный мусор в дереве — не наука;
-    # правки кода ловит source_tree_sha256); путь батареи — тоже (контент
-    # пиннится хэшем, имя — для DEPRECATED_BATTERIES).
     return {
         "schema_version": SCHEMA_VERSION,
         "git_sha": _git(["rev-parse", "HEAD"]),
@@ -119,7 +103,6 @@ def write_or_validate_run_config(
                 **vars(args),
                 "_fingerprint": fp,
                 "_manifest": manifest,
-                # инфо-поле вне fingerprint: помогает при разборе, не меняет науку
                 "_git_status": _git(["status", "--short"]),
             },
             indent=2,
@@ -141,8 +124,7 @@ def completed_unit_keys(bundles_path: Path) -> set[str]:
 
 
 async def _all_events(store: Any, run_id: int, page: int = 1000) -> list[dict[str, Any]]:
-    """Вся durable-история по курсору: один запрос с limit молча резал хвост,
-    а терминальное usage-событие — последнее и выпадало первым."""
+    """Вся durable-история по курсору: один запрос с limit молча резал хвост,"""
     events: list[dict[str, Any]] = []
     cursor: int | None = None
     while True:
@@ -164,12 +146,9 @@ async def run_unit(
     fp: str,
     trial: int,
 ) -> dict[str, Any]:
-    from core.config import settings  # функционально-локально
+    from core.config import settings
 
     unit_key = f"{unit['unit_id']}~{args.mode}~{args.preset}~t{trial}"
-    # ponytail: commit_sha в runs — durable-МЕТКА, не checkout-реф (пин едет
-    # отдельным checkout_ref), поэтому неймспейсинг даёт каждому арму свою
-    # строку runs, не меняя поведение агента. Апгрейд: отдельная identity-колонка.
     identity_sha = f"{unit['commit_sha'][:12]}~{fp[:12]}~{args.mode}~{args.preset}~t{trial}"
     started = time.time()
     bundle: dict[str, Any] = {
@@ -204,8 +183,6 @@ async def run_unit(
             events = await _all_events(store, run_id)
     except TimeoutError:
         bundle["error"] = f"TimeoutError: unit exceeded {UNIT_TIMEOUT_SECONDS}s"
-        # обязательная отмена: asyncio.wait в runtime.wait НЕ отменяет воркер —
-        # без cancel зомби-ран продолжает жечь деньги параллельно следующим юнитам
         if run_id is not None:
             try:
                 await runtime.cancel(run_id)
@@ -238,9 +215,9 @@ async def run_all(args: argparse.Namespace) -> None:
     from core.lead import build_lead_profile
     from core.runtime import MemoryStreamBridge, Runtime
     from core.runtime.profile import PIPELINE_PROFILE
-    from infra.postgres import get_or_create_repository
-    from infra.run_store import PostgresRunStore
-    from infra.sandboxes import create_sandbox_by_name
+    from infra.db.postgres import get_or_create_repository
+    from infra.db.run_store import PostgresRunStore
+    from infra.sandbox.sandboxes import create_sandbox_by_name
 
     manifest = build_manifest(args)
     fp = canonical_fingerprint(manifest)
@@ -256,7 +233,6 @@ async def run_all(args: argparse.Namespace) -> None:
     if args.limit:
         units = units[: args.limit]
 
-    # Пресет применяется штатным каналом выбора приложения (env)
     os.environ["GIT_AGENT_MEMORY_PRESET"] = args.preset
 
     async def repository(url: str) -> dict[str, Any]:

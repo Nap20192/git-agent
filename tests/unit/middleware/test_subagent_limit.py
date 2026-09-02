@@ -37,9 +37,9 @@ def test_concurrent_strip_keeps_non_task_calls():
     clone = update["messages"][0]
     names_ids = [(c["name"], c["id"]) for c in clone.tool_calls]
     assert names_ids == [("task", "tc1"), ("task", "tc2"), ("sandbox_run", "oc1")]
-    assert clone.id == "ai-1"  # тот же id: замена, не дописывание
+    assert clone.id == "ai-1"
     raw_ids = [c["id"] for c in clone.additional_kwargs["tool_calls"]]
-    assert raw_ids == ["tc1", "tc2", "oc1"]  # provider-raw тоже отфильтрован
+    assert raw_ids == ["tc1", "tc2", "oc1"]
 
 
 def test_total_budget_counts_prior_delegations():
@@ -55,7 +55,7 @@ def test_total_budget_counts_prior_delegations():
     state = {"messages": [*prior, _ai([_task_call(1)])]}
     update = mw.after_model(state, None)
     clone = update["messages"][0]
-    assert clone.tool_calls == []  # бюджет исчерпан
+    assert clone.tool_calls == []
     assert "SUBAGENT LIMIT REACHED" in clone.content
     assert clone.response_metadata["finish_reason"] == "stop"
     assert "function_call" not in clone.additional_kwargs

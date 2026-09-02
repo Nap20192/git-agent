@@ -1,14 +1,4 @@
-"""Исполнитель делегации: свежий одноразовый граф на каждый запуск.
-
-Изоляция контекста = чистая история ([SystemMessage, HumanMessage]);
-checkpointer=False — сабагент никогда не резюмируется. В конфиг ребёнка НЕ
-кладутся configurable-ключи (thread_id/checkpoint_ns): явные координаты
-чекпоинта протекли бы сообщениями ребёнка в родительский стрим.
-
-Владение терминализацией разделено: путь CancelledError НЕ терминализирует —
-собирает урожай (receipts/usage) и перебрасывает, чтобы внешний владелец
-(task-тул) корректно проштамповал TIMED_OUT против CANCELLED.
-"""
+"""Исполнитель делегации: свежий одноразовый граф на каждый запуск."""
 
 from __future__ import annotations
 
@@ -64,7 +54,7 @@ class SubagentTokenCollector(BaseCallbackHandler):
             output_tokens = int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
             total = int(usage.get("total_tokens") or 0) or input_tokens + output_tokens
             if total <= 0:
-                return  # отсутствующий usage не превращается в нули
+                return
             self._counted_run_ids.add(key)
             self._records.append(
                 {
@@ -150,10 +140,6 @@ class SubagentExecutor:
         result.started_at = datetime.now(UTC)
         collector = SubagentTokenCollector(f"subagent:{self.config.name}")
 
-        # Порядок wrap_tool_call (внешний → внутренний): Sanitization (никогда
-        # не короткое замыкание — безопасно снаружи; квитанция при этом хеширует
-        # СЫРОЙ вывод — freshness-штамп) → Receipt (внешний от всего, что может
-        # закоротить) → ErrorHandling (его error-ToolMessage квитанция штампует).
         agent = build_agent(
             self.model,
             self.tools,
@@ -162,13 +148,10 @@ class SubagentExecutor:
                 ToolReceiptMiddleware(),
                 ToolErrorHandlingMiddleware(),
             ],
-            checkpointer=False,  # load-bearing: ребёнок никогда не персистится
+            checkpointer=False,
             name=f"subagent:{self.config.name}",
         )
         state = {"messages": _build_messages(self.config, task, acceptance_criteria)}
-        # НИКАКИХ configurable-ключей (см. докстринг модуля); трейсинг-коллбэки
-        # приходят амбиентно из родительской инвокации — не перевешиваем
-        # (двойной учёт).
         run_config: dict[str, Any] = {
             "recursion_limit": self.config.max_turns,
             "callbacks": [collector],
@@ -181,7 +164,7 @@ class SubagentExecutor:
         cursor = 0
         try:
             async for chunk in agent.astream(state, config=run_config, stream_mode="values"):
-                final_state = chunk  # удержать ДО любой возможной отмены
+                final_state = chunk
                 messages = chunk.get("messages") or []
                 result.update_tool_receipts([dict(r) for r in extract_tool_receipts(messages)])
                 cursor, new_steps = capture_new_step_messages(
@@ -191,9 +174,8 @@ class SubagentExecutor:
                     for step in new_steps:
                         self.on_step(step)
                 result.update_token_usage_records(collector.snapshot_records())
-                # Находки Сабагента — из его хода (полные args, не усечённый preview)
                 result.findings = collect_findings(messages)
-        except GraphRecursionError:  # раньше generic-обработчика
+        except GraphRecursionError:
             partial = _extract_final_result(final_state)
             if partial != "No response generated":
                 result.try_set_terminal(
@@ -213,7 +195,6 @@ class SubagentExecutor:
                 )
             return result
         except asyncio.CancelledError:
-            # урожай — в НЕтерминальный холдер; статус ставит внешний владелец
             result.update_token_usage_records(collector.snapshot_records())
             raise
         except Exception as exc:
@@ -236,19 +217,13 @@ class SubagentExecutor:
 
     @staticmethod
     def _harvest(final_state: Any) -> list[dict[str, Any]] | None:
-        """Снапшот леджера цитирующего хода; fail-closed к None.
-
-        None = урожая нет (вердикта не будет); [] = честный ноль тул-вызовов.
-        Перенумерация-склонный рескан хвоста НЕ используется.
-        """
+        """Снапшот леджера цитирующего хода; fail-closed к None."""
         if final_state is None:
             return None
         messages = (final_state or {}).get("messages") or []
         snapshot = extract_citing_turn_receipts(messages)
         if snapshot is not None:
             return [dict(r) for r in snapshot]
-        # Снапшота нет (модель ни разу не видела леджер = не было тул-вызовов
-        # до последнего хода): пустой леджер — честный ноль.
         if not extract_tool_receipts(messages):
             return []
         return None

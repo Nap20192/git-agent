@@ -1,20 +1,4 @@
-"""Memory/context-management presets.
-
-A preset bundles every knob that changes how the agent manages conversation
-context: the compaction middlewares (summarization, tool-output clearing) and
-long-term memory. ``build_agent()`` assembles its middleware stack from the
-active preset, so experiment runs can compare configurations by name while the
-API selects a model-compatible production preset.
-
-Selection order: explicit request value > ``GIT_AGENT_MEMORY_PRESET`` env var >
-the production preset compatible with the requested model. Unknown names and
-incompatible selections from either override source raise instead of falling
-back; a mislabeled experiment run is worse than a failed one.
-
-Layout: ``config.py`` — the MemoryConfig class; ``prompts.py`` — custom
-summarization prompts; ``presets.py`` — named instances and production-policy
-constants; resolution lives here.
-"""
+"""Memory/context-management presets."""
 
 from __future__ import annotations
 
@@ -68,11 +52,7 @@ def _model_provider(model_name: str) -> str:
 
 
 def production_memory_preset_name(model_name: str = "") -> str:
-    """Return the production preset compatible with ``model_name``.
-
-    An empty model means the application's default model, currently DeepSeek,
-    so it resolves to the primary production preset.
-    """
+    """Return the production preset compatible with ``model_name``."""
     provider = _model_provider(model_name)
     if not provider or provider in PRODUCTION_LONG_CONTEXT_PROVIDERS:
         return PRODUCTION_MEMORY_PRESET

@@ -1,9 +1,4 @@
-"""Deferred-каталог MCP-тулов: схемы не биндятся модели сразу.
-
-Модель видит только имена в <available-deferred-tools> и подгружает
-схемы тулом tool_search. Имена приходят от внешних MCP-серверов —
-в промпт только через html.escape, чтобы крафтовое имя не закрыло тег.
-"""
+"""Deferred-каталог MCP-тулов: схемы не биндятся модели сразу."""
 
 from __future__ import annotations
 
@@ -26,7 +21,6 @@ def _compile_catalog_regex(pattern: str) -> re.Pattern:
     try:
         return re.compile(pattern, re.IGNORECASE)
     except re.error:
-        # невалидный regex от модели деградирует в литерал, не бросает
         return re.compile(re.escape(pattern), re.IGNORECASE)
 
 
@@ -51,7 +45,7 @@ class DeferredToolCatalog:
         query = query.strip()
         if not query:
             return []
-        if query.startswith("select:"):  # без капа — имена запрошены явно
+        if query.startswith("select:"):
             wanted = {n.strip() for n in query[7:].split(",")}
             return [t for t in self.tools if t.name in wanted]
         if query.startswith("+"):
@@ -110,8 +104,7 @@ def build_deferred_tool_setup(
 
 
 def assemble_deferred_tools(candidate_tools: list[BaseTool], *, enabled: bool):
-    """Общая точка для всех билд-путей; fail-closed: deferral включён и MCP-
-    кандидаты есть, а deferred-набор пуст ⇒ RuntimeError, не тихий бинд схем."""
+    """Общая точка для всех билд-путей; fail-closed: deferral включён и MCP-"""
     setup = build_deferred_tool_setup(candidate_tools, enabled=enabled)
     if enabled and not setup.deferred_names and any(is_mcp_tool(t) for t in candidate_tools):
         raise RuntimeError(

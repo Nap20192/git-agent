@@ -1,12 +1,4 @@
-"""Демо системы сабагентов вживую: печатает спавн, шаги и тул-вызовы.
-
-Запуск:
-    uv run python scripts/demo_subagents.py direct   [repo-url]  # один сабагент напрямую
-    uv run python scripts/demo_subagents.py lead     [repo-url]  # лид делегирует сабагентам
-
-`direct` гарантированно показывает живого сабагента с тулами.
-`lead` показывает делегацию через реальную модель (промпт форсит task-вызовы).
-"""
+"""Демо системы сабагентов вживую: печатает спавн, шаги и тул-вызовы."""
 
 import asyncio
 import shlex
@@ -25,7 +17,7 @@ from core.subagents.executor import SubagentExecutor
 from core.subagents.registry import GENERAL_PURPOSE
 from core.tools.sandbox import build_sandbox_tools
 from core.tracing import build_tracing_callbacks
-from infra.sandboxes import create_sandbox_by_name
+from infra.sandbox.sandboxes import create_sandbox_by_name
 
 DEFAULT_REPO = "https://github.com/psf/requests-html"
 

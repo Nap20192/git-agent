@@ -1,10 +1,4 @@
-"""GraphProfile — контракт «какой граф исполняет Ран».
-
-Воркер рантайма зависит не от конкретного графа, а от профиля: как собрать
-граф, как построить вход из repo_url, как достать отчёт из состояния, какие
-stream-режимы и recursion_limit. Дефолт — линейный pipeline (scan→parse→report);
-лид-агент подключается своим профилем (core.lead), не трогая воркер.
-"""
+"""GraphProfile — контракт «какой граф исполняет Ран»."""
 
 from __future__ import annotations
 
@@ -46,7 +40,6 @@ def _pipeline_build(
 def _pipeline_input(
     repo_url: str, checkout_ref: str | None = None, instructions: str | None = None
 ) -> dict[str, Any]:
-    # instructions игнорируются: вход пайплайна фиксирован (scan→parse→report)
     graph_input: dict[str, Any] = {"repo_url": repo_url}
     if checkout_ref:
         graph_input["checkout_ref"] = checkout_ref

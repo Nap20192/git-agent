@@ -1,12 +1,4 @@
-"""Захват шагов сабагента из values-стрима (чистые функции).
-
-Инварианты курсора (референс: deerflow/subagents/step_events.py):
-- список вырос → пройти ВЕСЬ добавленный хвост (ToolNode добавляет несколько
-  ToolMessage за один супер-шаг, messages[-1] теряет остальные);
-- длина та же → перепроверить только messages[-1] (in-place замена без id);
-- список СЖАЛСЯ (компакция) → сбросить курсор на новый хвост, иначе шаги
-  после компакции молча теряются.
-"""
+"""Захват шагов сабагента из values-стрима (чистые функции)."""
 
 from __future__ import annotations
 
@@ -27,7 +19,7 @@ def truncate_step_text(text: str, max_chars: int = SUBAGENT_STEP_MAX_CHARS) -> t
 
 def _content_to_text(content: Any) -> str:
     if content is None:
-        return ""  # not "None"
+        return ""
     if isinstance(content, str):
         return content
     try:
@@ -76,7 +68,7 @@ def _capture(
         seen_ids.add(message.id)
     else:
         step = build_subagent_step(message, task_id=task_id, message_index=index)
-        if any(c == step for c in captured):  # id-less: полный дифф
+        if any(c == step for c in captured):
             return False
         captured.append(step)
         return True
@@ -97,13 +89,11 @@ def capture_new_step_messages(
     new_steps: list[dict] = []
     before = len(captured)
     if total < processed_count:
-        # компакция сжала историю — сброс курсора на новый хвост
         processed_count = 0
     if total > processed_count:
         for index in range(processed_count, total):
             _capture(messages[index], captured, seen_ids, task_id=task_id, index=index)
     elif total and total == processed_count:
-        # без роста: перепроверить последний (in-place замена без id)
         _capture(messages[-1], captured, seen_ids, task_id=task_id, index=total - 1)
     new_steps = captured[before:]
     return total, new_steps

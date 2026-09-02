@@ -10,6 +10,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+
     // Proxy API calls to the git-agent backend during dev. Toggle the mock
     // adapter in src/api instead if the backend isn't running (see docs/API_CONTRACT.md).
     proxy: {

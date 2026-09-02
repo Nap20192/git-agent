@@ -31,7 +31,7 @@ BATTERY_PATH = Path(__file__).resolve().parents[3] / "evals" / "data" / "repos.v
 
 def test_frozen_battery_lints_clean():
     units = load_battery(BATTERY_PATH)
-    assert len(units) == 4  # счётчик из data/README.md
+    assert len(units) == 4
 
 
 def test_lint_rejects_unknown_rule_and_duplicates():
@@ -90,7 +90,7 @@ def test_deprecated_battery_refused(tmp_path, monkeypatch):
     monkeypatch.setitem(DEPRECATED_BATTERIES, "repos.v0.jsonl", "superseded by v1")
     with pytest.raises(BatteryError, match="DEPRECATED"):
         load_battery(path)
-    assert load_battery(path, allow_deprecated=True)  # явное разрешение работает
+    assert load_battery(path, allow_deprecated=True)
 
 
 def test_fact_rules_matrix():
@@ -120,8 +120,6 @@ def test_fact_rules_matrix():
     assert check_fact_structured(superset, report) is True
     absent = {"fact_id": "f", "rule": "absent", "path": "structure.languages", "value": ".go"}
     assert check_fact_structured(absent, report) is True
-    # отсутствующий path → None (неизмеримо), НЕ fail — включая absent:
-    # иначе agent-режим (без структурного отчёта) получал бы vacuous pass
     missing = {"fact_id": "f", "rule": "structured_contains", "path": "no.such.path", "value": "x"}
     assert check_fact_structured(missing, report) is None
     absent_missing = {"fact_id": "f", "rule": "absent", "path": "no.such.path", "value": ".go"}
@@ -147,7 +145,6 @@ def test_prose_rules_and_absent():
         check_fact_prose({"fact_id": "f", "rule": "absent", "prose": "\\bdjango\\b"}, prose) is True
     )
     assert check_fact_prose({"fact_id": "f", "rule": "absent", "prose": "click"}, prose) is False
-    # structured-правило с prose-фолбэком измеримо в прозе
     assert (
         check_fact_prose(
             {
@@ -162,7 +159,6 @@ def test_prose_rules_and_absent():
         is True
     )
     assert check_fact_prose({"fact_id": "f", "rule": "prose_substring", "prose": "x"}, None) is None
-    # structured-фолбэк — SUBSTRING, не regex: спецсимволы матчатся буквально
     assert (
         check_fact_prose(
             {
@@ -183,7 +179,7 @@ def test_prose_rules_and_absent():
 
 def test_fingerprint_canonical_and_sensitive():
     a = {"b": 1, "a": {"y": 2, "x": 3}}
-    b = {"a": {"x": 3, "y": 2}, "b": 1}  # другой порядок ключей
+    b = {"a": {"x": 3, "y": 2}, "b": 1}
     assert canonical_fingerprint(a) == canonical_fingerprint(b)
     assert canonical_fingerprint(a) != canonical_fingerprint({**a, "b": 2})
 
@@ -192,7 +188,7 @@ def test_source_tree_sha_catches_uncommitted_edit(tmp_path):
     (tmp_path / "core").mkdir()
     (tmp_path / "core" / "x.py").write_text("a = 1")
     before = source_tree_sha256(tmp_path)
-    (tmp_path / "core" / "x.py").write_text("a = 2")  # «незакоммиченная» правка
+    (tmp_path / "core" / "x.py").write_text("a = 2")
     assert source_tree_sha256(tmp_path) != before
 
 
@@ -208,7 +204,7 @@ def test_price_run_tristate():
     usage = {"input_tokens": 1_000_000, "output_tokens": 100_000, "total_tokens": 1_100_000}
     cost = price_run(usage, "deepseek-chat", PRICING_USD_PER_MILLION)
     assert cost == pytest.approx(0.27 + 0.11)
-    assert price_run(usage, "gpt-x-unknown", PRICING_USD_PER_MILLION) is None  # не 0!
+    assert price_run(usage, "gpt-x-unknown", PRICING_USD_PER_MILLION) is None
     assert price_run(None, "deepseek-chat", PRICING_USD_PER_MILLION) is None
 
 
@@ -232,11 +228,10 @@ def test_fold_events_usage_and_subagents():
     assert folded["subagent_count"] == 2
     assert folded["usage"]["total_tokens"] == 15
     assert folded["served_models"] == ["deepseek-chat"]
-    assert fold_events([])["usage"] is None  # tri-state, не нули
+    assert fold_events([])["usage"] is None
 
 
 def test_fold_events_sums_across_attempts():
-    # воркер эмитит usage НА ПОПЫТКУ: resume = второе событие, спенд суммируется
     def usage_event(tokens, calls, model):
         return {
             "kind": "usage",
@@ -261,10 +256,10 @@ def test_jsonl_torn_tail_recovery(tmp_path):
     path = tmp_path / "bundles.jsonl"
     append_jsonl(path, [{"a": 1}])
     with open(path, "a") as f:
-        f.write('{"torn": tru')  # жёсткий kill посреди записи
-    append_jsonl(path, [{"b": 2}])  # новая запись не склеивается с обрывком
+        f.write('{"torn": tru')
+    append_jsonl(path, [{"b": 2}])
     rows = load_jsonl(path)
-    assert rows == [{"a": 1}, {"b": 2}]  # обрывок скипнут, не уронил load
+    assert rows == [{"a": 1}, {"b": 2}]
 
 
 # -- validity gate -------------------------------------------------------------
@@ -338,7 +333,6 @@ _UNIT = {
 
 
 def test_grade_tool_fair_tristate():
-    # pipeline: структурный отчёт — обе оценки измеримы
     pipeline_bundle = _bundle(
         report={
             "structure": {"languages": {".py": 5}},
@@ -349,12 +343,11 @@ def test_grade_tool_fair_tristate():
     assert row["facts_pass_struct"] == 1 and row["facts_measured_struct"] == 1
     assert row["facts_pass_prose"] == 2 and row["facts_measured_prose"] == 2
 
-    # agent: только проза — структурные оценки None, не fail
     agent_bundle = _bundle(
         mode="agent", subagent_count=1, report={"answer": "Это Python CLI утилита", "commit": "abc"}
     )
     row2 = grade_bundle(agent_bundle, _UNIT, _MANIFEST)
-    assert row2["facts_measured_struct"] == 0  # None не считается measured
+    assert row2["facts_measured_struct"] == 0
     assert row2["facts_pass_prose"] == 2
 
 
@@ -379,11 +372,9 @@ def test_grade_error_unit_behavior():
 
 
 def test_grade_behavior_pass_on_expected_succeeded():
-    # app-failed ран ВИДЕН: behavior_pass=False, не исчезает в None
     failed = _bundle(db_status="failed", report=None, report_commit=None)
     row = grade_bundle(failed, _UNIT, _MANIFEST)
     assert row["behavior_pass"] is False
-    # gated → None (неизмеримо), не False
     gated = _bundle(report_commit="drifted99999")
     assert grade_bundle(gated, _UNIT, _MANIFEST)["behavior_pass"] is None
 
@@ -413,7 +404,6 @@ def test_report_dedup_by_row_id():
         "usage": None,
         "cost_usd": None,
     }
-    # один физический ран в двух --out (submit-идемпотентность) — одна выборка
     arms = aggregate([row, dict(row)])
     assert arms[0]["n"] == 1
     assert arms[0]["fact_cov_prose"] == "1/2"
@@ -439,7 +429,7 @@ def test_grade_twice_byte_identical(tmp_path):
     p1 = grade_run(out, BATTERY_PATH)
     first = p1.read_bytes()
     p2 = grade_run(out, BATTERY_PATH)
-    assert p2.read_bytes() == first  # байт-в-байт, гейт фазы grade
+    assert p2.read_bytes() == first
 
 
 # -- зеркало констант (единственный тест, которому МОЖНО импортировать app) ----
@@ -451,7 +441,6 @@ def test_signal_mirror_matches_app():
     from evals import common
 
     assert set(common.RUN_TERMINAL_STATUSES) == {s.value for s in TERMINAL_STATUSES}
-    # kind usage-события в worker.add_event
     import inspect
 
     from core.runtime import worker

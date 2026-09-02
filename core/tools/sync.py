@@ -1,9 +1,4 @@
-"""Sync-обёртка для async-only тулов.
-
-Внутри чужого работающего event loop блокироваться нельзя — корутина
-уезжает в выделенный ThreadPoolExecutor со своим asyncio.run и копией
-contextvars; вне loop — просто asyncio.run.
-"""
+"""Sync-обёртка для async-only тулов."""
 
 import asyncio
 import atexit

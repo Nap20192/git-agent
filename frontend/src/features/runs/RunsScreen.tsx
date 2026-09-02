@@ -332,6 +332,13 @@ function SubmitDrawer({
             value={String(features.maxSubagents)}
             onChange={(e) => patchFeatures({ maxSubagents: Math.max(1, Number(e.target.value) || 1) })}
           />
+          <label className={styles.label}>MAX TOTAL SUB-AGENTS <span style={{ color: "var(--muted)" }}>· per run</span></label>
+          <TextInput
+            glyph="Σ"
+            type="number"
+            value={String(features.maxTotalSubagents)}
+            onChange={(e) => patchFeatures({ maxTotalSubagents: Math.max(1, Number(e.target.value) || 1) })}
+          />
           <label className={styles.label}>
             TOKEN BUDGET <span style={{ color: "var(--med)" }}>· planned</span>
           </label>
@@ -343,6 +350,28 @@ function SubmitDrawer({
             onChange={(e) => {
               const v = e.target.value.trim();
               patchFeatures({ tokenBudget: v === "" ? null : Math.max(0, Number(v) || 0) });
+            }}
+          />
+          <label className={styles.label}>SUB-AGENT TIMEOUT <span style={{ color: "var(--muted)" }}>· sec</span></label>
+          <TextInput
+            glyph="⧗"
+            type="number"
+            placeholder="600 (default)"
+            value={features.subagentTimeout == null ? "" : String(features.subagentTimeout)}
+            onChange={(e) => {
+              const v = e.target.value.trim();
+              patchFeatures({ subagentTimeout: v === "" ? null : Math.max(1, Number(v) || 0) });
+            }}
+          />
+          <label className={styles.label}>QUEUE TIMEOUT <span style={{ color: "var(--muted)" }}>· sec</span></label>
+          <TextInput
+            glyph="⧗"
+            type="number"
+            placeholder="300 (default)"
+            value={features.queueTimeout == null ? "" : String(features.queueTimeout)}
+            onChange={(e) => {
+              const v = e.target.value.trim();
+              patchFeatures({ queueTimeout: v === "" ? null : Math.max(1, Number(v) || 0) });
             }}
           />
           <Toggle label="guardrail" tag="planned" disabled on={features.guardrail} onClick={() => {}} />

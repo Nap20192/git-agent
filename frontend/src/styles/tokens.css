@@ -70,3 +70,43 @@
   /* z-index */
   --z-modal: 50;
 }
+
+/* Light theme — warm off-white, deliberate (not a naive invert). Only color
+   tokens are overridden; typography/spacing/z inherit from the base :root. */
+:root[data-theme="light"] {
+  /* surfaces */
+  --bg: #f7f4ee;
+  --bg-deep: #ece7dd;
+  --panel: #fffdf8;
+  --panel-2: #f3f0e8;
+  --elevated: #e9e5db;
+  --subtle: #ddd8cc;
+
+  /* borders */
+  --border: #d7d0c1;
+  --border-soft: #e7e2d6;
+
+  /* text */
+  --text: #2b2620;
+  --muted: #6d655a;
+  --comment: #7f7669;
+  --dim: #a69c8c;
+
+  /* brand accents (darker so amber reads on light; still amber) */
+  --amber: #b5670a;
+  --amber-hover: #cc5200;
+  --amber-bright: #d97a0a;
+  --burnt: #a34400;
+  --blue: #0077b3;
+
+  /* severity scale (darkened for contrast on light) */
+  --crit: #d21f52;
+  --high: #b0573d;
+  --med: #b5670a;
+  --low: #5f7a3a;
+  --info: #6d655a;
+
+  /* hover fills */
+  --hover: #efe9df;
+  --hover-2: #f1ece2;
+}

@@ -39,11 +39,13 @@ def build_task_tool(
     model: BaseChatModel,
     capacity: SubagentCapacity,
     extra_tools: list[BaseTool] | None = None,
+    timeout_override: float | None = None,
 ) -> BaseTool:
     """Замыкание на песочницу/модель/capacity лида — общих глобалов нет.
 
     extra_tools — дополнительные тулы Сабагентам поверх sandbox (например
     load_skill в security-режиме); у детей по-прежнему нет тула task.
+    timeout_override — потолок исполнения Сабагента на весь Ран (None ⇒ дефолт типа).
     """
     child_extra = list(extra_tools or [])
 
@@ -118,6 +120,7 @@ def build_task_tool(
             config, model, [*build_sandbox_tools(sandbox), *child_extra], on_step=on_step
         )
         result = SubagentResult(task_id=tool_call_id)
+        exec_timeout = timeout_override or config.timeout_seconds
         try:
             async with capacity.slot():
                 result = await asyncio.wait_for(
@@ -126,14 +129,14 @@ def build_task_tool(
                         task_id=tool_call_id,
                         acceptance_criteria=acceptance_criteria,
                     ),
-                    timeout=config.timeout_seconds,
+                    timeout=exec_timeout,
                 )
         except SubagentCapacityError as exc:
             result.try_set_terminal(SubagentStatus.FAILED, error=f"Delegation not admitted: {exc}")
         except TimeoutError:
             result.try_set_terminal(
                 SubagentStatus.TIMED_OUT,
-                error=f"Execution timed out after {config.timeout_seconds:g}s",
+                error=f"Execution timed out after {exec_timeout:g}s",
             )
         except asyncio.CancelledError:
             result.try_set_terminal(SubagentStatus.CANCELLED, error="Cancelled")

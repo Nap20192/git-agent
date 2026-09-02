@@ -31,13 +31,12 @@ def test_fifo_order_and_bounded_queue():
         await asyncio.sleep(0.01)
         w2 = asyncio.create_task(waiter(2))
         await asyncio.sleep(0.01)
-        # очередь полна (2) — третий отвергается сразу
         with pytest.raises(SubagentCapacityRejected):
             async with cap.slot():
                 pass
         release.set()
         await asyncio.gather(h, w1, w2)
-        assert order == [1, 2]  # FIFO
+        assert order == [1, 2]
 
     asyncio.run(main())
 
@@ -88,10 +87,9 @@ def test_cancelled_waiter_reraises_and_leaks_no_slot():
         await asyncio.sleep(0.01)
         cw.cancel()
         with pytest.raises(asyncio.CancelledError):
-            await cw  # отмена не конвертируется в capacity-ошибку
+            await cw
         release.set()
         await h
-        # слот не утёк: выживший дожидается своей очереди (пин семафора 3.13)
         await asyncio.wait_for(sv, timeout=1)
         assert entered.is_set()
 

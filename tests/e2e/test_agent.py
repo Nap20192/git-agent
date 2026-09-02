@@ -1,7 +1,4 @@
-"""Smoke-тест полного прогона графа на фикстурном мини-репозитории.
-
-Требует запущенный OpenSandbox (docker compose -f deploy/docker-compose.yml up -d).
-"""
+"""Smoke-тест полного прогона графа на фикстурном мини-репозитории."""
 
 import asyncio
 
@@ -9,7 +6,7 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 
 from core.agents.graph import build_graph
-from infra.opensandbox import create_sandbox
+from infra.sandbox.opensandbox import create_sandbox
 
 FIXTURE_SETUP = (
     "mkdir /fixture && cd /fixture && git init -q && "
@@ -30,7 +27,7 @@ async def _run() -> dict:
         final = await graph.ainvoke({"repo_url": "/fixture"})
         return final["report"]
     finally:
-        await sandbox.close()
+        await sandbox.kill()
 
 
 def test_full_run_on_fixture_repo():

@@ -1,10 +1,4 @@
-"""Per-run бюджет токенов поверх кумулятивной суммы usage_metadata.
-
-Идемпотентность по message id: diff = max(0, current - seen[id]) — повторный
-проход того же сообщения и ретроактивные апдейты не считаются дважды.
-Hard-stop без исключения: стрип tool_calls + видимая заметка + stop_reason
-"token_capped" (аддитивно). Warning — отложенной инъекцией.
-"""
+"""Per-run бюджет токенов поверх кумулятивной суммы usage_metadata."""
 
 from __future__ import annotations
 

@@ -99,7 +99,7 @@ def test_both_providers_are_additive(monkeypatch):
     callbacks = build_tracing_callbacks()
     names = [type(c).__name__ for c in callbacks]
     assert names[0] == "LangChainTracer"
-    assert "CallbackHandler" in names[1]  # langfuse 4.x: LangchainCallbackHandler
+    assert "CallbackHandler" in names[1]
 
 
 def test_provider_error_is_wrapped_with_name(monkeypatch):
@@ -115,7 +115,6 @@ def test_provider_error_is_wrapped_with_name(monkeypatch):
 
 
 def test_langfuse_metadata_lifecycle(monkeypatch):
-    # выключен → {} и no-op
     assert build_langfuse_trace_metadata(thread_id="42") == {}
     config: dict = {"metadata": {"x": 1}}
     inject_langfuse_metadata(config, thread_id="42")
@@ -133,7 +132,6 @@ def test_langfuse_metadata_lifecycle(monkeypatch):
     assert metadata["langfuse_trace_name"] == "repo-scan"
     assert metadata["langfuse_tags"] == ["env:prod", "model:deepseek-chat"]
 
-    # setdefault: значение вызывающего побеждает
     config = {"metadata": {"langfuse_session_id": "upstream"}}
     inject_langfuse_metadata(config, thread_id="42", model_name="m")
     assert config["metadata"]["langfuse_session_id"] == "upstream"

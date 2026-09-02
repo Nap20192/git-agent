@@ -1,8 +1,4 @@
-"""In-memory RunStore — тестовая ступень лестницы и исполняемая спецификация порта.
-
-ИНВАРИАНТ КОНКУРЕНТНОСТИ: ни в одном методе нет await до завершения мутации —
-под одним event loop каждый метод атомарен. Не добавлять await внутрь методов.
-"""
+"""In-memory RunStore — тестовая ступень лестницы и исполняемая спецификация порта."""
 
 from __future__ import annotations
 
@@ -85,9 +81,6 @@ class MemoryRunStore:
             return dict(row), SubmitDisposition.already_succeeded
         if self._active(row) and self._lease_valid(row, grace_seconds):
             raise ConflictError(f"run {run_id} is active with a valid lease")
-        # resume (после failed/interrupted) или takeover-resume (истёкший lease):
-        # очистка cancel/error/report в том же CAS — возобновлённый ран не
-        # наследует стейл-отмену.
         if not self._active(row):
             assert_transition(RunStatus(row["status"]), RunStatus.pending, via_claim=True)
         row.update(

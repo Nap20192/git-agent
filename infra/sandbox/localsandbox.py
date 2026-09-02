@@ -1,8 +1,4 @@
-"""Local-«песочница»: команды выполняются на хосте в отдельной директории.
-
-БЕЗ ИЗОЛЯЦИИ — недоверенный код (git-хуки и т.п.) может исполниться на хосте.
-Только для своих репозиториев и офлайн-отладки.
-"""
+"""Local-«песочница»: команды выполняются на хосте в отдельной директории."""
 
 import asyncio
 import shutil
@@ -20,6 +16,10 @@ class LocalSandbox:
         Path(base_dir).mkdir(parents=True, exist_ok=True)
         self._dir = Path(tempfile.mkdtemp(prefix="run-", dir=base_dir))
         log.warning("local sandbox: NO isolation, host execution", dir=str(self._dir))
+
+    @property
+    def id(self) -> str | None:
+        return None
 
     @property
     def repo_dir(self) -> str:

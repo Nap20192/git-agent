@@ -1,10 +1,4 @@
-"""Общая инфраструктура middleware: клон-гигиена и отложенная инъекция.
-
-Отложенная инъекция: гейт из after_model НЕ может вставить предупреждение между
-AIMessage.tool_calls и их ToolMessage (ломается pairing, строгие провайдеры дают
-400). Вместо этого текст кладётся в очередь инстанса, а wrap_model_call
-дописывает его скрытым HumanMessage в КОНЕЦ request.messages.
-"""
+"""Общая инфраструктура middleware: клон-гигиена и отложенная инъекция."""
 
 from __future__ import annotations
 
@@ -27,15 +21,7 @@ def clone_ai_message_with_tool_calls(
     *,
     stop_note: str | None = None,
 ) -> AIMessage:
-    """Клон с отфильтрованными tool_calls; четыре инварианта гигиены:
-
-    1) фильтруется и provider-raw additional_kwargs["tool_calls"];
-    2) function_call выбрасывается, если ничего не осталось;
-    3) finish_reason форсируется в stop, когда все вызовы вырезаны;
-    4) id сообщения СОХРАНЯЕТСЯ — редьюсер состояния заменяет, а не добавляет.
-
-    Рассинхрон каналов 1-3 отвергают строгие провайдеры (400).
-    """
+    """Клон с отфильтрованными tool_calls; четыре инварианта гигиены:"""
     kept_calls = [c for c in message.tool_calls if c.get("id") in kept_ids]
     additional_kwargs = dict(message.additional_kwargs or {})
     raw_calls = additional_kwargs.get("tool_calls")
@@ -59,7 +45,7 @@ def clone_ai_message_with_tool_calls(
         tool_calls=kept_calls,
         additional_kwargs=additional_kwargs,
         response_metadata=response_metadata,
-        id=message.id,  # тот же id: замена, не дописывание
+        id=message.id,
     )
 
 

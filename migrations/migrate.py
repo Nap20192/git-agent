@@ -1,7 +1,4 @@
-"""Применяет migrations/*.sql по порядку + создаёт таблицы чекпоинтов LangGraph.
-
-Запуск: uv run python migrations/migrate.py
-"""
+"""Применяет migrations/*.sql по порядку + создаёт таблицы чекпоинтов LangGraph."""
 
 from pathlib import Path
 
@@ -28,7 +25,6 @@ def main() -> None:
             conn.execute("INSERT INTO schema_migrations (version) VALUES (%s)", (sql_file.name,))
             log.info("migration applied", version=sql_file.name)
 
-    # Таблицы чекпоинтов LangGraph (setup идемпотентен)
     with PostgresSaver.from_conn_string(settings.database_url) as saver:
         saver.setup()
     log.info("checkpointer tables ready")

@@ -1,9 +1,4 @@
-"""Подготовка Репозитория в Песочнице: clone + опциональный пин коммита.
-
-Единственная реализация clone/checkout в проекте — её используют и профили
-рантайма (prepare на каждой попытке), и scan-узел (fallback для прямого
-запуска графа без prepare: тесты, demo).
-"""
+"""Подготовка Репозитория в Песочнице: clone + опциональный пин коммита."""
 
 from __future__ import annotations
 
@@ -20,10 +15,7 @@ CLONE_TIMEOUT_SECONDS = 180.0
 
 
 async def resolve_commit_sha(repo_url: str) -> str:
-    """HEAD-коммит без clone: ls-remote для URL, rev-parse для локального пути.
-
-    Идентичность Рана (идемпотентность submit) считается от этого sha.
-    """
+    """HEAD-коммит без clone: ls-remote для URL, rev-parse для локального пути."""
     args = (
         ["git", "-C", repo_url, "rev-parse", "HEAD"]
         if os.path.isdir(repo_url)
@@ -42,20 +34,13 @@ async def resolve_commit_sha(repo_url: str) -> str:
 
 
 async def prepare_repo(sandbox: Sandbox, repo_url: str, checkout_ref: str | None = None) -> None:
-    """Клон + опциональный пин коммита.
-
-    В durable-рантайме работает на КАЖДОЙ попытке (resume = свежая песочница,
-    чекпоинт хранит только состояние графа) — без этого resumed-ран продолжается
-    в пустой ФС. Полный sha после checkout верифицируется fail-loud: тихий дрейф
-    на дефолтную ветку — ровно то, от чего защищается пин.
-    """
+    """Клон + опциональный пин коммита."""
     repo_dir = shlex.quote(sandbox.repo_dir)
     await sandbox.run(
         f"rm -rf {repo_dir} && git clone --depth 1 {shlex.quote(repo_url)} {repo_dir}",
         timeout_seconds=CLONE_TIMEOUT_SECONDS,
     )
     if checkout_ref:
-        # depth-1 клон не содержит произвольный sha — дотягиваем точечно
         ref = shlex.quote(checkout_ref)
         await sandbox.run(
             f"git -C {repo_dir} fetch --depth 1 origin {ref}"

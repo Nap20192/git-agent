@@ -1,12 +1,4 @@
-"""Отчёт: сравнение армов (mode/preset/model). Офлайн, app-free, read-only.
-
-Честность отчёта (R9/R10): хедлайн — работа/стоимость (покрытие фактов,
-токены И доллары вместе — кэш/префикс-эффекты разводят их); n= в каждой
-ячейке; gated/errors на виду; $ — верхняя граница (input по cache-miss,
-помечено); латентности в хедлайне нет (single-shot, конфаунд).
-
-    uv run python evals/report.py --out evals/runs/smoke1 [--out evals/runs/smoke2 ...]
-"""
+"""Отчёт: сравнение армов (mode/preset/model). Офлайн, app-free, read-only."""
 
 from __future__ import annotations
 
@@ -27,8 +19,6 @@ def _arm(row: dict[str, Any]) -> tuple[str, str, str]:
 
 
 def aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    # дедуп по row_id: один физический ран, попавший в несколько --out
-    # (reuse через submit-идемпотентность), — одна выборка, не «реплики»
     seen: set[str] = set()
     unique = []
     for row in rows:
@@ -96,7 +86,7 @@ def report(outs: list[Path]) -> None:
         pct = f" ({a['fact_cov_prose_pct']}%)" if a["fact_cov_prose_pct"] is not None else ""
         cost = "—" if a["cost_usd_upper"] is None else str(a["cost_usd_upper"])
         if a["cost_usd_upper"] is not None and a["cost_n"] < a["n"]:
-            cost += f"({a['cost_n']}/{a['n']})"  # частично оценённый арм — честно пометить
+            cost += f"({a['cost_n']}/{a['n']})"
         print(
             f"{arm_name:44} {a['n']:>3} {a['fact_cov_prose'] + pct:>13} {a['fact_cov_struct']:>14}"
             f" {a['behavior_pass']:>9} {a['input_tokens'] if a['input_tokens'] is not None else '—':>10}"

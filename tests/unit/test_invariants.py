@@ -32,13 +32,11 @@ CLAIM = dict(
 def test_step_targets_sound_mirror():
     for source, targets in LEGAL_TRANSITIONS.items():
         for target in targets:
-            # цель — running, терминал или pending-через-claim (resume)
             assert (
                 target is RunStatus.running
                 or target in TERMINAL_STATUSES
                 or (target is RunStatus.pending and source in TERMINAL_STATUSES)
             ), (source, target)
-    # «подвисших» промежуточных статусов нет: машина покрывает весь enum
     assert set(LEGAL_TRANSITIONS) == set(RunStatus)
 
 
@@ -48,7 +46,7 @@ def test_assert_transition_guards():
     with pytest.raises(AssertionError):
         assert_transition(RunStatus.succeeded, RunStatus.pending, via_claim=True)
     with pytest.raises(AssertionError):
-        assert_transition(RunStatus.failed, RunStatus.pending)  # resume не через claim
+        assert_transition(RunStatus.failed, RunStatus.pending)
     with pytest.raises(AssertionError):
         assert_transition(RunStatus.running, RunStatus.pending)
 
@@ -63,7 +61,6 @@ def test_terminal_absorbing_mirror():
         rid = row["id"]
         await store.start_run(rid, owner_worker_id="w1")
         await store.finalize_if_not_cancelled(rid, owner_worker_id="w1", report={})
-        # из succeeded нет НИКАКИХ переходов, включая claim
         assert not await store.start_run(rid, owner_worker_id="w1")
         assert not await store.finish(rid, owner_worker_id="w1", status=RunStatus.failed)
         assert not await store.claim_for_takeover(rid, grace_seconds=0, error="x", stop_reason="y")
@@ -81,11 +78,8 @@ def test_exclusive_mirror():
     async def main():
         store = MemoryRunStore()
         row, _ = await store.claim(**CLAIM)
-        # второй claim той же идентичности при валидном lease — отвергнут:
-        # двух активных попыток одного ресурса не существует
         with pytest.raises(ConflictError):
             await store.claim(**{**CLAIM, "owner_worker_id": "w2"})
-        # start без admission (чужой owner) невозможен — SysStep.start(ha)
         assert not await store.start_run(row["id"], owner_worker_id="w2")
 
     asyncio.run(main())
@@ -95,8 +89,7 @@ def test_exclusive_mirror():
 
 
 def _admission_invariant(store: MemoryRunStore) -> None:
-    """Invariant: каждый running-ран держит admission (owner_worker_id).
-    Плюс exclusive: не более одной активной попытки на идентичность."""
+    """Invariant: каждый running-ран держит admission (owner_worker_id)."""
     active_by_identity: dict[tuple, int] = {}
     for row in store._runs.values():
         if row["status"] == RunStatus.running:
@@ -111,7 +104,7 @@ def test_admission_invariant_mirror():
     async def main():
         rng = random.Random(42)
         store = MemoryRunStore()
-        _admission_invariant(store)  # Lean: inv_init — пустая система
+        _admission_invariant(store)
         identities = [dict(CLAIM, commit_sha=f"c{i}") for i in range(3)]
         workers = ["w1", "w2"]
         for _ in range(400):
@@ -136,7 +129,6 @@ def test_admission_invariant_mirror():
                 elif op == 4:
                     await store.request_cancel(rid)
                 elif op == 5 and run_ids and rng.random() < 0.3:
-                    # смоделировать смерть владельца: lease истекает
                     store._runs[rid]["lease_expires_at"] = datetime.now(UTC) - timedelta(
                         seconds=999
                     )
@@ -145,6 +137,6 @@ def test_admission_invariant_mirror():
                     )
             except ConflictError:
                 pass
-            _admission_invariant(store)  # Lean: inv_preserved — после каждого шага
+            _admission_invariant(store)
 
     asyncio.run(main())

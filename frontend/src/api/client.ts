@@ -13,6 +13,8 @@ import type {
   RunEvent,
   RunGraph,
   SandboxSpec,
+  SandboxInstance,
+  ChatTurn,
   RunLimits,
   SubmitRunRequest,
   SubmitRunResponse,
@@ -56,8 +58,15 @@ export interface GitAgentApi {
   // sandboxes
   listSandboxes(): Promise<SandboxSpec[]>;
   createSandbox(input: { name: string; kind: SandboxSpec["kind"]; image?: string; workdir?: string }): Promise<SandboxSpec>;
+  // sandbox instances (live/dead, killable)
+  listSandboxInstances(): Promise<SandboxInstance[]>;
+  killSandboxInstance(id: string): Promise<SandboxInstance>;
 
   // capabilities catalog
   listCapabilities(): Promise<Capability[]>;
   listMemoryPresets(): Promise<MemoryPreset[]>;
+
+  // post-run chat (agent runs) — history + streamed send
+  chatHistory(runId: string): Promise<ChatTurn[]>;
+  sendChat(runId: string, message: string, onEvent: (event: RunEvent) => void): Promise<void>;
 }

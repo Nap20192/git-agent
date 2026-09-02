@@ -30,6 +30,10 @@ export function useSandboxes() {
   const api = useApi();
   return useAsync(() => api.listSandboxes(), []);
 }
+export function useSandboxInstances() {
+  const api = useApi();
+  return useAsync(() => api.listSandboxInstances(), []);
+}
 export function useCapabilities() {
   const api = useApi();
   return useAsync(() => api.listCapabilities(), []);

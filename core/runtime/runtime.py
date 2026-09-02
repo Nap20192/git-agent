@@ -1,10 +1,4 @@
-"""Runtime — библиотечный фасад: «ран — это ресурс, а не запрос».
-
-submit() идемпотентен по построению: тот же (repo, commit, model) → тот же ран
-(succeeded → его отчёт; активный → conflict/attach; упавший → resume с
-чекпоинта под тем же id). HTTP-слой позже мапит ConflictError→409,
-subscribe→SSE (StreamEvent.id — это SSE id), StreamGap → refetch events().
-"""
+"""Runtime — библиотечный фасад: «ран — это ресурс, а не запрос»."""
 
 from __future__ import annotations
 
@@ -29,7 +23,7 @@ class Runtime:
         store: RunStore,
         bridge: StreamBridge,
         make_model: Callable[..., Any],
-        create_sandbox: Callable[[str], Awaitable[Sandbox]],
+        provision_sandbox: Callable[..., Awaitable[tuple[Sandbox, bool]]],
         get_or_create_repository: Callable[[str], Awaitable[dict[str, Any]]],
         profile: GraphProfile | None = None,
         checkpointer: Any = None,
@@ -40,10 +34,11 @@ class Runtime:
         self._bridge = bridge
         self._profile = profile or PIPELINE_PROFILE
         self._make_model = make_model
-        self._create_sandbox = create_sandbox
+        self._provision_sandbox = provision_sandbox
         self._get_or_create_repository = get_or_create_repository
         self._checkpointer = checkpointer
         self._manager = RunManager(store, lease_seconds=lease_seconds, grace_seconds=grace_seconds)
+        self._chat_locks: dict[int, Any] = {}
 
     async def start(self) -> None:
         await self._manager.start()
@@ -72,9 +67,6 @@ class Runtime:
             llm_model=llm_model,
         )
         if result.disposition in (SubmitDisposition.created, SubmitDisposition.resumed):
-            # лимиты задаются при создании и живут на Ране; продолжение с новыми
-            # лимитами делает set_limits ДО submit — тут перезаписываем, только
-            # если явно переданы (resume без limits сохраняет прежние)
             if limits is not None:
                 await self._store.set_limits(result.run["id"], limits)
                 result.run["limits"] = limits
@@ -89,7 +81,7 @@ class Runtime:
                     repo_url=repo_url,
                     profile=self._profile,
                     make_model=self._make_model,
-                    create_sandbox=self._create_sandbox,
+                    provision_sandbox=self._provision_sandbox,
                     checkpointer=self._checkpointer,
                     sandbox_name=sandbox_name,
                     is_resume=result.disposition is SubmitDisposition.resumed,
@@ -104,8 +96,6 @@ class Runtime:
     async def subscribe(
         self, run_id: int, *, last_event_id: str | None = None
     ) -> AsyncIterator[StreamItem]:
-        # Терминальный ран без живого стрима: не создавать вечно-тихий стрим —
-        # durable-история читается через events(), тут сразу END.
         from core.runtime.bridge import END_SENTINEL
         from core.runtime.schemas import TERMINAL_STATUSES
 
@@ -130,9 +120,67 @@ class Runtime:
 
         record = self._manager.get_local(run_id)
         if record is not None and record.task is not None:
-            # wait, не await: отменённый таск рана не должен отменять ждущего
             await asyncio.wait([record.task])
         return await self._store.get(run_id)
+
+    async def chat(self, run_id: int, message: str) -> AsyncIterator[tuple[str, Any]]:
+        """Интерактивный ход поверх чекпоинт-треда завершённого агентного Рана."""
+        import asyncio
+
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        from core.runtime.serialization import serialize
+
+        row = await self._store.get(run_id)
+        if row is None:
+            raise ValueError(f"run {run_id} not found")
+
+        lock = self._chat_locks.setdefault(run_id, asyncio.Lock())
+        async with lock:
+            await self._store.add_event(run_id, "chat", {"role": "user", "text": message})
+            model = self._make_model(
+                model=row["llm_model"],
+                api_base=row["llm_api_base"],
+                api_key=row["llm_api_key"],
+            )
+            sandbox, _reused = await self._provision_sandbox(
+                run_id, row.get("sandbox_name") or "git", is_resume=True
+            )
+            answer = ""
+            try:
+                graph = self._profile.build(
+                    sandbox, model, checkpointer=self._checkpointer, limits=row.get("limits") or {}
+                )
+                config: dict[str, Any] = {
+                    "configurable": {"thread_id": str(run_id)},
+                    **self._profile.run_config,
+                }
+                async for mode, chunk in graph.astream(
+                    {"messages": [HumanMessage(content=message)]},
+                    config=config,
+                    stream_mode=self._profile.stream_modes,
+                ):
+                    yield mode, serialize(chunk, mode=mode)
+                state = await graph.aget_state(config)
+                for msg in reversed((state.values or {}).get("messages") or []):
+                    if isinstance(msg, AIMessage) and not msg.tool_calls:
+                        text = msg.text if isinstance(msg.text, str) else str(msg.content)
+                        answer = (text or "").strip()
+                        break
+            finally:
+                await sandbox.close()
+            await self._store.add_event(run_id, "chat", {"role": "agent", "text": answer})
+
+    async def chat_history(self, run_id: int) -> list[dict[str, Any]]:
+        """Сохранённые чат-ходы Рана (роль+текст) по порядку."""
+        events = await self._store.list_events_after(run_id, None, limit=1000)
+        out = []
+        for e in events:
+            if e.get("kind") != "chat":
+                continue
+            data = (e.get("payload") or {}).get("data") or e.get("payload") or {}
+            out.append({"role": data.get("role", ""), "text": data.get("text", "")})
+        return out
 
     async def cancel(self, run_id: int) -> CancelOutcome:
         return await self._manager.cancel(run_id)

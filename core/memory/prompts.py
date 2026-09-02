@@ -1,11 +1,4 @@
-"""Custom summarization prompts (Part C / Axis A).
-
-SummarizationMiddleware formats these with the older messages via
-``.format(messages=...)``, so they must contain ``{messages}`` and no other
-bare braces. The default prompt is agentic-task flavored ("artifacts", "next
-steps"); these are repo-analysis flavored, aimed at the facts a later step
-of the run actually needs (repository facts, findings, the current thread).
-"""
+"""Custom summarization prompts (Part C / Axis A)."""
 
 SELECTIVE_RETENTION_SUMMARY_PROMPT = """<role>
 Repo-analysis memory extractor

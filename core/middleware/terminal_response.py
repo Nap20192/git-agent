@@ -1,10 +1,4 @@
-"""Восстановление пустого финального ответа.
-
-Провайдер после исполнения тулов может вернуть ПУСТОЙ AIMessage (нет текста,
-нет tool_calls) — роутер завершит граф «успехом» с молчаливой пустотой. Один
-авто-ретрай с recovery-промптом (пустышка удаляется из состояния ДО ретрая);
-второй пустой — подмена на видимую ошибку, не тихий успех.
-"""
+"""Восстановление пустого финального ответа."""
 
 from __future__ import annotations
 
@@ -41,7 +35,7 @@ def _is_empty_final(message: AIMessage) -> bool:
 class TerminalResponseMiddleware(AgentMiddleware):
     def __init__(self) -> None:
         super().__init__()
-        self._retried = False  # бюджет: один ретрай на ран, не на сообщение
+        self._retried = False
         self._pending_recovery = False
 
     @hook_config(can_jump_to=["model"])
@@ -52,7 +46,6 @@ class TerminalResponseMiddleware(AgentMiddleware):
         last = messages[-1]
         if not _is_empty_final(last):
             return None
-        # только пост-тул ход: до первого тула пустой ответ — другая проблема
         if not any(isinstance(m, ToolMessage) for m in messages):
             return None
 
@@ -63,13 +56,12 @@ class TerminalResponseMiddleware(AgentMiddleware):
                 "middleware=terminal_response empty final; retrying once",
                 message_id=last.id,
             )
-            # пустышку — вон из состояния до ретрая (не в чекпойнт)
             return {"messages": [RemoveMessage(id=last.id)], "jump_to": "model"}
 
         log.error("middleware=terminal_response empty final twice; visible error")
         replacement = AIMessage(
             content=_VISIBLE_ERROR,
-            id=last.id,  # замена, не дописывание
+            id=last.id,
             additional_kwargs={**(last.additional_kwargs or {}), ERROR_FALLBACK_KEY: True},
         )
         return {"messages": [replacement]}

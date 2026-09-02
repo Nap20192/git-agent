@@ -32,6 +32,38 @@
 .list {
   border: 1px solid var(--border);
   background: var(--panel);
+  margin-bottom: 20px;
+}
+.sectionTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 4px 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.dimSmall {
+  font-size: 10px;
+  color: var(--dim, var(--muted));
+}
+.killBtn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--crit, #d05a5a);
+  font-size: 10px;
+  font-family: inherit;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.killBtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--crit, #d05a5a) 14%, transparent);
+  border-color: var(--crit, #d05a5a);
+}
+.killBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* create drawer */

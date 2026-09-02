@@ -15,6 +15,8 @@ import type {
   RunGraph,
   RunListResponse,
   SandboxSpec,
+  SandboxInstance,
+  ChatTurn,
   SubmitRunRequest,
   SubmitRunResponse,
 } from "./contract.ts";
@@ -89,6 +91,51 @@ export function createHttpApi(): GitAgentApi {
       return (await req<{ sandboxes: SandboxSpec[] }>("/sandboxes")).sandboxes;
     },
     createSandbox: (input) => req<SandboxSpec>("/sandboxes", { method: "POST", body: JSON.stringify(input) }),
+
+    async listSandboxInstances() {
+      return (await req<{ instances: SandboxInstance[] }>("/sandboxes/instances")).instances;
+    },
+    killSandboxInstance: (id) => req<SandboxInstance>(`/sandboxes/instances/${id}/kill`, { method: "POST" }),
+
+    async chatHistory(runId) {
+      return (await req<{ turns: ChatTurn[] }>(`/runs/${runId}/chat`)).turns;
+    },
+    async sendChat(runId, message, onEvent) {
+      const res = await fetch(`${BASE}/runs/${runId}/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      if (!res.ok || !res.body) {
+        let m = res.statusText;
+        try {
+          m = (await res.json())?.error?.message ?? m;
+        } catch {
+          /* non-JSON */
+        }
+        throw new Error(`${res.status} ${m}`);
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx: number;
+        while ((idx = buf.indexOf("\n\n")) >= 0) {
+          const frame = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          const line = frame.split("\n").find((l) => l.startsWith("data: "));
+          if (!line) continue;
+          try {
+            onEvent(JSON.parse(line.slice(6)) as RunEvent);
+          } catch {
+            /* skip malformed frame */
+          }
+        }
+      }
+    },
 
     async listCapabilities() {
       return (await req<{ capabilities: Capability[] }>("/capabilities")).capabilities;

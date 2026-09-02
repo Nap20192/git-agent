@@ -1,18 +1,4 @@
-"""Детектор циклов: P0-гейт от «зовёт один тул с теми же args до recursion_limit».
-
-Два слоя:
-1. Идентичные НАБОРЫ tool_calls (порядко-независимый хеш) в скользящем окне.
-2. Оконная частота одного тула (много вызовов с разными args).
-
-Hard-stop НЕ бросает исключение: стрипает tool_calls + видимая заметка +
-stop_reason (аддитивно). Warning инжектится отложенно — скрытым HumanMessage
-в КОНЕЦ следующего model-запроса (вставка в after_model между AIMessage и его
-ToolMessage ломает pairing на строгих провайдерах).
-
-Состояние per-instance: у нас граф собирается на один ран (лид) — окно живёт
-ровно ран. # ponytail: при переиспользовании инстанса между ранами добавить
-ключевание по run_id + BoundedDict.
-"""
+"""Детектор циклов: P0-гейт от «зовёт один тул с теми же args до recursion_limit»."""
 
 from __future__ import annotations
 
@@ -53,7 +39,7 @@ def _salient(call: dict[str, Any]) -> str:
     for key in _SALIENT_ARG_KEYS:
         if key in args:
             parts.append(f"{key}={args[key]}")
-    if len(parts) == 1:  # нет салиентных ключей — все args
+    if len(parts) == 1:
         parts.append(str(sorted(args.items())))
     return ":".join(parts)
 

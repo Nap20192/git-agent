@@ -1,10 +1,4 @@
-"""Структурный логгер: pretty в консоль, JSON-строки в logs/<level>.jsonl (файл на уровень).
-
-Использование:
-    from pkg.logger import get_logger
-    log = get_logger(__name__)
-    log.info("repo scanned", repo="x", files=42)
-"""
+"""Структурный логгер: pretty в консоль, JSON-строки в logs/<level>.jsonl (файл на уровень)."""
 
 import logging
 import os

@@ -17,19 +17,7 @@ from core.memory import MemoryConfig, resolve_memory_preset
 
 @dataclass
 class RuntimeFeatures:
-    """Declarative feature flags for ``build_agent``.
-
-    Most features accept:
-    - ``True``: use the built-in default middleware
-    - ``False``: disable
-    - An ``AgentMiddleware`` instance: use this custom implementation instead
-
-    ``summarization`` and ``guardrail`` have no built-in default — they only
-    accept ``False`` (disable) or an ``AgentMiddleware`` instance (custom).
-    Compaction (summarization + context editing) is normally driven by the
-    memory preset; an explicit ``summarization`` instance replaces the
-    preset-built one.
-    """
+    """Declarative feature flags for ``build_agent``."""
 
     sandbox: bool | AgentMiddleware = False
     memory: bool | AgentMiddleware = False
@@ -72,8 +60,6 @@ def assemble_from_features(
 
     preset = features.memory_config or resolve_memory_preset(features.memory_preset)
     assembled: list[AgentMiddleware] = []
-    # Санитизация недоверенного tool-вывода — всегда и первой в списке
-    # (самый ВНЕШНИЙ wrap_tool_call: квитанции и гейты видят уже нейтрализованное)
     assembled.append(ToolResultSanitizationMiddleware())
     if isinstance(features.summarization, AgentMiddleware):
         assembled.append(features.summarization)
@@ -133,11 +119,6 @@ def assemble_from_features(
     if plan_mode:
         assembled.append(TodoListMiddleware())
     assembled.extend(extra_middleware)
-    # Хвост, всегда включён:
-    # TerminalResponse — восстановление пустого финала (after_model диспатчится
-    # в обратном порядке — поздняя регистрация видит сырой ответ первой);
-    # ToolErrorHandling — ПОСЛЕДНИМ (самый внутренний wrap_tool_call: его
-    # error-ToolMessage видят все внешние слои, включая квитанции).
     from core.middleware.terminal_response import TerminalResponseMiddleware
     from core.middleware.tool_error_handling import ToolErrorHandlingMiddleware
 

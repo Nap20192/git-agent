@@ -1,10 +1,4 @@
-"""Langfuse trace-attribute метаданные (референс: deerflow/tracing/metadata.py).
-
-Langfuse v4 CallbackHandler поднимает зарезервированные ключи из
-RunnableConfig.metadata на корневой трейс: langfuse_session_id (у нас —
-thread_id рана, т.е. run id), langfuse_trace_name, langfuse_tags.
-user_id/trace_context из референса не портированы — система однопользовательская.
-"""
+"""Langfuse trace-attribute метаданные (референс: deerflow/tracing/metadata.py)."""
 
 from __future__ import annotations
 
@@ -22,8 +16,7 @@ def build_langfuse_trace_metadata(
     model_name: str | None = None,
     environment: str | None = None,
 ) -> dict[str, Any]:
-    """Метаданные для config["metadata"]; {} если Langfuse выключен —
-    вызывающий мержит безусловно, не задевая LangSmith."""
+    """Метаданные для config["metadata"]; {} если Langfuse выключен —"""
     if "langfuse" not in get_enabled_tracing_providers():
         return {}
 
@@ -49,11 +42,7 @@ def inject_langfuse_metadata(
     model_name: str | None = None,
     environment: str | None = None,
 ) -> None:
-    """Вмержить метаданные в config["metadata"] (in place).
-
-    Значения вызывающего побеждают через setdefault; no-op при выключенном
-    Langfuse. Единая точка для CLI и воркера рантайма — пути не расходятся.
-    """
+    """Вмержить метаданные в config["metadata"] (in place)."""
     langfuse_metadata = build_langfuse_trace_metadata(
         thread_id=thread_id,
         trace_name=trace_name,

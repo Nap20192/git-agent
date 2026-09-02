@@ -1,9 +1,4 @@
-"""Наблюдаемость: фабрика LangChain-коллбэков трейсинга (LangSmith, Langfuse).
-
-Референс — deerflow/tracing. Коллбэк на корне инвокации LangChain
-распространяется на все вложенные вызовы: ноды графа, LLM, тулы — один
-трейс деревом на запуск.
-"""
+"""Наблюдаемость: фабрика LangChain-коллбэков трейсинга (LangSmith, Langfuse)."""
 
 from core.tracing.config import (
     TracingConfig,

@@ -1,11 +1,4 @@
-"""Tracing-конфигурация (референс: deerflow/config/tracing_config.py).
-
-Читает env один раз и кэширует (ленивый синглтон с double-checked locking).
-Ключевое различие: explicitly_enabled (флаг стоит) vs enabled_providers (флаг
-стоит И креды полные). Первое — для fail-fast валидации, второе — для
-фактического создания коллбэков. Monocle из референса не портирован: это
-process-global OTel-инструментор гейтвея, которого у нас нет.
-"""
+"""Tracing-конфигурация (референс: deerflow/config/tracing_config.py)."""
 
 from __future__ import annotations
 
@@ -131,8 +124,6 @@ def get_tracing_config() -> TracingConfig:
                 enabled=_env_flag("LANGFUSE_TRACING"),
                 public_key=_first_env("LANGFUSE_PUBLIC_KEY"),
                 secret_key=_first_env("LANGFUSE_SECRET_KEY"),
-                # LANGFUSE_HOST — каноническая переменная проекта (.env.example);
-                # LANGFUSE_BASE_URL — алиас для совместимости с deer-flow
                 host=_first_env("LANGFUSE_HOST", "LANGFUSE_BASE_URL")
                 or "https://cloud.langfuse.com",
             ),

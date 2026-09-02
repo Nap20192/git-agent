@@ -1,8 +1,4 @@
-"""End-to-end делегация: лид → task → реальный create_agent-ребёнок.
-
-Фейковые модель и песочница, но настоящий граф create_agent, настоящие
-middleware (receipts) и настоящий тул task.
-"""
+"""End-to-end делегация: лид → task → реальный create_agent-ребёнок."""
 
 import asyncio
 import dataclasses
@@ -39,10 +35,7 @@ def _ai_tool_call(name: str, args: dict, call_id: str) -> AIMessage:
 
 
 class ToolFakeModel(GenericFakeChatModel):
-    """Фейк с поддержкой bind_tools (игнорирует биндинг).
-
-    Лид и ребёнок делят инстанс — очередь сообщений общая, реплики
-    скриптуются в порядке фактических вызовов модели."""
+    """Фейк с поддержкой bind_tools (игнорирует биндинг)."""
 
     def bind_tools(self, tools, **kwargs):
         return self
@@ -61,7 +54,6 @@ def _lead_with_task(lead_script, sandbox, capacity=None):
 def test_delegation_end_to_end_with_receipts_verdict():
     async def main():
         sandbox = FakeSandbox()
-        # порядок вызовов модели: лид(1) → ребёнок(2,3) → лид(4)
         script = [
             _ai_tool_call(
                 "task",
@@ -96,7 +88,6 @@ def test_delegation_end_to_end_with_receipts_verdict():
         meta = read_subagent_result_metadata(tool_messages[0].additional_kwargs)
         assert meta["status"] == "completed"
         assert "запустил ls" in meta["result_brief"]
-        # квитанция дошла до лида, цитата разрезолвилась
         assert len(meta["tool_receipts"]) == 1
         assert meta["tool_receipts"][0]["tool_name"] == "sandbox_run"
         verdict = meta["receipt_verdict"]
@@ -106,7 +97,6 @@ def test_delegation_end_to_end_with_receipts_verdict():
         kinds = [e["type"] for e in events]
         assert kinds[0] == "task_started" and kinds[-1] == "task_completed"
         assert "task_running" in kinds
-        # песочница реально исполнила команду ребёнка
         assert "ls /repo" in sandbox.commands
 
     asyncio.run(main())
@@ -132,7 +122,7 @@ def test_unknown_subagent_type_returns_failed_result():
         tm = next(m for m in final["messages"] if isinstance(m, ToolMessage) and m.name == "task")
         meta = read_subagent_result_metadata(tm.additional_kwargs)
         assert meta["status"] == "failed"
-        assert "general-purpose" in meta["error"]  # список доступных типов
+        assert "general-purpose" in meta["error"]
 
     asyncio.run(main())
 
@@ -184,7 +174,6 @@ def test_turn_cap_produces_stop_reason():
         )
         try:
             sandbox = FakeSandbox()
-            # ребёнок бесконечно зовёт тулы — упрётся в recursion_limit
             script = [
                 _ai_tool_call(
                     "task",
@@ -218,7 +207,6 @@ def test_capacity_rejection_is_failed_result():
     async def main():
         sandbox = FakeSandbox()
         capacity = SubagentCapacity(max_running=1, max_queued=0, queue_timeout_seconds=1)
-        # занять единственный слот навсегда
         blocker = asyncio.Event()
 
         async def hold():

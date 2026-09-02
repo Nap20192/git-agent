@@ -1,11 +1,4 @@
-"""FIFO-admission на делегации: ограниченная конкуренция + ограниченная очередь.
-
-asyncio.Semaphore в CPython будит ожидающих FIFO и (после фикса gh-90155)
-перебуживает следующего, если разбуженный отменился — ручная deque со
-slot-transfer из референса здесь доказуемо не нужна. Лимиты заморожены
-конструктором: reconfigure-API отсутствует намеренно (hot-reload конфига не
-должен рекламировать ёмкость, которой у контроллера нет).
-"""
+"""FIFO-admission на делегации: ограниченная конкуренция + ограниченная очередь."""
 
 from __future__ import annotations
 
@@ -55,8 +48,6 @@ class SubagentCapacity:
                     await self._sem.acquire()
             except TimeoutError:
                 raise SubagentCapacityTimeout(f"no slot within {self._queue_timeout}s") from None
-            # CancelledError пробрасывается как есть — отмена не должна
-            # выглядеть как retryable-ошибка admission
         finally:
             self._queued -= 1
         try:

@@ -40,13 +40,11 @@ def test_citing_turn_snapshot_fails_closed():
     ai.additional_kwargs = {TOOL_RECEIPT_LEDGER_KEY: [dict(r) for r in ok]}
     assert extract_citing_turn_receipts([ai]) == ok
 
-    # непоследовательные id → None целиком
     broken = [dict(ok[0]), {**dict(ok[1]), "id": "r7"}]
     ai2 = AIMessage(content="done")
     ai2.additional_kwargs = {TOOL_RECEIPT_LEDGER_KEY: broken}
     assert extract_citing_turn_receipts([ai2]) is None
 
-    # не-список → None
     ai3 = AIMessage(content="done")
     ai3.additional_kwargs = {TOOL_RECEIPT_LEDGER_KEY: "junk"}
     assert extract_citing_turn_receipts([ai3]) is None
@@ -57,7 +55,6 @@ def test_snapshot_is_rendered_subset_only():
     rendered, retained = render_tool_receipts_with_snapshot(receipts, max_chars=800)
     assert 0 < len(retained) < len(receipts)
     assert "older receipts omitted" in rendered
-    # бюджет вырезал ранние: цитата в невидимую запись не должна резолвиться
     omitted_id = receipts[0]["id"]
     assert all(r["id"] != omitted_id for r in retained)
     verdict = verify_receipt_citations(f"Ran it [{omitted_id} sandbox_run]", retained)
@@ -96,22 +93,16 @@ def test_verify_matrix():
 
 def test_unverified_heuristics():
     receipts = extract_tool_receipts([_tool_message(1)])
-    # английский глагол действия без цитат
     v = verify_receipt_citations("I created the file and executed the script.", receipts)
     assert v["no_citation_claims"] and not v["citation_resolved"]
-    # русский глагол
     v_ru = verify_receipt_citations("Я склонировал репозиторий и проверил зависимости.", receipts)
     assert v_ru["no_citation_claims"]
-    # CJK
     v_cjk = verify_receipt_citations("已经创建了配置文件。", receipts)
     assert v_cjk["no_citation_claims"]
-    # 240-floor: длинный отчёт без цитат при непустом леджере
     v_long = verify_receipt_citations("х" * 300, receipts)
     assert v_long["no_citation_claims"]
-    # ...но короткое подтверждение без глаголов — vacuous pass
     v_short = verify_receipt_citations("Ок.", receipts)
     assert v_short["citation_resolved"] and render_citation_verdict(v_short) == ""
-    # пустой леджер + короткий текст без глаголов — тоже pass
     v_none = verify_receipt_citations("Ок.", [])
     assert v_none["citation_resolved"]
 

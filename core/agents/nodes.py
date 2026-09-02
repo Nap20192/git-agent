@@ -1,8 +1,4 @@
-"""Узлы графа Рана: scan → parse → report.
-
-Зависят от порта core.ports.Sandbox — конкретную песочницу передаёт вызывающий.
-Любая ошибка узла попадает в state["error"], граф завершается управляемо.
-"""
+"""Узлы графа Рана: scan → parse → report."""
 
 import ast
 import shlex
@@ -56,9 +52,6 @@ async def scan(state: RepoState, sandbox: Sandbox) -> dict[str, Any]:
     repo_url = state["repo_url"]
     repo_dir = shlex.quote(sandbox.repo_dir)
     log.info("scan start", repo_url=repo_url)
-    # Клон идемпотентен: в durable-рантайме репо уже готовит profile.prepare
-    # (обязательно для resume — свежая песочница, scan не перезапускается);
-    # клон здесь — для прямого запуска графа без prepare (тесты, demo).
     present = (await sandbox.run(f"test -d {repo_dir}/.git && echo yes || true")).strip()
     if present != "yes":
         await prepare_repo(sandbox, repo_url, state.get("checkout_ref"))

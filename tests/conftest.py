@@ -1,19 +1,12 @@
-"""Герметичность тестов: внешний трейсинг принудительно выключен.
+"""Герметичность тестов: трейсинг выключен + вся работа с БД — в тестовой БД.
 
-.env разработчика (через load_dotenv() в core.config, импортируемом частью
-тестов) кладёт LANGSMITH_TRACING=true в os.environ всего pytest-процесса.
-Тогда langchain авто-трейсит каждый ран, а langsmith сериализует inputs
-pydantic-ом (mode="json") — это ВЫПИВАЕТ iterator-поля фейковых моделей
-(GenericFakeChatModel.messages, общий скрипт лида и сабагента) и шлёт
-реальные сетевые запросы в LangSmith. Симптом: тесты сабагентов падали
-StopIteration→RuntimeError, но только когда до них успевал импортироваться
-core.config (порядко-зависимо).
-
-Ставим явный "false" на этапе импорта conftest — до импорта тестовых модулей;
-load_dotenv(override=False) его не перезапишет. Тесты трейсинга
-(tests/unit/test_tracing.py) управляют env сами через monkeypatch.
+Тестовые Раны/события/сэндбоксы пишутся в отдельную БД (`<db>_test`), а не в
+рабочую. Настройка на импорте conftest (до сбора тестов), чтобы `_pg_available`
+интеграционных тестов видел уже созданную тестовую БД. PG недоступен → остаёмся
+на рабочем URL, интеграционные/e2e тесты скипаются сами.
 """
 
+import contextlib
 import os
 
 for _var in (
@@ -23,3 +16,58 @@ for _var in (
     "LANGFUSE_TRACING",
 ):
     os.environ[_var] = "false"
+
+from core.config import settings  # noqa: E402
+
+
+def _swap_db(url: str, suffix: str = "_test") -> str:
+    base, _, tail = url.rpartition("/")
+    name, sep, query = tail.partition("?")
+    return f"{base}/{name}{suffix}{sep}{query}"
+
+
+_MAIN_URL = settings.database_url
+_TEST_URL = os.environ.get("TEST_DATABASE_URL") or _swap_db(_MAIN_URL)
+
+
+def _setup_test_db() -> bool:
+    import psycopg
+
+    name = _TEST_URL.rsplit("/", 1)[-1].split("?")[0]
+    try:
+        with psycopg.connect(_MAIN_URL, autocommit=True, connect_timeout=2) as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM pg_database WHERE datname = %s", (name,)
+            ).fetchone()
+            if not exists:
+                conn.execute(f'CREATE DATABASE "{name}"')
+    except Exception:
+        return False
+    return True
+
+
+def _reset_test_db() -> None:
+    """Чистый старт: снести операционные данные, засеять репозиторий id=1.
+
+    Тесты клеймят Раны с repository_id=1 — сид гарантирует FK. Пресеты sandboxes
+    (migration 003) не трогаем.
+    """
+    import psycopg
+
+    with psycopg.connect(_TEST_URL, autocommit=True, connect_timeout=2) as conn:
+        conn.execute(
+            "TRUNCATE runs, repositories, run_events, sandbox_instances RESTART IDENTITY CASCADE"
+        )
+        conn.execute("TRUNCATE checkpoints, checkpoint_writes, checkpoint_blobs")
+        conn.execute(
+            "INSERT INTO repositories (url, name) VALUES ('test://seed', 'test-seed')"
+        )
+
+
+if _setup_test_db():
+    settings.database_url = _TEST_URL
+    from migrations.migrate import main as _migrate
+
+    with contextlib.suppress(Exception):
+        _migrate()
+        _reset_test_db()

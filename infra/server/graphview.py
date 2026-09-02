@@ -1,9 +1,4 @@
-"""Граф Рана для UI: топология из LangGraph, статусы из run_events.
-
-Топология пайплайна берётся из скомпилированного графа (get_graph) — не
-хардкод: добавится узел в build_graph — появится и здесь. Агентный ран
-рисуется звездой Лид → Сабагенты по task_*-событиям.
-"""
+"""Граф Рана для UI: топология из LangGraph, статусы из run_events."""
 
 from __future__ import annotations
 
@@ -101,8 +96,7 @@ def _lead_activity(events: list[dict[str, Any]]) -> tuple[int, int]:
 
 
 def _spread(i: int, n: int, *, center: float = 50.0, step: float = 16.0) -> float:
-    """Компактная раскладка i-го из n узлов вокруг center с фиксированным шагом
-    (узлы стоят рядом, а не растянуты по всему холсту), с клампом в [8..92]."""
+    """Компактная раскладка i-го из n узлов вокруг center с фиксированным шагом"""
     if n <= 1:
         return center
     y = center + (i - (n - 1) / 2) * step
@@ -113,15 +107,13 @@ def derive_graph(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str,
     run_id = str(row["id"])
     node_ids_probe, _ = pipeline_topology()
     tasks = _task_events(events)
-    if tasks or _is_agent_run(events, node_ids_probe):  # агентный ран: звезда Лид → Сабагенты
+    if tasks or _is_agent_run(events, node_ids_probe):
         lead_status = {
             "succeeded": "completed",
             "failed": "error",
             "interrupted": "error",
         }.get(str(row.get("status")), "running")
         lead_tools, lead_findings = _lead_activity(events)
-        # координаты — проценты [0..100] (canvas позиционирует left/top в %):
-        # лид слева по центру, Сабагенты веером справа
         nodes: list[dict[str, Any]] = [
             {
                 "id": "lead",
@@ -166,7 +158,6 @@ def derive_graph(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str,
             edges.append({"from": "lead", "to": task["taskId"], "conditional": False})
         return {"runId": run_id, "nodes": nodes, "edges": edges}
 
-    # пайплайн: завершённые узлы — по updates-событиям
     node_ids, edges = pipeline_topology()
     completed = set()
     for event in events:

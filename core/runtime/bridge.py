@@ -1,11 +1,4 @@
-"""In-memory StreamBridge: журнал событий на ран + реплей по курсору.
-
-Контракт пробелов: получив StreamGap, подписчик перечитывает durable-историю
-через RunStore.list_events_after и переподписывается с last_event_id=None;
-дедупликация — на стороне вызывающего.
-# ponytail: live- и durable-курсоры раздельны; унифицировать на run_events.id,
-# если понадобится бесшовный reconnect UX.
-"""
+"""In-memory StreamBridge: журнал событий на ран + реплей по курсору."""
 
 from __future__ import annotations
 
@@ -98,18 +91,13 @@ class MemoryStreamBridge:
     def _resolve_start(self, stream: _RunStream, last_event_id: str | None) -> int | StreamGap:
         if last_event_id is None:
             return stream.start_offset
-        # seq в id == абсолютный офсет события: курсор находится арифметикой за
-        # O(1) и проверяется по id (timestamp-часть ловит стейл-курсор от
-        # прошлой инкарнации стрима после cleanup). Ниже вотермарки — StreamGap
-        # (консервативно); неизвестный id на/выше вотермарки — реплей с
-        # раннего (лениво, с warning).
         seq = self._parse_seq(last_event_id)
         if seq is not None:
             if seq < stream.start_offset:
                 return self._make_gap(stream, last_event_id)
             local = seq - stream.start_offset
             if 0 <= local < len(stream.events) and stream.events[local].id == last_event_id:
-                return stream.start_offset + local + 1  # resume эксклюзивен
+                return stream.start_offset + local + 1
         if stream.events:
             log.warning(
                 "last_event_id not in retained buffer; replaying from earliest",
@@ -167,12 +155,9 @@ class MemoryStreamBridge:
                         next_offset += 1
                         cursor = entry.id
                     elif stream.ended:
-                        # ended проверяется только после осушения хвоста буфера
                         entry = END_SENTINEL
                     else:
                         try:
-                            # wait_for внутри `async with condition` — таймаут
-                            # сам перезахватывает лок; не «модернизировать».
                             await asyncio.wait_for(stream.condition.wait(), timeout=hb)
                         except TimeoutError:
                             entry = HEARTBEAT_SENTINEL
@@ -182,13 +167,11 @@ class MemoryStreamBridge:
             if entry is END_SENTINEL:
                 yield END_SENTINEL
                 return
-            yield entry  # вне лока
+            yield entry
             if should_stop:
                 return
 
     async def cleanup(self, run_id: int, *, delay: float = 0) -> None:
-        # identity-aware: за время delay ран могли возобновить — новая
-        # инкарнация стрима не должна быть снесена отложенной уборкой старой
         snapshot = self._streams.get(run_id)
         if delay > 0:
             await asyncio.sleep(delay)

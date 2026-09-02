@@ -145,6 +145,48 @@ paths:
             text/event-stream:
               schema: { $ref: "#/components/schemas/RunEvent" }
 
+  /runs/{id}/chat:
+    get:
+      summary: Post-run chat history (agent runs) — persisted turns
+      operationId: getChatHistory
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      responses:
+        "200":
+          description: Chat turns
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [turns]
+                properties:
+                  turns:
+                    type: array
+                    items: { $ref: "#/components/schemas/ChatTurn" }
+    post:
+      summary: >
+        Send a message to the lead agent of a finished agent run. Continues the
+        run's checkpoint thread (does NOT create a new run or change its status);
+        streams the reply as SSE RunEvent frames, then a final {"type":"chat_done"}.
+      operationId: sendChat
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties: { message: { type: string } }
+      responses:
+        "200":
+          description: text/event-stream of RunEvent frames
+          content:
+            text/event-stream:
+              schema: { $ref: "#/components/schemas/RunEvent" }
+        "422":
+          description: Not an agent run (chat unavailable)
+          content: { application/json: { schema: { $ref: "#/components/schemas/ApiError" } } }
+
   /connections:
     get:
       summary: List saved LLM connections (NET-NEW table; keys redacted)
@@ -234,6 +276,37 @@ paths:
         "200":
           description: Created sandbox
           content: { application/json: { schema: { $ref: "#/components/schemas/SandboxSpec" } } }
+
+  /sandboxes/instances:
+    get:
+      summary: List provisioned sandbox instances (alive/dead)
+      operationId: listSandboxInstances
+      responses:
+        "200":
+          description: Sandbox instances
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [instances]
+                properties:
+                  instances:
+                    type: array
+                    items: { $ref: "#/components/schemas/SandboxInstance" }
+
+  /sandboxes/instances/{id}/kill:
+    post:
+      summary: Kill a sandbox instance (destroy + mark dead; idempotent)
+      operationId: killSandboxInstance
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The instance, now dead
+          content: { application/json: { schema: { $ref: "#/components/schemas/SandboxInstance" } } }
+        "404":
+          description: Instance not found
+          content: { application/json: { schema: { $ref: "#/components/schemas/ApiError" } } }
 
   /capabilities:
     get:
@@ -394,10 +467,13 @@ components:
         stop_reasons exist on the sub-agent side).
       properties:
         subagent: { type: boolean }
-        maxSubagents: { type: integer, description: "SubagentCapacity concurrency" }
+        maxSubagents: { type: integer, description: "concurrency: SubagentCapacity + lead max_concurrent" }
+        maxTotalSubagents: { type: integer, description: "total delegations per run (SubagentLimitMiddleware)" }
         tokenBudget: { type: [integer, "null"], description: "per-run token budget; null = unlimited" }
         guardrail: { type: boolean }
         loopDetection: { type: boolean }
+        subagentTimeout: { type: [number, "null"], description: "sub-agent execution timeout, sec; null = default 600" }
+        queueTimeout: { type: [number, "null"], description: "capacity slot wait, sec; null = default 300" }
     SubmitRunResponse:
       type: object
       required: [run, disposition]
@@ -640,6 +716,25 @@ components:
         workdir: { type: [string, "null"] }
         createdAt: { type: string, format: date-time }
         runCount: { type: integer }
+    SandboxInstance:
+      type: object
+      description: A provisioned sandbox (no TTL, killable) — distinct from a preset.
+      required: [id, externalId, kind, image, runId, status, createdAt, killedAt]
+      properties:
+        id: { type: string }
+        externalId: { type: string, description: "OpenSandbox sandbox id" }
+        kind: { type: string }
+        image: { type: [string, "null"] }
+        runId: { type: [string, "null"], description: "creating run id" }
+        status: { type: string, enum: [alive, dead] }
+        createdAt: { type: string, format: date-time }
+        killedAt: { type: [string, "null"], format: date-time }
+    ChatTurn:
+      type: object
+      required: [role, text]
+      properties:
+        role: { type: string, enum: [user, agent] }
+        text: { type: string }
     CapabilitySource: { type: string, enum: [subagent, tool, capability, memory_preset] }
     Capability:
       type: object

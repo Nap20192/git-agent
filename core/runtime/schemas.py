@@ -89,12 +89,7 @@ class StatusFinalization:
 
 @dataclass
 class RunRecord:
-    """Process-local живой хендл рана.
-
-    ownership_lost — одноносторонний fence: после установки процесс не делает
-    durable-записей по этому рану. lease_deadline (monotonic) двигается только
-    после ПОДТВЕРЖДЁННОГО продления lease.
-    """
+    """Process-local живой хендл рана."""
 
     run_id: int
     status: RunStatus

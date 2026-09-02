@@ -22,7 +22,6 @@ def build_agent(
     extra_middleware: list[AgentMiddleware] | None = None,
     plan_mode: bool = False,
     state_schema: type | None = None,
-    # False — load-bearing для сабагентов: одноразовый граф без персистентности
     checkpointer: BaseCheckpointSaver | Literal[False] | None = None,
     name: str = "default",
 ) -> CompiledStateGraph:

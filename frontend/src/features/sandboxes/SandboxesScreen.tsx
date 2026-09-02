@@ -1,10 +1,10 @@
-/** Sandboxes list — isolated environments for repo operations. A sandbox lives
- *  at most one run, so there is no live status here; just a spec registry with a
- *  create drawer whose extra field switches on kind. */
+/** Sandboxes screen — two parts: the preset registry (spec catalog) and live
+ *  sandbox instances. Instances are provisioned without TTL and outlive their
+ *  run, so they carry an alive/dead status and can be killed by hand here. */
 import { useState } from "react";
 import { useApi } from "@/api";
-import type { SandboxKind, SandboxSpec } from "@/api";
-import { useSandboxes } from "@/hooks";
+import type { SandboxInstance, SandboxInstanceStatus, SandboxKind, SandboxSpec } from "@/api";
+import { useSandboxes, useSandboxInstances } from "@/hooks";
 import { Badge, Button, Drawer, EntityList, KeyValueList, TextInput } from "@/components/primitives";
 import type { Column } from "@/components/primitives";
 import type { Tone } from "@/lib/tone.ts";
@@ -16,18 +16,74 @@ const KIND_TONE: Record<SandboxKind, Tone> = {
   ssh: "muted",
 };
 
+const STATUS_TONE: Record<SandboxInstanceStatus, Tone> = {
+  alive: "blue",
+  dead: "dim",
+};
+
 function specOf(s: SandboxSpec): string {
   if (s.kind === "opensandbox") return s.image ?? "—";
   if (s.kind === "local") return s.workdir ?? "—";
   return "—";
 }
 
+function shortId(s: string): string {
+  return s.length > 12 ? `${s.slice(0, 8)}…${s.slice(-3)}` : s;
+}
+
 export function SandboxesScreen() {
   const sandboxesQ = useSandboxes();
+  const instancesQ = useSandboxInstances();
+  const api = useApi();
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<SandboxSpec | null>(null);
+  const [killing, setKilling] = useState<Set<string>>(new Set());
 
   const rows = sandboxesQ.data ?? [];
+  const instances = instancesQ.data ?? [];
+
+  const kill = async (inst: SandboxInstance) => {
+    setKilling((k) => new Set(k).add(inst.id));
+    try {
+      await api.killSandboxInstance(inst.id);
+      instancesQ.reload();
+    } finally {
+      setKilling((k) => {
+        const next = new Set(k);
+        next.delete(inst.id);
+        return next;
+      });
+    }
+  };
+
+  const instanceColumns: Column<SandboxInstance>[] = [
+    { id: "status", header: "STATUS", width: "0.8fr", render: (s) => <Badge tone={STATUS_TONE[s.status]}>{s.status}</Badge> },
+    { id: "externalId", header: "SANDBOX ID", width: "1.4fr", render: (s) => <span style={{ color: "var(--text)", fontFamily: "var(--font-mono, monospace)", fontSize: 11 }}>{shortId(s.externalId)}</span> },
+    { id: "image", header: "IMAGE", width: "1.6fr", render: (s) => <span style={{ color: "var(--muted)", fontSize: 11 }}>{s.image ?? "—"}</span> },
+    { id: "run", header: "RUN", width: "0.7fr", align: "right", render: (s) => <span style={{ color: "var(--amber)" }}>{s.runId ? `#${s.runId}` : "—"}</span> },
+    {
+      id: "action",
+      header: "",
+      width: "0.9fr",
+      align: "right",
+      render: (s) =>
+        s.status === "alive" ? (
+          <button
+            type="button"
+            className={styles.killBtn}
+            disabled={killing.has(s.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              kill(s);
+            }}
+          >
+            {killing.has(s.id) ? "killing…" : "✕ kill"}
+          </button>
+        ) : (
+          <span className={styles.dimSmall}>{s.killedAt ? "killed" : "—"}</span>
+        ),
+    },
+  ];
 
   const columns: Column<SandboxSpec>[] = [
     { id: "name", header: "NAME", width: "1.4fr", render: (s) => <span style={{ color: "var(--text)" }}>{s.name}</span> },
@@ -49,9 +105,10 @@ export function SandboxesScreen() {
         </div>
 
         <p className={styles.muted}>
-          isolated environments for repo operations. A sandbox lives at most one run (glossary), so no live status here.
+          isolated environments for repo operations. Presets are the spec catalog; instances are provisioned sandboxes that live without TTL until killed.
         </p>
 
+        <div className={styles.sectionTitle}>PRESETS</div>
         <div className={styles.list}>
           <EntityList
             columns={columns}
@@ -59,6 +116,21 @@ export function SandboxesScreen() {
             keyOf={(s) => s.id}
             onRowClick={(s) => setSelected(s)}
             empty={sandboxesQ.loading ? "loading…" : "no sandboxes"}
+          />
+        </div>
+
+        <div className={styles.sectionTitle}>
+          INSTANCES
+          <span className={styles.dimSmall}>
+            {instances.filter((i) => i.status === "alive").length} alive · {instances.length} total
+          </span>
+        </div>
+        <div className={styles.list}>
+          <EntityList
+            columns={instanceColumns}
+            rows={instances}
+            keyOf={(s) => s.id}
+            empty={instancesQ.loading ? "loading…" : "no instances"}
           />
         </div>
       </div>

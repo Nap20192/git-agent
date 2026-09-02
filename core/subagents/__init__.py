@@ -1,17 +1,4 @@
-"""Система сабагентов: лид + делегирование через тул `task` (референс deer-flow).
-
-Топология — строго звезда глубины 1: лид в центре, сабагенты — листья; тул
-`task` структурно отсутствует в детских toolset'ах. Вся синтез-работа у лида.
-
-Wiring-рецепт:
-
-    capacity = SubagentCapacity()
-    tools = build_sandbox_tools(sandbox) + [
-        build_task_tool(sandbox=sandbox, model=model, capacity=capacity)
-    ]
-    lead = build_agent(model, tools, features=RuntimeFeatures(subagent=True), ...)
-    # для прогресс-событий task_* добавьте "custom" в stream_mode инвокации
-"""
+"""Система сабагентов: лид + делегирование через тул `task` (референс deer-flow)."""
 
 from core.subagents.capacity import (
     SubagentCapacity,

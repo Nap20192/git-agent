@@ -1,9 +1,4 @@
-"""Фабрика LangChain-коллбэков трейсинга (референс: deerflow/tracing/factory.py).
-
-Коллбэки создаются на КАЖДЫЙ запуск (не кэшируются): дёшево — конфиг в кэше,
-Langfuse-клиент — синглтон — и никакого разделяемого состояния хендлеров
-между конкурентными ранами. Провайдеры аддитивны.
-"""
+"""Фабрика LangChain-коллбэков трейсинга (референс: deerflow/tracing/factory.py)."""
 
 from __future__ import annotations
 
@@ -17,8 +12,6 @@ from core.tracing.config import (
 
 
 def _create_langsmith_tracer(config: Any) -> Any:
-    # Ленивый импорт: процесс без LangSmith не платит за него и не падает
-    # без пакета. API-ключ/endpoint трейсер сам берёт из окружения.
     from langchain_core.tracers.langchain import LangChainTracer
 
     return LangChainTracer(project_name=config.project)
@@ -28,9 +21,6 @@ def _create_langfuse_handler(config: Any) -> Any:
     from langfuse import Langfuse
     from langfuse.langchain import CallbackHandler as LangfuseCallbackHandler
 
-    # langfuse>=4: креды регистрируются через клиент-синглтон; конструктор без
-    # сохранения результата НАМЕРЕННО — он кладёт клиента в глобальный реестр
-    # по public_key, а CallbackHandler(public_key=...) к нему привязывается.
     Langfuse(
         secret_key=config.secret_key,
         public_key=config.public_key,
@@ -40,12 +30,7 @@ def _create_langfuse_handler(config: Any) -> Any:
 
 
 def build_tracing_callbacks() -> list[Any]:
-    """Коллбэки для всех включённых и полностью настроенных провайдеров.
-
-    Fail-fast: провайдер включён флагом, но креды не полны → ValueError
-    (тихая потеря трейсов хуже пятисотки). Ошибка создания заворачивается
-    в RuntimeError с именем провайдера, исходный стектрейс сохраняется.
-    """
+    """Коллбэки для всех включённых и полностью настроенных провайдеров."""
     validate_enabled_tracing_providers()
     enabled_providers = get_enabled_tracing_providers()
     if not enabled_providers:

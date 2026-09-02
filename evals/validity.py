@@ -1,11 +1,4 @@
-"""Гейт валидности: «ось эксперимента реально применилась?» (офлайн, app-free).
-
-Философия референса: прежде чем верить цифре арма, проверь, что телеметрия
-наблюдала то, что конфиг обещал. Ран, проваливший гейт, ИСКЛЮЧАЕТСЯ из
-скоринга (помечается gated) — он не считается ни pass, ни fail.
-
-    uv run python evals/validity.py --out evals/runs/smoke1
-"""
+"""Гейт валидности: «ось эксперимента реально применилась?» (офлайн, app-free)."""
 
 from __future__ import annotations
 
@@ -51,8 +44,6 @@ def gate_bundle(bundle: dict[str, Any], manifest: dict[str, Any]) -> list[str]:
         and bundle.get("db_status") == "succeeded"
         and bundle.get("usage") is None
     ):
-        # только для succeeded: у failed-рана (в т.ч. expected_status=failed
-        # юнитов) usage легитимно отсутствует — гейтить его = убить behavior_pass
         problems.append("usage_missing: experiment-mode preset without usage telemetry")
 
     report_commit = bundle.get("report_commit")

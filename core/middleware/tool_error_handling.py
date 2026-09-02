@@ -1,8 +1,4 @@
-"""Исключение тула → error-ToolMessage: ран продолжается, а не падает.
-
-Самый ВНУТРЕННИЙ wrap_tool_call. GraphBubbleUp (control-flow сигналы движка:
-interrupt/pause) обязан пробрасываться — ловятся только реальные ошибки.
-"""
+"""Исключение тула → error-ToolMessage: ран продолжается, а не падает."""
 
 from __future__ import annotations
 

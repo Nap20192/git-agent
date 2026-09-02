@@ -15,7 +15,6 @@ def test_custom_instructions_replace_default():
 
 
 def test_braces_in_instructions_do_not_crash():
-    # .replace, не .format: фигурные скобки пользователя — просто текст
     msg = _lead_input("u", instructions="выведи {'a': 1} и {unknown}")["messages"][0]
     assert msg.content == "выведи {'a': 1} и {unknown}"
 

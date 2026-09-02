@@ -1,13 +1,4 @@
-"""Батареи: загрузка, линт, и запиненный набор правил проверки фактов.
-
-Батарея — замороженный JSONL: одна запись на repo-unit, запиненный
-(repo_url, commit_sha) + руками написанные атомарные бинарно-проверяемые
-факты. Ground truth НИКОГДА не генерируется LLM. Исправление батареи =
-новый файл repos.v2.jsonl; старый — в DEPRECATED_BATTERIES (запуск блокируется,
-репродукция — за явным --allow-deprecated).
-
-Правила — закрытый enum: неизвестное правило — жёсткая ошибка линта, не skip.
-"""
+"""Батареи: загрузка, линт, и запиненный набор правил проверки фактов."""
 
 from __future__ import annotations
 
@@ -117,8 +108,6 @@ def check_fact_structured(fact: dict[str, Any], report: dict[str, Any] | None) -
         return None
     resolved = _resolve_path(report, fact["path"])
     if resolved is _MISSING:
-        # и для absent тоже: отсутствие всей секции отчёта — неизмеримо,
-        # не «значения нет» (иначе agent-mode вакуумно проходит struct-absent)
         return None
     rule = fact["rule"]
     if rule == "structured_eq":
@@ -141,7 +130,7 @@ def check_fact_structured(fact: dict[str, Any], report: dict[str, Any] | None) -
         value = str(fact.get("value", "")).lower()
         blob = json.dumps(resolved, ensure_ascii=False).lower()
         return value not in blob
-    return None  # prose-правила не измеряются структурно
+    return None
 
 
 def check_fact_prose(fact: dict[str, Any], proseview: str | None) -> bool | None:
@@ -150,8 +139,6 @@ def check_fact_prose(fact: dict[str, Any], proseview: str | None) -> bool | None
     if proseview is None or not prose:
         return None
     rule = fact["rule"]
-    # substring для всех, кроме явных regex-правил: prose structured-фактов
-    # пишется как литерал («psycopg[binary]») и regex-ом ломался бы молча
     if rule in (
         "prose_substring",
         "structured_eq",

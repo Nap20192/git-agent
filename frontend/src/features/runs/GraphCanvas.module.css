@@ -31,13 +31,13 @@
 }
 .box {
   border: 1px solid var(--border);
-  background: #0c0b09;
+  background: var(--panel);
 }
 .box.agent {
-  border-color: #234;
+  border-color: color-mix(in srgb, var(--blue) 45%, var(--border));
 }
 .box.selected {
-  background: #171205;
+  background: var(--hover);
 }
 .boxHead {
   display: flex;

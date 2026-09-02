@@ -16,6 +16,10 @@ class OpenSandboxAdapter:
     def __init__(self, sandbox: _OpenSandbox) -> None:
         self._sandbox = sandbox
 
+    @property
+    def id(self) -> str | None:
+        return self._sandbox.id
+
     async def run(self, command: str, *, timeout_seconds: float | None = None) -> str:
         opts = (
             RunCommandOpts(timeout=timedelta(seconds=timeout_seconds))
@@ -30,15 +34,33 @@ class OpenSandboxAdapter:
         return stdout
 
     async def close(self) -> None:
-        await self._sandbox.kill()
+        await self._sandbox.close()
+
+    async def kill(self) -> None:
+        await self._sandbox.destroy()
+
+
+def _connection_config() -> ConnectionConfig:
+    return ConnectionConfig(
+        domain=settings.opensandbox_domain,
+        api_key=settings.opensandbox_api_key or None,
+    )
 
 
 async def create_sandbox(image: str | None = None) -> OpenSandboxAdapter:
     sandbox = await _OpenSandbox.create(
         image or settings.sandbox_image,
-        connection_config=ConnectionConfig(
-            domain=settings.opensandbox_domain,
-            api_key=settings.opensandbox_api_key or None,
-        ),
+        timeout=None,
+        connection_config=_connection_config(),
+    )
+    return OpenSandboxAdapter(sandbox)
+
+
+async def connect_sandbox(external_id: str) -> OpenSandboxAdapter:
+    """Переподключение к существующему сэндбоксу по id (для resume/kill)."""
+    sandbox = await _OpenSandbox.connect(
+        external_id,
+        connection_config=_connection_config(),
+        skip_health_check=True,
     )
     return OpenSandboxAdapter(sandbox)

@@ -1,9 +1,4 @@
-"""Общие хелперы eval-харнеса: io / хэши / прайсинг / фолд событий.
-
-ПРАВИЛО R1: этот модуль (и grade/validity/report) НИКОГДА не импортирует
-core.*/infra.* — сохранённые бандлы обязаны грейдиться после любого
-рефакторинга приложения. Зеркалируемые константы пиннятся тестом на дрифт.
-"""
+"""Общие хелперы eval-харнеса: io / хэши / прайсинг / фолд событий."""
 
 from __future__ import annotations
 
@@ -34,8 +29,7 @@ PRICING_USD_PER_MILLION: dict[str, dict[str, float]] = {
 
 
 def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
-    """Оборванная жёстким килом последняя строка — скипается с warning:
-    такой бандл не «чистый», раннер его перепрогонит; падать нельзя (bricked resume)."""
+    """Оборванная жёстким килом последняя строка — скипается с warning:"""
     rows = []
     with open(path, encoding="utf-8") as f:
         for lineno, line in enumerate(f, 1):
@@ -51,8 +45,6 @@ def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
 
 def append_jsonl(path: str | Path, rows: Iterable[dict[str, Any]]) -> None:
     path = Path(path)
-    # оборванный хвост от прошлого краша: новая запись — с новой строки,
-    # иначе два бандла склеиваются в одну нечитаемую строку
     needs_newline = False
     if path.exists() and path.stat().st_size > 0:
         with open(path, "rb") as f:
@@ -82,8 +74,7 @@ def sha256_text(text: str) -> str:
 
 
 def canonical_fingerprint(manifest: dict[str, Any]) -> str:
-    """Канонический JSON — точный (sort_keys + компактные сепараторы),
-    иначе resume молча ре-фингерпринтится."""
+    """Канонический JSON — точный (sort_keys + компактные сепараторы),"""
     return sha256_text(json.dumps(manifest, sort_keys=True, separators=(",", ":"), default=str))
 
 
@@ -113,11 +104,7 @@ def stable_row_id(*parts: str) -> str:
 def price_run(
     usage: dict[str, Any] | None, model: str, pricing: dict[str, dict[str, float]]
 ) -> float | None:
-    """Стоимость рана из снапшота прайсинга; tri-state: None = неизмеримо.
-
-    Без cache-телеметрии input целиком по cache-miss — честная ВЕРХНЯЯ граница
-    (помечается в отчёте).
-    """
+    """Стоимость рана из снапшота прайсинга; tri-state: None = неизмеримо."""
     p = pricing.get((model or "").strip().lower())
     if usage is None or p is None:
         return None
@@ -130,13 +117,7 @@ def price_run(
 
 
 def fold_events(events: list[dict[str, Any]]) -> dict[str, Any]:
-    """Свернуть run_events в наблюдаемые сигналы (для бандла и гейта).
-
-    usage — tri-state: None если терминального usage-события нет. Воркер
-    эмитит одно usage-событие НА ПОПЫТКУ (resume = новая попытка со свежим
-    коллектором) — суммируем по всем, иначе стоимость resumed-рана
-    занижается на спенд прошлых попыток (ломается «верхняя граница»).
-    """
+    """Свернуть run_events в наблюдаемые сигналы (для бандла и гейта)."""
     usage: dict[str, Any] | None = None
     llm_calls: int | None = None
     usage_events = 0

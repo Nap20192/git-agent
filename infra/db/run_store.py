@@ -1,10 +1,4 @@
-"""PostgresRunStore — адаптер порта RunStore поверх infra.postgres.
-
-Каждая мутация — один стейтмент (или короткая транзакция в claim): условный
-UPDATE + RETURNING. Все сравнения времени — now() БАЗЫ, никакого clock skew.
-Терминальные статусы не перезаписываются by construction: каждый терминальный
-CAS охраняется условием на активный статус.
-"""
+"""PostgresRunStore — адаптер порта RunStore поверх infra.db.postgres."""
 
 from __future__ import annotations
 
@@ -19,7 +13,7 @@ from core.runtime.schemas import (
     StatusFinalization,
     SubmitDisposition,
 )
-from infra.postgres import get_async_pool
+from infra.db.postgres import get_async_pool
 
 _ACTIVE = ("pending", "running")
 
@@ -70,7 +64,7 @@ class PostgresRunStore:
                     (grace_seconds, repository_id, commit_sha, llm_model),
                 )
             ).fetchone()
-            if row is None:  # гонка вставки/удаления; fail-closed
+            if row is None:
                 raise ConflictError("run row vanished during claim")
             if row["status"] == "succeeded":
                 return row, SubmitDisposition.already_succeeded
@@ -107,11 +101,7 @@ class PostgresRunStore:
             )
 
     async def delete_run(self, run_id: int) -> bool:
-        """Удалить терминальный Ран: чекпоинты + события + строку (одна транзакция).
-
-        Отказ (False) на активном (pending/running) Ране — его данные трогать
-        нельзя. thread_id чекпоинтов = str(run_id).
-        """
+        """Удалить терминальный Ран: чекпоинты + события + строку (одна транзакция)."""
         from core.runtime.schemas import ACTIVE_STATUSES
 
         pool = await get_async_pool()
@@ -128,6 +118,7 @@ class PostgresRunStore:
             await conn.execute("DELETE FROM checkpoint_blobs WHERE thread_id = %s", (thread,))
             await conn.execute("DELETE FROM checkpoints WHERE thread_id = %s", (thread,))
             await conn.execute("DELETE FROM run_events WHERE run_id = %s", (run_id,))
+            await conn.execute("DELETE FROM sandbox_instances WHERE run_id = %s", (run_id,))
             await conn.execute("DELETE FROM runs WHERE id = %s", (run_id,))
             return True
 
@@ -171,7 +162,6 @@ class PostgresRunStore:
             )
             if cur.rowcount == 1:
                 return True
-            # rowcount 0: отличить «запрос уже висит» (True) от терминального/нет (False)
             row = await (
                 await conn.execute(
                     "SELECT status, cancel_requested_at FROM runs WHERE id = %s", (run_id,)

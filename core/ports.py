@@ -1,7 +1,4 @@
-"""Порты (гексагональная архитектура): контракты core к внешнему миру.
-
-Реализации живут в infra/ и передаются в core снаружи (main.py, тесты).
-"""
+"""Порты (гексагональная архитектура): контракты core к внешнему миру."""
 
 from __future__ import annotations
 
@@ -22,34 +19,29 @@ class SandboxCommandError(RuntimeError):
 
 
 class Sandbox(Protocol):
-    """Изолированная среда для операций с недоверенным содержимым Репозитория.
-
-    Внутри должны быть доступны git, find, stat, cat (контракт образа/хоста).
-    """
+    """Изолированная среда для операций с недоверенным содержимым Репозитория."""
 
     @property
     def repo_dir(self) -> str:
         """Абсолютный путь, куда клонируется Репозиторий внутри песочницы."""
         ...
 
-    async def run(self, command: str, *, timeout_seconds: float | None = None) -> str:
-        """Выполняет shell-команду, возвращает stdout.
+    @property
+    def id(self) -> str | None:
+        """Внешний id Экземпляра (для reconnect/учёта); None для локального."""
+        ...
 
-        Ненулевой код выхода — SandboxCommandError.
-        """
+    async def run(self, command: str, *, timeout_seconds: float | None = None) -> str:
+        """Выполняет shell-команду, возвращает stdout."""
         ...
 
     async def close(self) -> None:
-        """Освобождает песочницу; после вызова run недоступен."""
+        """Отпускает локальные ресурсы (HTTP); НЕ убивает удалённый сэндбокс."""
         ...
 
 
 class RunStore(Protocol):
-    """Durable-хранилище Ранов. Каждая мутация — атомарный условный UPDATE (CAS).
-
-    Инварианты: терминальные статусы никогда не перезаписываются; все сравнения
-    времени — часами БД; renew_lease с rowcount 0 означает потерю владения.
-    """
+    """Durable-хранилище Ранов. Каждая мутация — атомарный условный UPDATE (CAS)."""
 
     async def claim(
         self,
@@ -63,15 +55,7 @@ class RunStore(Protocol):
         lease_seconds: int,
         grace_seconds: int,
     ) -> tuple[dict[str, Any], SubmitDisposition]:
-        """Примитив admission. Атомарно: insert / resume / takeover / conflict.
-
-        - строки нет → INSERT pending с owner+lease → (row, created)
-        - succeeded → (row, already_succeeded), без мутации
-        - failed|interrupted → CAS в pending: новый owner+lease, очистка
-          error/stop_reason/cancel_requested_at/report, attempt+1 → (row, resumed)
-        - pending|running и lease валиден (>= now - grace) → ConflictError
-        - pending|running и lease истёк/NULL → takeover-resume (тот же CAS)
-        """
+        """Примитив admission. Атомарно: insert / resume / takeover / conflict."""
         ...
 
     async def get(self, run_id: int) -> dict[str, Any] | None: ...

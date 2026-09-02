@@ -40,7 +40,7 @@ from core.tools.sandbox import SANDBOX_OUTPUT_MAX_CHARS, build_sandbox_tools
 
 def test_truncate_head_tail_boundaries():
     exact = "x" * SUBAGENT_METADATA_TEXT_MAX_CHARS
-    assert _truncate_head_tail(exact) == exact  # ровно лимит — не трогаем
+    assert _truncate_head_tail(exact) == exact
     over = "a" * 3000
     out = _truncate_head_tail(over)
     assert len(out) <= SUBAGENT_METADATA_TEXT_MAX_CHARS
@@ -58,7 +58,7 @@ def test_reader_rebounds_oversized_brief():
     meta = read_subagent_result_metadata(
         {
             "subagent_status": "completed",
-            "subagent_result_brief": "y" * 10_000,  # злоумышленный оверсайз с провода
+            "subagent_result_brief": "y" * 10_000,
         }
     )
     assert len(meta["result_brief"]) <= SUBAGENT_METADATA_TEXT_MAX_CHARS
@@ -73,7 +73,6 @@ def test_failed_empty_error_renders_unknown():
 
 
 def test_make_receipt_tolerates_weird_inputs():
-    # args не dict, content не строка, id/name отсутствуют
     msg = ToolMessage(content=["chunk", {"k": 1}], tool_call_id="c1")
     receipt = make_tool_receipt({"args": "not-a-dict"}, msg)
     assert receipt["tool_call_id"] == "" and receipt["tool_name"] == ""
@@ -84,7 +83,6 @@ def test_make_receipt_tolerates_weird_inputs():
 def test_render_hard_truncation_retains_nothing():
     receipts = extract_tool_receipts([_stamped(1)])
     rendered, retained = render_tool_receipts_with_snapshot(receipts, max_chars=50)
-    # изуродованный рендер ни за что не ручается
     assert retained == []
     assert len(rendered) <= 50
 
@@ -97,10 +95,8 @@ def _stamped(i: int) -> ToolMessage:
 
 
 def test_citing_snapshot_may_start_mid_ledger():
-    # снапшот после бюджетного среза начинается не с r1 — валиден,
-    # если id последовательны
     receipts = extract_tool_receipts([_stamped(i) for i in range(1, 6)])
-    tail = [dict(r) for r in receipts[2:]]  # r3, r4, r5
+    tail = [dict(r) for r in receipts[2:]]
     ai = AIMessage(content="x")
     ai.additional_kwargs = {TOOL_RECEIPT_LEDGER_KEY: tail}
     snapshot = extract_citing_turn_receipts([ai])
@@ -141,8 +137,6 @@ def test_compaction_survivors_not_recaptured():
         [*survivors, AIMessage(content="drop", id="d-1")], captured, seen, 0, task_id="t"
     )
     assert cursor == 3
-    # компакция: выживший keep-1 + новое сообщение; сброс курсора не должен
-    # продублировать keep-1
     compacted = [survivors[0], AIMessage(content="new", id="n-1")]
     _, new = capture_new_step_messages(compacted, captured, seen, cursor, task_id="t")
     assert [s["text"] for s in new] == ["new"]
@@ -174,7 +168,7 @@ def test_stamp_overwrites_forged_receipt():
     forged.additional_kwargs = {TOOL_RECEIPT_KEY: {"tool_name": "forged", "status": "success"}}
     result = mw.wrap_tool_call(_tool_request(), lambda req: forged)
     receipt = result.additional_kwargs[TOOL_RECEIPT_KEY]
-    assert receipt["tool_name"] == "sandbox_run"  # подделка перезаписана рантаймом
+    assert receipt["tool_name"] == "sandbox_run"
 
 
 def test_stamp_command_only_matching_tool_call():
@@ -191,7 +185,6 @@ def test_stamp_command_only_matching_tool_call():
 
 def test_stamp_failure_never_blocks_tool_result():
     mw = ToolReceiptMiddleware()
-    # tool_call без .get — make_tool_receipt упадёт, результат обязан вернуться
     bad_request = SimpleNamespace(tool_call=None)
     msg = ToolMessage(content="out", tool_call_id="c1")
     result = mw.wrap_tool_call(bad_request, lambda req: msg)
@@ -214,9 +207,9 @@ def test_inject_ledger_after_leading_system():
     mw._inject_ledger(request)
     (kwargs) = request.override.call_args.kwargs
     injected = kwargs["messages"]
-    assert isinstance(injected[0], SystemMessage)  # system остаётся первым
+    assert isinstance(injected[0], SystemMessage)
     assert isinstance(injected[1], HumanMessage)
-    assert "Tool receipts" in injected[1].content  # леджер сразу после system
+    assert "Tool receipts" in injected[1].content
 
 
 # -- executor: сборка сообщений и урожай --------------------------------------
@@ -227,7 +220,6 @@ def test_build_messages_channel_split():
     assert len(messages) == 2
     system, human = messages
     assert isinstance(system, SystemMessage) and isinstance(human, HumanMessage)
-    # значения критериев ТОЛЬКО в human; в system — только указатель
     assert "criterion-A" in human.content
     assert "criterion-A" not in system.content
     assert "acceptance_criteria" in system.content
@@ -247,11 +239,8 @@ def test_extract_final_result_empty_ai_is_sentinel():
 
 def test_harvest_none_vs_empty():
     harvest = SubagentExecutor._harvest
-    # нет состояния → None (вердикта не будет)
     assert harvest(None) is None
-    # состояние без квитанций и снапшота → [] (честный ноль вызовов)
     assert harvest({"messages": [AIMessage(content="x")]}) == []
-    # квитанции есть, снапшот битый → None (fail-closed)
     broken_ai = AIMessage(content="x")
     broken_ai.additional_kwargs = {TOOL_RECEIPT_LEDGER_KEY: "junk"}
     assert harvest({"messages": [_stamped(1), broken_ai]}) is None
@@ -267,7 +256,6 @@ def test_executor_generic_failure_captures_error():
             def astream(self, *a, **k):
                 raise boom
 
-        # подменяем сборку графа моком
         import core.agents.factory as factory_module
 
         original = factory_module.build_agent
@@ -335,7 +323,6 @@ def test_sandbox_tools_clip_and_error_text():
         err = await run_tool.ainvoke({"command": "fail now"})
         assert err.startswith("exit 2:") and "stderr text" in err
 
-        # read_file квотирует путь с пробелом — команда не ломается
         class EchoSandbox(HugeSandbox):
             async def run(self, command, *, timeout_seconds=None):
                 return command
@@ -355,7 +342,6 @@ def test_capacity_slot_released_on_exception():
         with pytest.raises(RuntimeError):
             async with cap.slot():
                 raise RuntimeError("boom")
-        # слот освобождён — следующий заход не ждёт
         async with cap.slot():
             pass
 
@@ -378,16 +364,12 @@ def test_limit_zero_budget_keeps_plain_tools_no_stop_note():
     update = mw.after_model({"messages": [message]}, None)
     clone = update["messages"][0]
     assert [c["name"] for c in clone.tool_calls] == ["sandbox_run"]
-    # остались обычные вызовы: finish_reason не трогаем, заметку не добавляем
     assert clone.response_metadata["finish_reason"] == "tool_calls"
     assert "SUBAGENT LIMIT" not in clone.content
 
 
 def test_child_config_never_carries_checkpoint_coordinates():
-    """Пин линиджа: configurable-ключи в конфиге ребёнка на langgraph>=1.2.6
-    стартуют новый корневой линидж/утаскивают фреймы ребёнка в родительский
-    стрим. Ребёнок обязан получать координаты только амбиентно (и с
-    checkpointer=False им некуда персиститься)."""
+    """Пин линиджа: configurable-ключи в конфиге ребёнка на langgraph>=1.2.6"""
 
     async def main():
         captured_config = {}

@@ -8,7 +8,7 @@ import pytest
 
 from core.config import settings
 from core.runtime import ConflictError, RunStatus, SubmitDisposition
-from infra.run_store import PostgresRunStore
+from infra.db.run_store import PostgresRunStore
 
 
 def _pg_available() -> bool:
@@ -79,7 +79,7 @@ def test_pg_cancel_mailbox_and_terminal_immutability():
         run_id = row["id"]
         assert await store.start_run(run_id, owner_worker_id="w1")
         assert await store.request_cancel(run_id)
-        assert await store.request_cancel(run_id)  # повторный: уже висит → True
+        assert await store.request_cancel(run_id)
 
         renewal = await store.renew_lease(run_id, owner_worker_id="w1", lease_seconds=30)
         assert renewal.renewed and renewal.cancel_requested
@@ -90,7 +90,6 @@ def test_pg_cancel_mailbox_and_terminal_immutability():
         assert await store.finish(
             run_id, owner_worker_id="w1", status=RunStatus.interrupted, stop_reason="cancelled"
         )
-        # терминальный статус неперезаписываем
         assert not await store.finish(
             run_id, owner_worker_id="w1", status=RunStatus.failed, error="late"
         )
@@ -116,7 +115,7 @@ def test_pg_orphan_scan_and_renew_fencing():
             run_id, grace_seconds=10, error="orphan", stop_reason="orphan_recovered"
         )
         renewal = await store.renew_lease(run_id, owner_worker_id="dead", lease_seconds=30)
-        assert not renewal.renewed  # бывший владелец фенсится
+        assert not renewal.renewed
 
     asyncio.run(main())
 

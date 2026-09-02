@@ -1,7 +1,4 @@
-"""Anti-corruption layer: LangChain/LangGraph-объекты → plain JSON на границе.
-
-serialize() НИКОГДА не поднимает исключение — деградирует до str()/repr().
-"""
+"""Anti-corruption layer: LangChain/LangGraph-объекты → plain JSON на границе."""
 
 from __future__ import annotations
 
@@ -30,7 +27,6 @@ def serialize_lc_object(obj: Any) -> Any:
             return serialize_lc_object(obj.dict())
         except Exception:
             pass
-    # langgraph.types.Interrupt использует __slots__ — ни model_dump, ни dict
     if Interrupt is not None and isinstance(obj, Interrupt):
         return {"value": serialize_lc_object(obj.value), "id": getattr(obj, "id", None)}
     try:
@@ -40,8 +36,6 @@ def serialize_lc_object(obj: Any) -> Any:
 
 
 def serialize_channel_values(values: dict[str, Any]) -> dict[str, Any]:
-    # __pregel_* — внутренние каналы, наружу не идут; __interrupt__ — публичный
-    # контракт и обязан выжить (фильтровать «все дандеры» — известный баг).
     return {
         key: serialize_lc_object(value)
         for key, value in values.items()

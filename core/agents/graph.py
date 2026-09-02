@@ -1,9 +1,4 @@
-"""Граф Рана: scan → parse → report (линейный, с управляемыми ошибками).
-
-Песочница и модель передаются снаружи (порт + инстанс), узлы получают их
-через замыкания. Ошибка любого узла кладётся в state["error"] и уводит
-граф сразу в report.
-"""
+"""Граф Рана: scan → parse → report (линейный, с управляемыми ошибками)."""
 
 from collections.abc import Awaitable, Callable
 from typing import Any

@@ -1,10 +1,4 @@
-"""Skills — загружаемые пакеты справки по классам уязвимостей и технологиям.
-
-Каждый skill — markdown с YAML-frontmatter (name, description) под
-``core/skills/<category>/<name>.md`` (референс strix). Агент подгружает их
-инструментом ``load_skill`` как справку в текущий ход — постоянного изменения
-промпта нет. Курированный код-релевантный поднабор (статический анализ).
-"""
+"""Skills — загружаемые пакеты справки по классам уязвимостей и технологиям."""
 
 from __future__ import annotations
 
@@ -40,7 +34,6 @@ def _index() -> dict[str, Path]:
             continue
         stem = path.stem
         name, _ = _parse_name(path.read_text(encoding="utf-8"), stem)
-        # нормализуем к snake_case: и "sql-injection", и "sql_injection" ведут к файлу
         index[stem] = path
         index[name.replace("-", "_")] = path
     return index

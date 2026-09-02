@@ -43,17 +43,14 @@ def test_claim_lifecycle():
         row, disp = await store.claim(**CLAIM)
         assert disp == SubmitDisposition.created and row["attempt"] == 1
 
-        # активный ран с валидным lease → конфликт
         with pytest.raises(ConflictError):
             await store.claim(**CLAIM)
 
-        # истёкший lease → takeover-resume
         _expire_lease(store, row["id"])
         row2, disp2 = await store.claim(**{**CLAIM, "owner_worker_id": "w2"})
         assert disp2 == SubmitDisposition.resumed
         assert row2["attempt"] == 2 and row2["owner_worker_id"] == "w2"
 
-        # succeeded → already_succeeded, без мутации
         await store.start_run(row["id"], owner_worker_id="w2")
         fin = await store.finalize_if_not_cancelled(
             row["id"], owner_worker_id="w2", report={"ok": 1}
@@ -92,7 +89,7 @@ def test_start_run_cas():
         row, _ = await store.claim(**CLAIM)
         assert not await store.start_run(row["id"], owner_worker_id="intruder")
         assert await store.start_run(row["id"], owner_worker_id="w1")
-        assert not await store.start_run(row["id"], owner_worker_id="w1")  # не pending
+        assert not await store.start_run(row["id"], owner_worker_id="w1")
 
     asyncio.run(main())
 
@@ -121,7 +118,7 @@ def test_cancel_beats_finalize():
         await store.start_run(row["id"], owner_worker_id="w1")
         assert await store.request_cancel(row["id"])
         renewal = await store.renew_lease(row["id"], owner_worker_id="w1", lease_seconds=30)
-        assert renewal.renewed and renewal.cancel_requested  # heartbeat = mailbox
+        assert renewal.renewed and renewal.cancel_requested
         fin = await store.finalize_if_not_cancelled(
             row["id"], owner_worker_id="w1", report={"r": 1}
         )
@@ -153,11 +150,11 @@ def test_try_start_post_await_abort_restores_durable():
         manager = RunManager(store, worker_id="w1")
         result = await manager.admit(**IDENTITY)
         record = manager.get_local(result.run["id"])
-        record.abort_event.set()  # отмена «в полёте» до try_start
+        record.abort_event.set()
         assert await manager.try_start(result.run["id"]) is RunStartOutcome.cancelled
         row = await store.get(result.run["id"])
         assert row["status"] in (RunStatus.pending, RunStatus.interrupted)
-        assert row["status"] != RunStatus.running  # durable не остаётся running
+        assert row["status"] != RunStatus.running
 
     asyncio.run(main())
 
@@ -167,10 +164,9 @@ def test_orphan_reconcile_and_local_skip():
         store = MemoryRunStore()
         manager = RunManager(store, worker_id="w1")
         mine = await manager.admit(**IDENTITY)
-        # чужой осиротевший ран
         other, _ = await store.claim(**{**CLAIM, "repository_id": 2, "owner_worker_id": "dead"})
         _expire_lease(store, other["id"])
-        _expire_lease(store, mine.run["id"])  # наш тоже истёк, но локально жив
+        _expire_lease(store, mine.run["id"])
         recovered = await manager.reconcile_orphans()
         assert other["id"] in recovered and mine.run["id"] not in recovered
         assert (await store.get(other["id"]))["stop_reason"] == "orphan_recovered"
@@ -184,12 +180,10 @@ def test_cancel_outcomes():
         manager = RunManager(store, worker_id="w1")
         assert await manager.cancel(999) is CancelOutcome.not_found
 
-        # чужой ран с валидным lease → requested
         row, _ = await store.claim(**{**CLAIM, "owner_worker_id": "other"})
         assert await manager.cancel(row["id"]) is CancelOutcome.requested
         assert (await store.get(row["id"]))["cancel_requested_at"] is not None
 
-        # чужой ран с истёкшим lease → taken_over
         row2, _ = await store.claim(**{**CLAIM, "repository_id": 7, "owner_worker_id": "other"})
         _expire_lease(store, row2["id"])
         assert await manager.cancel(row2["id"]) is CancelOutcome.taken_over
@@ -217,7 +211,6 @@ def test_bridge_replay_exclusive_and_end():
             cursor = item.id
         assert seen == [0, 1, 2]
 
-        # реплей с курсора эксклюзивен: после последнего события — сразу END
         tail = []
         async for item in bridge.subscribe(1, last_event_id=cursor):
             if item is END_SENTINEL:
@@ -252,7 +245,7 @@ def test_bridge_stale_cursor_from_previous_incarnation():
         await bridge.publish(1, "updates", {"old": True})
         stale = bridge._streams[1].events[0].id
         await bridge.cleanup(1)
-        await asyncio.sleep(0.002)  # новая инкарнация: другой timestamp в id
+        await asyncio.sleep(0.002)
         await bridge.publish(1, "updates", {"new": True})
         await bridge.publish_end(1)
         seen = []
@@ -260,7 +253,6 @@ def test_bridge_stale_cursor_from_previous_incarnation():
             if item is END_SENTINEL:
                 break
             seen.append(item)
-        # id не совпал по вотермарке → реплей с раннего, «новое» событие не потеряно
         assert len(seen) == 1 and seen[0].data == {"new": True}
 
     asyncio.run(main())
@@ -339,8 +331,8 @@ def _make_runtime(store, bridge, report=None, chunks=()):
     async def fake_repo(url):
         return {"id": 1, "url": url}
 
-    async def fake_sandbox(name):
-        return _FakeSandbox()
+    async def fake_sandbox(run_id, name, *, is_resume=False):
+        return _FakeSandbox(), False
 
     return Runtime(
         store=store,
@@ -349,7 +341,7 @@ def _make_runtime(store, bridge, report=None, chunks=()):
             lambda sb, m, checkpointer=None, limits=None: _FakeGraph(list(chunks), report)
         ),
         make_model=lambda **kw: object(),
-        create_sandbox=fake_sandbox,
+        provision_sandbox=fake_sandbox,
         get_or_create_repository=fake_repo,
     )
 
@@ -372,7 +364,7 @@ def test_runtime_submit_success_and_idempotency():
         assert again.disposition == SubmitDisposition.already_succeeded
 
         events = await rt.events(result.run["id"])
-        assert [e["kind"] for e in events] == ["updates", "usage"]  # терминальное usage-событие
+        assert [e["kind"] for e in events] == ["updates", "usage"]
 
     asyncio.run(main())
 
@@ -386,7 +378,6 @@ def test_runtime_report_error_means_failed_and_resume():
         )
         final = await rt.wait(result.run["id"])
         assert final["status"] == RunStatus.failed
-        # usage эмитится в финализации — есть и на упавшей попытке
         kinds = [e["kind"] for e in await rt.events(result.run["id"])]
         assert kinds.count("usage") == 1
 
@@ -395,10 +386,9 @@ def test_runtime_report_error_means_failed_and_resume():
             repo_url="u", commit_sha="c", llm_api_base="b", llm_api_key="k", llm_model="m"
         )
         assert resumed.disposition == SubmitDisposition.resumed
-        assert resumed.run["id"] == result.run["id"]  # тот же Ран
+        assert resumed.run["id"] == result.run["id"]
         final2 = await rt2.wait(resumed.run["id"])
         assert final2["status"] == RunStatus.succeeded and final2["attempt"] == 2
-        # по одному usage-событию НА ПОПЫТКУ (fold_events их суммирует)
         kinds2 = [e["kind"] for e in await rt2.events(resumed.run["id"])]
         assert kinds2.count("usage") == 2
 
@@ -413,14 +403,14 @@ def test_runtime_cancel_midflight():
         class _SlowGraph(_FakeGraph):
             async def astream(self, graph_input, config=None, stream_mode=None):
                 yield "updates", {"step": 1}
-                await gate.wait()  # висим до отмены
+                await gate.wait()
                 yield "updates", {"step": 2}
 
         async def fake_repo(url):
             return {"id": 1, "url": url}
 
-        async def fake_sandbox(name):
-            return _FakeSandbox()
+        async def fake_sandbox(run_id, name, *, is_resume=False):
+            return _FakeSandbox(), False
 
         rt = Runtime(
             store=store,
@@ -429,20 +419,19 @@ def test_runtime_cancel_midflight():
                 lambda sb, m, checkpointer=None, limits=None: _SlowGraph([], None)
             ),
             make_model=lambda **kw: object(),
-            create_sandbox=fake_sandbox,
+            provision_sandbox=fake_sandbox,
             get_or_create_repository=fake_repo,
         )
         result = await rt.submit(
             repo_url="u", commit_sha="c", llm_api_base="b", llm_api_key="k", llm_model="m"
         )
         run_id = result.run["id"]
-        await asyncio.sleep(0.05)  # воркер дошёл до gate
+        await asyncio.sleep(0.05)
         assert await rt.cancel(run_id) is CancelOutcome.cancelled
         final = await rt.wait(run_id)
         assert final["status"] == RunStatus.interrupted
         assert final["report"] is None
 
-        # publish_end дошёл до подписчиков даже при отмене
         saw_end = False
         async for item in bridge.subscribe(run_id, heartbeat_interval=0.1):
             if item is END_SENTINEL:
@@ -484,12 +473,12 @@ def test_evict_is_identity_aware():
         )
         manager.evict_later(old_record, delay=0.01)
 
-        second = await manager.admit(**IDENTITY)  # resume: новая запись, тот же id
+        second = await manager.admit(**IDENTITY)
         assert second.disposition == SubmitDisposition.resumed
         new_record = manager.get_local(second.run["id"])
         assert new_record is not old_record
-        await asyncio.sleep(0.05)  # старый evict сработал
-        assert manager.get_local(second.run["id"]) is new_record  # живая не снесена
+        await asyncio.sleep(0.05)
+        assert manager.get_local(second.run["id"]) is new_record
 
     asyncio.run(main())
 
@@ -513,9 +502,9 @@ def test_bridge_delayed_cleanup_spares_new_incarnation():
         await bridge.publish(1, "updates", {"old": 1})
         old_cleanup = asyncio.create_task(bridge.cleanup(1, delay=0.03))
         await asyncio.sleep(0.01)
-        await bridge.cleanup(1)  # resume: немедленный сброс
-        await bridge.publish(1, "updates", {"new": 1})  # новая инкарнация
-        await old_cleanup  # отложенная уборка старой не должна снести новую
+        await bridge.cleanup(1)
+        await bridge.publish(1, "updates", {"new": 1})
+        await old_cleanup
         assert 1 in bridge._streams
         assert bridge._streams[1].events[0].data == {"new": 1}
 
@@ -529,7 +518,7 @@ def test_cancel_during_finalize_still_publishes_end():
 
         class _SlowCloseSandbox(_FakeSandbox):
             async def close(self):
-                await release.wait()  # финализация висит на закрытии песочницы
+                await release.wait()
 
         class _FailingGraph(_FakeGraph):
             async def astream(self, graph_input, config=None, stream_mode=None):
@@ -539,8 +528,8 @@ def test_cancel_during_finalize_still_publishes_end():
         async def fake_repo(url):
             return {"id": 1, "url": url}
 
-        async def fake_sandbox(name):
-            return _SlowCloseSandbox()
+        async def fake_sandbox(run_id, name, *, is_resume=False):
+            return _SlowCloseSandbox(), False
 
         rt = Runtime(
             store=store,
@@ -549,7 +538,7 @@ def test_cancel_during_finalize_still_publishes_end():
                 lambda sb, m, checkpointer=None, limits=None: _FailingGraph([], None)
             ),
             make_model=lambda **kw: object(),
-            create_sandbox=fake_sandbox,
+            provision_sandbox=fake_sandbox,
             get_or_create_repository=fake_repo,
         )
         result = await rt.submit(
@@ -558,19 +547,19 @@ def test_cancel_during_finalize_still_publishes_end():
         run_id = result.run["id"]
         record = rt._manager.get_local(run_id)
         await asyncio.sleep(0.05)
-        assert record.finalizing  # воркер застрял в финализации
-        record.task.cancel()  # поздняя отмена (аналог shutdown)
+        assert record.finalizing
+        record.task.cancel()
         await asyncio.sleep(0.01)
         release.set()
         final = await rt.wait(run_id)
-        assert final["status"] == RunStatus.failed  # финализация дошла до конца
+        assert final["status"] == RunStatus.failed
 
         saw_end = False
         async for item in bridge.subscribe(run_id, heartbeat_interval=0.1):
             if item is END_SENTINEL:
                 saw_end = True
                 break
-        assert saw_end  # publish_end пережил позднюю отмену
+        assert saw_end
 
     asyncio.run(main())
 
@@ -583,12 +572,12 @@ def test_runtime_subscribe_terminal_run_ends_immediately():
             repo_url="u", commit_sha="c", llm_api_base="b", llm_api_key="k", llm_model="m"
         )
         await rt.wait(result.run["id"])
-        await bridge.cleanup(result.run["id"])  # стрим уже убран
+        await bridge.cleanup(result.run["id"])
         items = []
         async for item in rt.subscribe(result.run["id"]):
             items.append(item)
             break
-        assert items == [END_SENTINEL]  # не вечные heartbeat'ы
+        assert items == [END_SENTINEL]
 
     asyncio.run(main())
 
@@ -621,7 +610,7 @@ def test_submit_instructions_reach_graph_input():
 def test_submit_persists_and_resume_keeps_limits():
     async def main():
         store, bridge = MemoryRunStore(), MemoryStreamBridge()
-        rt = _make_runtime(store, bridge, report={"error": "boom"})  # упадёт → resumable
+        rt = _make_runtime(store, bridge, report={"error": "boom"})
         r = await rt.submit(
             repo_url="u",
             commit_sha="c",
@@ -632,7 +621,6 @@ def test_submit_persists_and_resume_keeps_limits():
         )
         await rt.wait(r.run["id"])
         assert (await store.get(r.run["id"]))["limits"] == {"tokenBudget": 1000}
-        # resume без limits → прежние сохраняются
         rt2 = _make_runtime(store, bridge, report={"done": 1})
         r2 = await rt2.submit(
             repo_url="u",

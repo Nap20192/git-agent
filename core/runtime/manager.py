@@ -1,12 +1,4 @@
-"""RunManager — control plane: admission, lease+heartbeat, отмена, сироты.
-
-Fail-closed правила:
-- lease_deadline двигается только после durable-подтверждённого продления;
-- истёкший/непродлённый lease → ownership_lost (одноносторонний fence),
-  после которого процесс не делает durable-записей по рану;
-- takeover перепроверяет истечение lease В МОМЕНТ записи (скан — только
-  оптимизация, стейл-чтение не решает).
-"""
+"""RunManager — control plane: admission, lease+heartbeat, отмена, сироты."""
 
 from __future__ import annotations
 
@@ -71,7 +63,6 @@ class RunManager:
             claim_kwargs["llm_model"],
         )
         async with self._lock:
-            # Живой ран этой идентичности в нашем процессе → attached, без claim
             local_id = self._identity.get(identity)
             local = self._runs.get(local_id) if local_id is not None else None
             if (
@@ -84,9 +75,6 @@ class RunManager:
                 if row is not None and row["status"] in ACTIVE_STATUSES:
                     return SubmitResult(run=row, disposition=SubmitDisposition.attached)
 
-            # Финализирующийся предшественник (тот же worker_id!) мог бы своей
-            # поздней terminal-записью перетереть свежевозобновлённую строку —
-            # дождаться его завершения ДО claim.
             if local is not None and local.task is not None and not local.task.done():
                 await asyncio.wait([local.task])
 
@@ -128,8 +116,6 @@ class RunManager:
             record.status = RunStatus.interrupted
             record.abort_event.set()
             return RunStartOutcome.cancelled
-        # Локальная отмена могла прилететь, пока ждали CAS: durable-строка уже
-        # running, но локально ран мёртв — вернуть durable в interrupted.
         if record.abort_event.is_set():
             await self._store.finish(
                 run_id,
@@ -155,7 +141,7 @@ class RunManager:
         if (
             record.task is not None
             and record.task is not asyncio.current_task()
-            and not record.finalizing  # финализацию не рвём — она сама fenced
+            and not record.finalizing
         ):
             record.task.cancel()
 
@@ -167,13 +153,11 @@ class RunManager:
             if record.finalizing or record.status not in ACTIVE_STATUSES:
                 return CancelOutcome.not_cancellable
             await self._store.request_cancel(run_id)
-            # Пока ждали БД, ран мог финализироваться — перепроверка
             if record.finalizing or record.status not in ACTIVE_STATUSES:
                 return CancelOutcome.not_cancellable
             record.abort_event.set()
             if record.status == RunStatus.running and record.task is not None:
                 record.task.cancel()
-            # durable-запись терминального статуса делает владеющий воркер в finally
             record.status = RunStatus.interrupted
             return CancelOutcome.cancelled
 
@@ -190,7 +174,6 @@ class RunManager:
         )
         if taken:
             return CancelOutcome.taken_over
-        # CAS не прошёл: владелец жив (продлил lease) либо ран уже терминален.
         row = await self._store.get(run_id)
         if row is None or row["status"] not in ACTIVE_STATUSES:
             return CancelOutcome.not_cancellable
@@ -224,11 +207,8 @@ class RunManager:
         for run_id, record in list(self._runs.items()):
             if record.ownership_lost:
                 continue
-            # interrupted-помеченный, но ещё финализирующийся ран тоже держит
-            # lease — иначе takeover прилетит посреди финализации
             if record.status not in ACTIVE_STATUSES and not record.finalizing:
                 continue
-            # task is None — окно admission→attach: ран жив, lease продлевается
             if record.task is not None and record.task.done():
                 continue
             deadline = record.lease_deadline
@@ -263,7 +243,6 @@ class RunManager:
             if not renewal.renewed:
                 self.mark_ownership_lost(run_id)
                 continue
-            # Продление могло пережить сам lease — перепроверка старого дедлайна
             if deadline is not None and time.monotonic() >= deadline:
                 self.mark_ownership_lost(run_id)
                 continue
@@ -287,7 +266,7 @@ class RunManager:
 
     def _schedule_orphan_reconciliation(self) -> None:
         if self._orphan_task is not None and not self._orphan_task.done():
-            return  # single-flight
+            return
         self._orphan_task = asyncio.create_task(self._reconcile_safely())
 
     async def _reconcile_safely(self) -> None:
@@ -302,8 +281,7 @@ class RunManager:
             run_id = row["id"]
             local = self._runs.get(run_id)
             if local is not None and local.status in ACTIVE_STATUSES and not local.ownership_lost:
-                continue  # наш живой ран, продлится heartbeat'ом
-            # CAS сам перепроверит истечение: продление после скана всегда побеждает
+                continue
             if await self._store.claim_for_takeover(
                 run_id,
                 grace_seconds=self._grace_seconds,
@@ -319,7 +297,6 @@ class RunManager:
     def evict_later(self, record: RunRecord, *, delay: float = 300) -> None:
         async def _evict() -> None:
             await asyncio.sleep(delay)
-            # identity-aware: resume мог поставить НОВУЮ живую запись под тем же id
             if self._runs.get(record.run_id) is record:
                 self._runs.pop(record.run_id, None)
 
@@ -338,7 +315,7 @@ class RunManager:
         ]
         for record in inflight:
             record.abort_event.set()
-            if not record.finalizing:  # финализацию не прерываем
+            if not record.finalizing:
                 record.task.cancel()
         for t in (self._heartbeat_task, self._orphan_task):
             if t is not None:
@@ -350,9 +327,6 @@ class RunManager:
                     log.warning(
                         "run task ended with error during shutdown", error=str(task.exception())
                     )
-            # Fallback для всех незавершившихся durable-строк (в т.ч. тасков,
-            # отменённых до входа в тело воркера): finish-CAS безопасен —
-            # терминальную строку он не тронет.
             for record in inflight:
                 if record.ownership_lost:
                     continue

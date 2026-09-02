@@ -23,6 +23,14 @@ def get_pool() -> ConnectionPool:
     return _pool
 
 
+def close_pool() -> None:
+    """Явно закрыть sync-пул (для graceful shutdown; идемпотентно)."""
+    global _pool
+    if _pool is not None:
+        _pool.close()
+        _pool = None
+
+
 def get_or_create_repository(url: str, name: str | None = None) -> dict[str, Any]:
     with get_pool().connection() as conn:
         return conn.execute(
@@ -71,12 +79,17 @@ async def get_async_pool() -> AsyncConnectionPool:
             _apool = AsyncConnectionPool(
                 settings.database_url, kwargs={"row_factory": dict_row}, open=False
             )
-            # wait=True обязателен: no-wait открытие уводит коннект в фоновых
-            # воркеров пула, которые в этом окружении падают с пустой ошибкой
-            # и пул виснет навечно; ждущее открытие коннектится сразу и при
-            # недоступной БД падает громко через timeout.
             await _apool.open(wait=True, timeout=30)
     return _apool
+
+
+async def close_async_pool() -> None:
+    """Явно закрыть async-пул (для graceful shutdown; идемпотентно)."""
+    global _apool
+    async with _apool_lock:
+        if _apool is not None:
+            await _apool.close()
+            _apool = None
 
 
 async def aadd_run_event(run_id: int, kind: str, payload: dict[str, Any]) -> None:

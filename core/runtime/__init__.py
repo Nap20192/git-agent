@@ -1,9 +1,4 @@
-"""Runtime — durable-исполнение Ранов: «ран — это ресурс, а не запрос».
-
-Адаптация архитектуры deer-flow runtime: admission через CAS на строке runs,
-lease+heartbeat с fail-closed fence, orphan recovery, реплеябельный стрим
-с честными пробелами, идемпотентная финализация.
-"""
+"""Runtime — durable-исполнение Ранов: «ран — это ресурс, а не запрос»."""
 
 from core.runtime.bridge import (
     END_SENTINEL,

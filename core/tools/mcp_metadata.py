@@ -1,6 +1,4 @@
-"""Тегирование MCP-тулов. Leaf-модуль: зависит только от BaseTool —
-и загрузчик, и читатели импортируют его без циклов; магическая строка
-живёт ровно в одном месте."""
+"""Тегирование MCP-тулов. Leaf-модуль: зависит только от BaseTool —"""
 
 from langchain_core.tools import BaseTool
 
@@ -13,5 +11,4 @@ def tag_mcp_tool(t: BaseTool) -> BaseTool:
 
 
 def is_mcp_tool(t: BaseTool) -> bool:
-    # строгая проверка is True: крафтовое truthy-значение — не тег
     return (getattr(t, "metadata", None) or {}).get(MCP_TOOL_METADATA_KEY) is True

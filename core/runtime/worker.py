@@ -1,10 +1,4 @@
-"""Воркер — data plane: единственная функция, реально крутящая граф Рана.
-
-Порядок финализации: терминальная durable-запись — ПОСЛЕДНЕЕ durable-действие
-(строка остаётся running на время cleanup, поэтому resume-claim не может
-переплестись с финализирующимся предшественником). Fence (ownership_lost)
-гейтит все durable-записи, но никогда — publish_end.
-"""
+"""Воркер — data plane: единственная функция, реально крутящая граф Рана."""
 
 from __future__ import annotations
 
@@ -42,7 +36,7 @@ async def run_agent(
     repo_url: str,
     profile: GraphProfile,
     make_model: Callable[..., Any],
-    create_sandbox: Callable[[str], Awaitable[Sandbox]],
+    provision_sandbox: Callable[..., Awaitable[tuple[Sandbox, bool]]],
     checkpointer: Any = None,
     sandbox_name: str = "git",
     is_resume: bool = False,
@@ -59,30 +53,20 @@ async def run_agent(
 
     try:
         if is_resume:
-            # Сброс стрима прошлой инкарнации: снимает ended-флаг, иначе новые
-            # подписчики получат преждевременный END_SENTINEL. Подписчики старой
-            # инкарнации переподписываются по gap-контракту.
             await bridge.cleanup(run_id)
         try:
-            sandbox = await create_sandbox(sandbox_name)
+            sandbox, reused = await provision_sandbox(run_id, sandbox_name, is_resume=is_resume)
             model = make_model(
                 model=run_row["llm_model"],
                 api_base=run_row["llm_api_base"],
                 api_key=run_row["llm_api_key"],
             )
-            # Подготовка песочницы (например клон репо для лида); при resume
-            # песочница новая — готовим заново, чекпоинт хранит только состояние графа.
-            if profile.prepare is not None:
+            if profile.prepare is not None and not reused:
                 await profile.prepare(sandbox, repo_url, checkout_ref)
             graph = profile.build(
                 sandbox, model, checkpointer=checkpointer, limits=run_row.get("limits") or {}
             )
-            # Коллбэки трейсинга — на корне инвокации: LangGraph прокидывает их
-            # во все вложенные вызовы, один трейс деревом на ран. Ошибка сборки
-            # (включён, но не настроен) — setup-ошибка рана, не тихий пропуск.
             tracing_callbacks = build_tracing_callbacks()
-            # Usage-коллектор на корне: считает ВСЕ LLM-вызовы рана (лид,
-            # pipeline-parse, сабагенты) с дедупом по run_id вызова
             from core.subagents.executor import SubagentTokenCollector
 
             usage_collector = SubagentTokenCollector(caller="run")
@@ -94,7 +78,6 @@ async def run_agent(
             log.exception("run setup failed", run_id=run_id)
             return
 
-        # Барьер: отмена, догнавшая ран в pending, гарантирует «граф не стартовал»
         if await manager.try_start(run_id) is not RunStartOutcome.started:
             outcome, stop_reason = RunStatus.interrupted, STOP_REASON_CANCELLED
             return
@@ -105,7 +88,6 @@ async def run_agent(
             **profile.run_config,
         }
         inject_langfuse_metadata(config, thread_id=str(run_id), model_name=run_row["llm_model"])
-        # resume: None как вход — LangGraph продолжает с чекпоинта
         graph_input = (
             None if is_resume else profile.make_input(repo_url, checkout_ref, instructions)
         )
@@ -131,8 +113,6 @@ async def run_agent(
             outcome, stop_reason = RunStatus.interrupted, STOP_REASON_CANCELLED
             raise
         except GraphRecursionError:
-            # Исчерпан бюджет ходов — не крах, а частичный результат (turn_capped):
-            # достаём отчёт из последнего сохранённого состояния.
             stop_reason = STOP_REASON_TURN
             log.warning("run hit recursion limit; harvesting partial report", run_id=run_id)
             try:
@@ -141,7 +121,7 @@ async def run_agent(
             except Exception:
                 report = None
             if report is not None and not report.get("error"):
-                outcome = RunStatus.succeeded  # capped, но с выводом
+                outcome = RunStatus.succeeded
             else:
                 outcome, error = RunStatus.failed, "reached max turns without an answer"
         except Exception as exc:
@@ -150,7 +130,7 @@ async def run_agent(
             with contextlib.suppress(Exception):
                 await bridge.publish(run_id, "error", {"error": str(exc)})
     except asyncio.CancelledError:
-        pass  # финализация в finally; не проглатываем смысл, статус уже выставлен
+        pass
     finally:
         record.finalizing = True
 
@@ -158,10 +138,6 @@ async def run_agent(
             try:
                 if sandbox is not None:
                     await _close_quietly(sandbox)
-                # Терминальное usage-событие (контракт eval-харнеса) — на ЛЮБОМ
-                # исходе (succeeded/turn_capped/failed/cancelled): потраченные
-                # токены — факт, независимый от статуса. Одно событие на попытку;
-                # харнес суммирует по всем попыткам. Best-effort, ран не роняет.
                 if usage_collector is not None and not record.ownership_lost:
                     try:
                         usage_payload = {
@@ -187,11 +163,8 @@ async def run_agent(
                 else:
                     log.warning("fenced: skipping durable finalization", run_id=run_id)
             finally:
-                await bridge.publish_end(run_id)  # безусловно, даже при fence
+                await bridge.publish_end(run_id)
 
-        # Поздние task.cancel() (shutdown, второй cancel, fence) не должны
-        # рвать финализацию посередине: одиночный shield этого НЕ гарантирует —
-        # await на shield сам отменяем. Крутим shield в цикле до завершения.
         fut = asyncio.ensure_future(_finalization())
         while not fut.done():
             try:
@@ -223,7 +196,6 @@ async def _finalize(
         if fin.finalized:
             record.status = RunStatus.succeeded
         elif fin.cancelled:
-            # отмена победила на финишной ленте — честный interrupted
             await store.finish(
                 run_id,
                 owner_worker_id=manager.worker_id,
@@ -232,7 +204,6 @@ async def _finalize(
             )
             record.status = RunStatus.interrupted
         else:
-            # не можем доказать, кто победил — fence, никаких записей
             manager.mark_ownership_lost(run_id)
     else:
         wrote = await store.finish(
@@ -245,9 +216,6 @@ async def _finalize(
         if wrote:
             record.status = outcome
             return
-        # CAS не прошёл: если строка уже терминальна (например, try_start сам
-        # дописал interrupted при отмене-в-полёте) — принять её статус; fence
-        # только при реальной потере владения (строка активна у другого).
         row = await store.get(run_id)
         if row is not None and row["status"] in (
             RunStatus.succeeded,

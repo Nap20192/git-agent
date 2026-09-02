@@ -22,7 +22,6 @@ def test_status_and_stop_reason_values_pinned():
 def test_terminal_once_loser_writes_nothing():
     r = SubagentResult(task_id="t1")
     assert r.try_set_terminal(SubagentStatus.COMPLETED, result="done")
-    # поздний писатель (таймаут) проигрывает целиком
     assert not r.try_set_terminal(SubagentStatus.TIMED_OUT, error="late")
     assert r.status is SubagentStatus.COMPLETED
     assert r.result == "done" and r.error is None

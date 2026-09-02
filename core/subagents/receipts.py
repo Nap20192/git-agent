@@ -1,22 +1,4 @@
-"""Квитанции тул-вызовов + верификация цитат + report contract.
-
-Референс: deerflow tool_receipt.py + receipt_verification.py + report_contract.py,
-слиты в один модуль — формат цитаты, парсер, верификатор и промпт-текст живут
-в одном месте и не могут разъехаться.
-
-Слои защиты от галлюцинирующего сабагента:
-1. Receipts (рантайм, ноль LLM): на каждый ToolMessage — квитанция (sha256
-   аргументов/вывода, статус); ключ ВСЕГДА перезаписывается — тул не может
-   подделать «своё доказательство».
-2. Контракт (промпт): системный промпт требует цитировать [rN tool_name].
-3. Верификация (чистые функции у лида): цитаты × леджер → resolved/failed/
-   unknown. Словарь нейтральный: citation_resolved значит «вызов был»,
-   не «утверждение верно».
-
-Display id r1..rN — позиционные; суммаризация перенумеровывает выживших,
-поэтому верификация идёт по снапшоту леджера цитирующего хода (штампуется
-middleware на AIMessage), а не по пост-компакционному рескану.
-"""
+"""Квитанции тул-вызовов + верификация цитат + report contract."""
 
 from __future__ import annotations
 
@@ -58,11 +40,7 @@ def format_citation(rid: str, tool_name: str | None = None) -> str:
 
 
 def parse_citations(text: str) -> list[tuple[str, str | None]]:
-    """(id, anchor)-пары из прозы отчёта, дедуп first-seen.
-
-    Число ограничивается по количеству цифр ДО int(): гигантский id из
-    недоверенного вывода не должен ронять конверсию.
-    """
+    """(id, anchor)-пары из прозы отчёта, дедуп first-seen."""
     seen: set[tuple[str, str | None]] = set()
     citations: list[tuple[str, str | None]] = []
     for match in CITATION_RE.finditer(text):
@@ -82,11 +60,7 @@ def _short_hash(data: bytes) -> str:
 
 
 def make_tool_receipt(tool_call: dict[str, Any], message: ToolMessage) -> dict[str, Any]:
-    """Квитанция для пары вызов/результат (display id присваивается позже).
-
-    Хэши — freshness-штампы сырого возврата (до усечений дальше по цепочке),
-    не перепроверяемый отпечаток персистированного текста.
-    """
+    """Квитанция для пары вызов/результат (display id присваивается позже)."""
     args = tool_call.get("args")
     args_bytes = json.dumps(
         args if isinstance(args, dict) else {}, sort_keys=True, default=str
@@ -130,10 +104,7 @@ def is_valid_receipt(receipt: object) -> bool:
 
 
 def extract_tool_receipts(messages: list[Any]) -> list[ToolReceipt]:
-    """Проштампованные квитанции в порядке сообщений, display id r1..rN.
-
-    Малформленные записи пропускаются (персистированные данные не доверяются).
-    """
+    """Проштампованные квитанции в порядке сообщений, display id r1..rN."""
     receipts: list[ToolReceipt] = []
     for message in messages:
         if not isinstance(message, ToolMessage):
@@ -151,11 +122,7 @@ def extract_tool_receipts(messages: list[Any]) -> list[ToolReceipt]:
 
 
 def extract_citing_turn_receipts(messages: list[Any]) -> list[ToolReceipt] | None:
-    """Снапшот леджера, который видел последний цитирующий ход модели.
-
-    Любая аномалия (не-список, битая квитанция, непоследовательные id) —
-    None целиком: fail-closed, перенумерованный рескан хуже отсутствия.
-    """
+    """Снапшот леджера, который видел последний цитирующий ход модели."""
     for message in reversed(messages):
         if not isinstance(message, AIMessage):
             continue
@@ -194,11 +161,7 @@ def extract_citing_turn_receipts(messages: list[Any]) -> list[ToolReceipt] | Non
 def render_tool_receipts_with_snapshot(
     receipts: list[ToolReceipt], *, max_chars: int = _RENDER_CHAR_BUDGET
 ) -> tuple[str, list[ToolReceipt]]:
-    """Рендер леджера + ТОЧНОЕ подмножество квитанций, попавших в рендер.
-
-    Снапшотом должен становиться именно retained-сабсет: цитата не должна
-    резолвиться в запись, которую модель не видела из-за бюджета контекста.
-    """
+    """Рендер леджера + ТОЧНОЕ подмножество квитанций, попавших в рендер."""
     if not receipts:
         return "", []
     lines = [
@@ -230,7 +193,7 @@ def render_tool_receipts_with_snapshot(
     rendered = "\n".join(lines)
     if len(rendered) > max_chars:
         rendered = rendered[: max(0, max_chars - 4)] + "\n..."
-        retained = []  # изуродованный рендер ни за что не ручается
+        retained = []
     return rendered, retained
 
 
@@ -315,13 +278,10 @@ def verify_receipt_citations(report_text: str, receipts: list[ToolReceipt]) -> R
             )
             continue
         resolved.append(rid)
-    # Непустой леджер + отчёт длиной в абзац без единой цитаты — UNVERIFIED
-    # независимо от языка (страховка поверх verb-списков).
     no_citation_claims = not cited and (
         _has_action_claims(report_text)
         or (bool(receipts) and len(report_text.strip()) >= _NONTRIVIAL_REPORT_MIN_CHARS)
     )
-    # vacuous pass в else-ветке: нет цитат и нет claims — чистый проход
     citation_resolved = (not failed and not unknown) if cited else not no_citation_claims
     return ReceiptVerdict(
         source=VERDICT_SOURCE,
@@ -339,7 +299,7 @@ def render_citation_verdict(verdict: ReceiptVerdict) -> str:
     if verdict["no_citation_claims"]:
         return "citations: UNVERIFIED — action claims without receipt citations"
     if not verdict["cited"]:
-        return ""  # vacuous pass ничего не рендерит
+        return ""
     parts = [f"{len(verdict['resolved'])} resolved"]
     if verdict["failed"]:
         parts.append(f"{len(verdict['failed'])} failed")
@@ -364,11 +324,7 @@ _HONESTY_LINE = (
 
 
 def build_report_contract_section() -> str:
-    """<report_contract> для системного промпта КАЖДОГО сабагента.
-
-    Примеры цитат генерируются тем же кодом, что их парсит верификатор —
-    формат в одном месте, разъехаться не может.
-    """
+    """<report_contract> для системного промпта КАЖДОГО сабагента."""
     anchored = format_citation(receipt_id(3), "sandbox_run")
     bare = format_citation(receipt_id(1))
     return "\n".join(
@@ -393,11 +349,7 @@ def build_report_contract_section() -> str:
 
 
 def build_acceptance_criteria_system_note() -> str:
-    """Framework-owned указатель в SystemMessage — БЕЗ текста критериев.
-
-    Критерии — вывод одной модели, подаваемый другой, т.е. канал инъекции;
-    их значения едут только в task-HumanMessage.
-    """
+    """Framework-owned указатель в SystemMessage — БЕЗ текста критериев."""
     return (
         "<acceptance_criteria>\n"
         'Your task message ends with an "Acceptance criteria" list supplied by the'
@@ -411,11 +363,7 @@ def build_acceptance_criteria_system_note() -> str:
 
 
 def render_acceptance_criteria_block(acceptance_criteria: list[str] | None) -> str:
-    """Критерии как данные для task-message; "" если нечего рендерить.
-
-    Plain-text заголовок (не тег) — намеренно: если когда-нибудь появится
-    санитайзер фреймворк-тегов, markdown переживёт его нетронутым.
-    """
+    """Критерии как данные для task-message; "" если нечего рендерить."""
     if not acceptance_criteria:
         return ""
     criteria: list[str] = []
