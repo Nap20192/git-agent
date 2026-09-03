@@ -880,12 +880,15 @@ components:
         findingsCount — Находки Сабагента); task_report — самоотчёт Сабагента
         (description — полный текст, для drawer'а графа); done — терминальный
         кадр потока. findingsCount на node/run_* — накопленные Находки Лида.
-        Неизвестные kind фронт должен игнорировать.
+        Work log (что агент думает и делает): text — мысль/ответ агента, tool_call —
+        вызов тула с аргументами (`grep_code(pattern="jwt")`), tool_result — имя тула
+        и превью вывода; taskId — кадр Сабагента, без taskId — Лида. chat_user/chat_agent —
+        реплики чата (text) для транскрипта. Неизвестные kind фронт должен игнорировать.
       required: [kind]
       properties:
         kind:
           type: string
-          enum: [run_started, node, task_started, task_finished, task_failed, task_report, run_finished, run_failed, done]
+          enum: [run_started, node, task_started, task_finished, task_failed, task_report, text, tool_call, tool_result, chat_user, chat_agent, run_finished, run_failed, done]
         taskId: { type: [string, "null"], description: "для task_*" }
         description: { type: [string, "null"] }
         status: { type: [string, "null"], enum: [queued, working, done, failed, timeout, null] }

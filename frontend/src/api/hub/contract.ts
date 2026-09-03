@@ -278,8 +278,9 @@ export type ActivityStatus = "queued" | "working" | "done" | "failed" | "timeout
  * (status queued → working); task_finished/task_failed — its terminal state
  * (description = error, findingsCount = its Находки); task_report — the
  * Сабагент's self-report text (description); done — stream closes.
- * Work-log kinds (tool_call / tool_result / text, see activity.ts) are a
- * proposed extension outside the contract: folded if present, never sent yet.
+ * Work log (what the agent thinks and does): text — a thought/answer,
+ * tool_call — a tool call with its arguments, tool_result — tool name + output
+ * preview; taskId marks a Сабагент's frame, none — the lead's.
  */
 export interface ActivityEvent {
   kind:
@@ -291,6 +292,9 @@ export interface ActivityEvent {
     | "task_finished"
     | "task_failed"
     | "task_report"
+    | "text"
+    | "tool_call"
+    | "tool_result"
     | "run_finished"
     | "run_failed"
     | "done";

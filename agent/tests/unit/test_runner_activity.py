@@ -63,10 +63,83 @@ def test_collector_updates_nodes_findings_and_report():
         },
     )
     assert _strip_ts(frames) == [
+        {"kind": "tool_call", "description": "report_finding()"},
+        {"kind": "tool_call", "description": "sandbox_run()"},
         {"kind": "task_report", "taskId": "t1", "description": "самоотчёт"},
         {"kind": "node", "description": "lead", "status": "done", "findingsCount": 1},
     ]
     assert c.run_finished()["findingsCount"] == 1
+
+
+def test_collector_lead_work_log():
+    """Лид: мысль → text, вызов тула с аргументами → tool_call, ответ тула → tool_result
+    (превью усечено); ToolMessage task-тула — task_report, не tool_result."""
+    c = ActivityCollector()
+    frames = c.frames(
+        "updates",
+        {
+            "model": {
+                "messages": [
+                    {
+                        "type": "ai",
+                        "content": "Let me map the entry points.",
+                        "tool_calls": [
+                            {"name": "grep_code", "args": {"pattern": "app.get(", "path": "src"}}
+                        ],
+                    }
+                ]
+            },
+            "tools": {"messages": [{"type": "tool", "name": "grep_code", "content": "x" * 5000}]},
+        },
+    )
+    kinds = [(f["kind"], f.get("taskId")) for f in frames]
+    assert kinds == [
+        ("text", None),
+        ("tool_call", None),
+        ("node", None),
+        ("tool_result", None),
+        ("node", None),
+    ]
+    assert frames[0]["description"] == "Let me map the entry points."
+    assert frames[1]["description"] == 'grep_code(pattern="app.get(", path="src")'
+    assert frames[3]["description"].startswith("grep_code: xxx") and frames[3][
+        "description"
+    ].endswith("…")
+    assert len(frames[3]["description"]) < 900
+
+
+def test_collector_subagent_work_log_from_steps():
+    """Шаги Сабагента (task_running + build_subagent_step) → work log с taskId; первый шаг
+    ещё и переводит queued → working."""
+    c = ActivityCollector()
+    c.frames("custom", {"type": "task_started", "task_id": "t1", "description": "deps"})
+    ai = {
+        "type": "task_running",
+        "task_id": "t1",
+        "kind": "ai",
+        "text": "Checking lockfile",
+        "tool_calls": [{"name": "read_file", "args": '{"path": "package-lock.json"}'}],
+    }
+    frames = _strip_ts(c.frames("custom", ai))
+    assert frames == [
+        {"kind": "task_started", "taskId": "t1", "status": "working"},
+        {"kind": "text", "taskId": "t1", "description": "Checking lockfile"},
+        {"kind": "tool_call", "taskId": "t1", "description": 'read_file(path="package-lock.json")'},
+    ]
+    tool = {
+        "type": "task_running",
+        "task_id": "t1",
+        "kind": "tool",
+        "tool_name": "read_file",
+        "text": "1\t{",
+    }
+    assert _strip_ts(c.frames("custom", tool)) == [
+        {"kind": "tool_result", "taskId": "t1", "description": "read_file: 1\t{"}
+    ]
+    assert (
+        c.frames("custom", {"type": "task_running", "task_id": "t1", "kind": "ai", "text": ""})
+        == []
+    )
 
 
 def test_collector_ignores_garbage():

@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -20,6 +22,31 @@ _TERMINAL = {
     "task_timed_out": ("task_failed", "timeout"),
     "task_cancelled": ("task_failed", "failed"),
 }
+
+
+# work log (что агент думает, какие тулы и с чем зовёт, что получил) — превью, не полный текст
+WORK_CALL_CHARS = 400
+WORK_RESULT_CHARS = 800
+WORK_TEXT_CHARS = 2000
+
+
+def _clip(text: str, limit: int) -> str:
+    text = text.strip()
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def call_line(name: Any, args: Any) -> str:
+    """`grep_code(pattern="jwt", path="src")` — вызов тула одной строкой."""
+    if isinstance(args, str):
+        with contextlib.suppress(ValueError):
+            args = json.loads(args)
+    if isinstance(args, dict):
+        rendered = ", ".join(
+            f"{k}={json.dumps(v, ensure_ascii=False, default=str)}" for k, v in args.items()
+        )
+    else:
+        rendered = "" if args in (None, "", {}) else str(args)
+    return _clip(f"{name or 'tool'}({rendered})", WORK_CALL_CHARS)
 
 
 def _now() -> str:
@@ -66,6 +93,44 @@ class ActivityCollector:
         text = "\n\n".join(self.reply).strip()
         return self._frame("chat_agent", text=text) if text else None
 
+    def _work(
+        self,
+        task_id: str | None,
+        *,
+        text: Any = None,
+        calls: list[dict[str, Any]] | None = None,
+        result: tuple[Any, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Кадры work log: text (мысль/ответ агента), tool_call (по одному на вызов),
+        tool_result (имя тула + превью вывода); taskId — Сабагент, без — Лид."""
+        frames: list[dict[str, Any]] = []
+        if (
+            text := message_text(text).strip()
+            if not isinstance(text, str)
+            else (text or "").strip()
+        ):
+            frames.append(
+                self._frame("text", taskId=task_id, description=_clip(text, WORK_TEXT_CHARS))
+            )
+        for call in calls or []:
+            frames.append(
+                self._frame(
+                    "tool_call",
+                    taskId=task_id,
+                    description=call_line(call.get("name"), call.get("args")),
+                )
+            )
+        if result is not None:
+            name, out = result
+            frames.append(
+                self._frame(
+                    "tool_result",
+                    taskId=task_id,
+                    description=f"{name or 'tool'}: {_clip(str(out or ''), WORK_RESULT_CHARS)}",
+                )
+            )
+        return frames
+
     def run_failed(self, error: Any) -> dict[str, Any]:
         return self._frame("run_failed", description=str(error)[:500], findingsCount=self.findings)
 
@@ -94,10 +159,16 @@ class ActivityCollector:
                 )
             ]
         if dtype == "task_running":
-            if self._tasks.get(task_id) != "queued":
-                return []  # прогресс уже working — не спамим кадрами на каждый шаг
-            self._tasks[task_id] = "working"
-            return [self._frame("task_started", taskId=task_id, status="working")]
+            frames: list[dict[str, Any]] = []
+            if self._tasks.get(task_id) == "queued":  # первый шаг: queued → working, один раз
+                self._tasks[task_id] = "working"
+                frames.append(self._frame("task_started", taskId=task_id, status="working"))
+            # шаг Сабагента (core/subagents/steps.py::build_subagent_step) → work log
+            if data.get("kind") == "tool":
+                frames += self._work(task_id, result=(data.get("tool_name"), data.get("text")))
+            elif data.get("kind") == "ai":
+                frames += self._work(task_id, text=data.get("text"), calls=data.get("tool_calls"))
+            return frames
         if dtype in _TERMINAL:
             kind, status = _TERMINAL[dtype]
             self._tasks[task_id] = status
@@ -126,6 +197,9 @@ class ActivityCollector:
                     )
                     if text := message_text(msg.get("content")).strip():
                         self.reply.append(text)
+                    frames += self._work(None, text=msg.get("content"), calls=msg.get("tool_calls"))
+                elif msg.get("type") == "tool" and msg.get("name") != "task":
+                    frames += self._work(None, result=(msg.get("name"), msg.get("content")))
                 # самоотчёт Сабагента: ToolMessage task-тула, парный task_id
                 if (
                     msg.get("type") == "tool"

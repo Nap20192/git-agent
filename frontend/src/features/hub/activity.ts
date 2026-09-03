@@ -159,10 +159,9 @@ export function foldActivity(frames: ActivityEvent[]): TurnGraph {
         }
         break;
       }
-      // вне контракта (backend/docs/openapi.yaml): раннер пока не шлёт, но кадры сворачиваем, если придут
-      case "tool_call" as ActivityEvent["kind"]:
-      case "tool_result" as ActivityEvent["kind"]:
-      case "text" as ActivityEvent["kind"]: {
+      case "tool_call":
+      case "tool_result":
+      case "text": {
         const w: WorkFrame = { kind: f.kind as WorkFrame["kind"], text: f.description ?? "", ts: f.ts ?? undefined };
         (f.taskId ? node(f.taskId).work : graph.leadWork).push(w);
         break;
@@ -186,7 +185,7 @@ export function activityLine(f: ActivityEvent): string | null {
       return `turn failed — ${f.description ?? "error"}`;
     case "node":
       return `node ${f.description ?? "?"} ✓`;
-    case "tool_call" as ActivityEvent["kind"]:
+    case "tool_call":
       return `${task || "lead"} ⚙ ${(f.description ?? "").slice(0, 80)}`;
     case "task_started":
       return f.status === "queued"
