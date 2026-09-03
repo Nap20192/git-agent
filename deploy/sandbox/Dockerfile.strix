@@ -1,0 +1,10 @@
+# Офлайн-вариант образа Песочницы поверх локального strix-sandbox (git, rg,
+# semgrep, bandit, node, go, nuclei, nmap уже внутри; нет gosec/osv-scanner).
+# Ничего не тянет из сети — собирается, даже когда Docker Hub недоступен.
+# Сборка: task sandbox:image:strix → git-agent/sandbox:strix
+FROM ghcr.io/usestrix/strix-sandbox:1.3.0
+
+USER root
+RUN mkdir -p /repo && chmod 777 /repo
+WORKDIR /repo
+ENTRYPOINT ["tail", "-f", "/dev/null"]

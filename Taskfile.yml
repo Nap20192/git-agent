@@ -123,9 +123,14 @@ tasks:
       - go test ./...
 
   sandbox:image:
-    desc: Собрать образ Песочницы с инструментами (git, rg, semgrep, bandit, gosec, osv-scanner, node, go)
+    desc: Собрать образ Песочницы с инструментами (git, rg, semgrep, bandit, gosec, osv-scanner, node, go); нужен Docker Hub
     cmds:
       - docker build -t git-agent/sandbox:latest deploy/sandbox
+
+  sandbox:image:strix:
+    desc: Офлайн-образ Песочницы поверх локального strix-sandbox (git, rg, semgrep, bandit, node, go; без gosec/osv)
+    cmds:
+      - docker build -t git-agent/sandbox:strix -f deploy/sandbox/Dockerfile.strix deploy/sandbox
 
   diagrams:
     desc: Отрендерить sequence-диаграммы docs/flows.md → docs/flows/*.png
