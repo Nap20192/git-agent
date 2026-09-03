@@ -17,6 +17,7 @@ import type {
   Report,
   Repository,
   SandboxConnection,
+  Subscription,
 } from "./contract.ts";
 
 /** Thrown by me() (and any authed call) on 401 — HubGate turns it into sign-in. */
@@ -43,6 +44,14 @@ export interface HubApi {
   setRepositoryBuild(id: number, buildId: number): Promise<Repository>;
   disconnectRepository(id: number): Promise<void>;
   listRepositoryEvents(id: number): Promise<RepoEvent[]>;
+
+  // Подписки — which Сборки watch a repo (upsert per build+repo pair)
+  listSubscriptions(repositoryId: number): Promise<Subscription[]>;
+  createSubscription(
+    repositoryId: number,
+    input: { buildId: number; actions?: string[]; refMask?: string | null },
+  ): Promise<Subscription>;
+  deleteSubscription(id: number): Promise<void>;
 
   // Сборки
   listBuilds(): Promise<AgentBuild[]>;

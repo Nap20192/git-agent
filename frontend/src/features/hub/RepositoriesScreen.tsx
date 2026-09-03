@@ -29,8 +29,11 @@ export function RepositoriesScreen() {
   const [connecting, setConnecting] = useState(false);
 
   const builds = buildsQ.data ?? [];
-  const buildName = (id?: number | null) => builds.find((b) => b.id === id)?.name;
-  const instanceOf = (repoId: number) => (instancesQ.data ?? []).find((i) => i.repositoryId === repoId);
+  // Card presence: the repo's awake agent wins; otherwise any of its agents.
+  const instanceOf = (repoId: number) => {
+    const mine = (instancesQ.data ?? []).filter((i) => i.repositoryId === repoId);
+    return mine.find((i) => i.status === "running") ?? mine[0];
+  };
 
   const repos = reposQ.data ?? [];
 
@@ -51,13 +54,7 @@ export function RepositoriesScreen() {
 
         <div className={styles.cards}>
           {repos.map((r) => (
-            <RepoCard
-              key={r.id}
-              repo={r}
-              instance={instanceOf(r.id)}
-              buildName={buildName(r.buildId)}
-              onOpen={() => navigate(`/repos/${r.id}`)}
-            />
+            <RepoCard key={r.id} repo={r} instance={instanceOf(r.id)} onOpen={() => navigate(`/repos/${r.id}`)} />
           ))}
           <div className={`${styles.card} ${styles.addCard}`} onClick={() => setConnecting(true)}>
             <span>＋ Connect a repository</span>
@@ -74,12 +71,10 @@ export function RepositoriesScreen() {
 function RepoCard({
   repo,
   instance,
-  buildName,
   onOpen,
 }: {
   repo: Repository;
   instance?: AgentInstance;
-  buildName?: string;
   onOpen: () => void;
 }) {
   return (
@@ -95,9 +90,7 @@ function RepoCard({
       </div>
       <div className={styles.cardMeta}>
         {repo.defaultBranch && <span className={styles.mono}>{repo.defaultBranch}</span>}
-        <span style={repo.buildId == null ? { color: "var(--med)" } : undefined}>
-          {repo.buildId == null ? "no Сборка bound" : (buildName ?? `Сборка #${repo.buildId}`)}
-        </span>
+        <span>connected {new Date(repo.connectedAt).toLocaleDateString()}</span>
       </div>
     </div>
   );

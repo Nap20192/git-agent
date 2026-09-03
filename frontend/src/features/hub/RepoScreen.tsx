@@ -1,9 +1,11 @@
-/** Repository page — the agent's home. The Экземпляр is 1:1 with the repo, so
- *  everything about it lives here: presence + chat (hero), the Событие
- *  journal, reports, findings, and settings (Сборка binding, disconnect). */
+/** Repository page — the agents' home. N Сборок watch a repo via подписки
+ *  (ticket 011: actions + ref mask; no subscriptions → the default Сборка
+ *  covers everything), and each matched Сборка gets its own Экземпляр. The
+ *  watchers panel doubles as the agent switcher: the selected watcher's agent
+ *  backs the chat, reports, and findings. */
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useHubApi, type AgentInstance, type Finding } from "@/api/hub";
+import { useHubApi, type AgentBuild, type AgentInstance, type Finding, type Subscription } from "@/api/hub";
 import {
   useBuilds,
   useHubRepositories,
@@ -11,6 +13,7 @@ import {
   useInstanceReports,
   useInstances,
   useRepoEvents,
+  useSubscriptions,
 } from "@/hooks";
 import { Badge, Button, Panel, PanelHeader } from "@/components/primitives";
 import type { Tone } from "@/lib/tone.ts";
@@ -28,6 +31,12 @@ const SEVERITY_TONES: Record<string, Tone> = {
 };
 const severityTone = (s: string): Tone => SEVERITY_TONES[s.toLowerCase()] ?? "info";
 
+/** "push, pull_request @ release/*" | "everything @ any ref" */
+function filterLabel(s: Subscription): string {
+  const actions = s.actions.length ? s.actions.join(", ") : "everything";
+  return `${actions} @ ${s.refMask ?? "any ref"}`;
+}
+
 export function RepoScreen() {
   const { id: idParam } = useParams();
   const id = Number(idParam);
@@ -38,12 +47,22 @@ export function RepoScreen() {
   const buildsQ = useBuilds();
   const instancesQ = useInstances();
   const eventsQ = useRepoEvents(id);
+  const subsQ = useSubscriptions(id);
   const [busy, setBusy] = useState(false);
+  const [selectedBuildId, setSelectedBuildId] = useState<number | null>(null);
 
   const repo = (reposQ.data ?? []).find((r) => r.id === id);
-  const instance = (instancesQ.data ?? []).find((i) => i.repositoryId === id);
   const builds = buildsQ.data ?? [];
   const events = eventsQ.data ?? [];
+  const subs = subsQ.data ?? [];
+  const repoInstances = (instancesQ.data ?? []).filter((i) => i.repositoryId === id);
+  const buildName = (bid: number) => builds.find((b) => b.id === bid)?.name ?? `Сборка #${bid}`;
+  const instanceFor = (bid: number) => repoInstances.find((i) => i.buildId === bid);
+
+  // Active agent: the picked watcher's instance, else the awake one, else any.
+  const autoInstance = repoInstances.find((i) => i.status === "running") ?? repoInstances[0];
+  const activeInstance = selectedBuildId != null ? instanceFor(selectedBuildId) : autoInstance;
+  const activeBuildId = selectedBuildId ?? activeInstance?.buildId ?? null;
 
   if (!repo) {
     return (
@@ -56,21 +75,11 @@ export function RepoScreen() {
   }
 
   const putToSleep = async () => {
-    if (!instance) return;
+    if (!activeInstance) return;
     setBusy(true);
     try {
-      await api.stopInstance(instance.id);
+      await api.stopInstance(activeInstance.id);
       instancesQ.reload();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const bindBuild = async (buildId: number) => {
-    setBusy(true);
-    try {
-      await api.setRepositoryBuild(repo.id, buildId);
-      reposQ.reload();
     } finally {
       setBusy(false);
     }
@@ -98,24 +107,42 @@ export function RepoScreen() {
             {repo.name}
           </h1>
           <Badge tone={repo.provider === "github" ? "text" : "burnt"}>{repo.provider}</Badge>
-          <AgentPresence instance={instance} />
+          <AgentPresence instance={activeInstance} />
           <div style={{ flex: 1 }} />
-          {instance?.status === "running" && (
+          {activeInstance?.status === "running" && (
             <Button variant="ghost" disabled={busy} onClick={putToSleep}>
               Put to sleep
             </Button>
           )}
         </div>
         <p className={styles.blurb}>
-          {instance
-            ? "The agent keeps one thread of knowledge about this repository. It sleeps when idle — the next Событие or your next message wakes it."
-            : "No agent yet — bind a Сборка below and the first Событие (or your first message) will start one."}
+          Watchers are Сборки subscribed to this repository's События — each keeps its own agent and thread of
+          knowledge. Pick a watcher to read its reports or talk to its agent.
         </p>
 
         <div className={styles.repoGrid}>
-          <InstanceChatPanel instanceId={instance?.id ?? null} onStatusChange={instancesQ.reload} />
+          <InstanceChatPanel
+            instanceId={activeInstance?.id ?? null}
+            agentLabel={activeInstance ? buildName(activeInstance.buildId) : undefined}
+            onStatusChange={instancesQ.reload}
+          />
 
           <div className={styles.rail}>
+            <WatchersPanel
+              repositoryId={repo.id}
+              subs={subs}
+              builds={builds}
+              loading={subsQ.loading}
+              activeBuildId={activeBuildId}
+              instanceFor={instanceFor}
+              buildName={buildName}
+              onSelect={setSelectedBuildId}
+              reload={() => {
+                subsQ.reload();
+                instancesQ.reload();
+              }}
+            />
+
             <Panel>
               <PanelHeader
                 icon="↯"
@@ -139,32 +166,19 @@ export function RepoScreen() {
               </div>
             </Panel>
 
-            {instance && <InstancePanels instance={instance} />}
+            {activeInstance && <InstancePanels instance={activeInstance} />}
 
             <Panel soft>
               <PanelHeader icon="✳" title="SETTINGS" />
               <div style={{ padding: "12px 14px" }}>
-                <label className={styles.label}>Сборка</label>
-                <select
-                  className={styles.select}
-                  value={repo.buildId ?? ""}
-                  disabled={busy}
-                  onChange={(e) => e.target.value && bindBuild(Number(e.target.value))}
-                >
-                  <option value="">— none —</option>
-                  {builds.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                      {b.isDefault ? " (default)" : ""}
-                    </option>
-                  ))}
-                </select>
-                <div className={styles.actions}>
+                <div className={styles.actions} style={{ marginTop: 0 }}>
                   <Button variant="ghost" disabled={busy} onClick={disconnect}>
                     Disconnect repository
                   </Button>
                 </div>
-                <p className={styles.hint}>Disconnecting removes the webhook from the provider. The agent's knowledge stays in its checkpoint.</p>
+                <p className={styles.hint}>
+                  Disconnecting removes the webhook from the provider. The agents' knowledge stays in their checkpoints.
+                </p>
               </div>
             </Panel>
           </div>
@@ -174,7 +188,167 @@ export function RepoScreen() {
   );
 }
 
-/** Reports + findings — only mounted when the repo has an agent (hooks need its id). */
+/* ── watchers (подписки) — list + add-from-builds form ──────────────── */
+
+function WatchersPanel({
+  repositoryId,
+  subs,
+  builds,
+  loading,
+  activeBuildId,
+  instanceFor,
+  buildName,
+  onSelect,
+  reload,
+}: {
+  repositoryId: number;
+  subs: Subscription[];
+  builds: AgentBuild[];
+  loading: boolean;
+  activeBuildId: number | null;
+  instanceFor: (buildId: number) => AgentInstance | undefined;
+  buildName: (buildId: number) => string;
+  onSelect: (buildId: number) => void;
+  reload: () => void;
+}) {
+  const api = useHubApi();
+  const [adding, setAdding] = useState(false);
+  const [buildId, setBuildId] = useState("");
+  const [actions, setActions] = useState("");
+  const [refMask, setRefMask] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const defaultBuild = builds.find((b) => b.isDefault);
+
+  const submit = async () => {
+    if (!buildId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.createSubscription(repositoryId, {
+        buildId: Number(buildId),
+        actions: actions
+          .split(",")
+          .map((a) => a.trim())
+          .filter(Boolean),
+        refMask: refMask.trim() || null,
+      });
+      reload();
+      setBuildId("");
+      setActions("");
+      setRefMask("");
+      setAdding(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "failed to add watcher");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unsubscribe = async (sub: Subscription) => {
+    setBusy(true);
+    try {
+      await api.deleteSubscription(sub.id);
+      reload();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Panel>
+      <PanelHeader
+        icon="◉"
+        title="WATCHERS — ПОДПИСКИ"
+        right={
+          <Button variant="ghost" onClick={() => setAdding((v) => !v)}>
+            {adding ? "Close" : "Add watcher"}
+          </Button>
+        }
+      />
+
+      {subs.length === 0 && !adding && (
+        <div className={styles.panelEmpty}>
+          {loading
+            ? "loading…"
+            : `No watchers — the default Сборка${defaultBuild ? ` (${defaultBuild.name})` : ""} handles every Событие. Add one to narrow or split the coverage.`}
+        </div>
+      )}
+
+      {subs.map((s) => {
+        const inst = instanceFor(s.buildId);
+        const active = s.buildId === activeBuildId;
+        return (
+          <div
+            key={s.id}
+            className={`${styles.watcherRow} ${active ? styles.watcherSel : ""}`}
+            onClick={() => onSelect(s.buildId)}
+          >
+            <AgentPresence instance={inst} withLabel={false} />
+            <span className={styles.watcherName}>{buildName(s.buildId)}</span>
+            <span className={styles.watcherFilter}>{filterLabel(s)}</span>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={(e) => {
+                e.stopPropagation();
+                unsubscribe(s);
+              }}
+            >
+              ✕
+            </Button>
+          </div>
+        );
+      })}
+
+      {adding && (
+        <div className={styles.watcherForm}>
+          <label className={styles.label}>Сборка</label>
+          <select className={styles.select} value={buildId} onChange={(e) => setBuildId(e.target.value)}>
+            <option value="">— pick a build —</option>
+            {builds.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+                {b.isDefault ? " (default)" : ""}
+              </option>
+            ))}
+          </select>
+
+          <label className={styles.label}>
+            Actions <span className={styles.note}>— comma-separated, empty = everything</span>
+          </label>
+          <input
+            className={styles.select}
+            value={actions}
+            onChange={(e) => setActions(e.target.value)}
+            placeholder="push, pull_request"
+          />
+
+          <label className={styles.label}>
+            Ref mask <span className={styles.note}>— glob over the branch/tag, empty = any</span>
+          </label>
+          <input
+            className={styles.select}
+            value={refMask}
+            onChange={(e) => setRefMask(e.target.value)}
+            placeholder="release/*"
+          />
+
+          {error && <p className={styles.error}>{error}</p>}
+          <div className={styles.actions}>
+            <Button variant="primary" disabled={busy || !buildId} onClick={submit}>
+              Add watcher
+            </Button>
+          </div>
+          <p className={styles.hint}>Adding the same Сборка again updates its filter.</p>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+/** Reports + findings of the active agent (hooks need its id). */
 function InstancePanels({ instance }: { instance: AgentInstance }) {
   const reportsQ = useInstanceReports(instance.id);
   const findingsQ = useInstanceFindings(instance.id);

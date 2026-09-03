@@ -13,10 +13,13 @@ interface Turn {
 
 export function InstanceChatPanel({
   instanceId,
+  agentLabel,
   onStatusChange,
 }: {
   /** null → the repo has no agent yet; the panel explains instead of failing. */
   instanceId: number | null;
+  /** Which watcher's agent this is (its Сборка name). */
+  agentLabel?: string;
   onStatusChange?: () => void;
 }) {
   const api = useHubApi();
@@ -60,7 +63,11 @@ export function InstanceChatPanel({
 
   return (
     <Panel className={styles.panel}>
-      <PanelHeader icon="✳" title="ASK THE AGENT" right={<span className={styles.hint}>it knows this repository</span>} />
+      <PanelHeader
+        icon="✳"
+        title="ASK THE AGENT"
+        right={<span className={styles.hint}>{agentLabel ?? "it knows this repository"}</span>}
+      />
       <div className={styles.transcript} ref={scrollRef}>
         {instanceId == null && (
           <div className={styles.empty}>This repository has no agent yet — bind a Сборка in settings to start one.</div>

@@ -64,11 +64,21 @@ screens in `src/features/hub/` behind `HubGate` (OAuth sign-in via `GET /api/me`
 The chat SSE frame shape (`ChatEvent`) is the frontend's provisional spec — the openapi contract
 only says "события chat"; keep mock and backend in sync when it lands.
 
-**UX model: repo-centric.** The Экземпляр Агента is 1:1 with a repository, so there is no
-instances screen — the repo page (`/repos/:id`) is the agent's home: presence (awake/asleep,
-the breathing-halo signature element), chat, Событие journal, reports, findings, and settings
-(Сборка binding, disconnect). The repos list is a card grid; connecting a repo is a drawer flow
-(identity → provider repo → connect).
+**UX model: repo-centric, N watchers.** Подписки (ticket 011) bind N Сборок to a repo
+(`Subscription {buildId, actions[], refMask}`; empty actions = everything, refMask is a glob over
+the short ref; no subscriptions → the default Сборка covers all События), and each matched Сборка
+gets its own Экземпляр. There is no instances screen — the repo page (`/repos/:id`) is the agents'
+home: the WATCHERS panel lists subscriptions with per-agent presence (awake/asleep, the
+breathing-halo signature element) and doubles as the agent switcher — the selected watcher's agent
+backs the chat, reports, and findings. The repos list is a card grid; connecting a repo is a
+drawer flow (identity → provider repo → connect). Subscription routes mirror the wt/backend DTO
+(`GET/POST /api/repositories/{id}/subscriptions`, `DELETE /api/subscriptions/{id}`) — re-check
+after its openapi.yaml commit lands. `ChatEvent {kind: token|activity|done}` is now fixed in the
+backend contract and matches ours.
+
+**Pointing at the real hub:** `VITE_HUB_API=http` switches the adapter; `VITE_HUB_URL=/hub` routes
+hub requests through the vite proxy to the Go hub (`HUB_ADDR`, default `:8081`) so the session
+cookie stays same-origin. Both unset → mock (default).
 
 **Claude design island.** Hub screens render inside `HubGate`'s shell (`data-theme="claude"`),
 a scope in `tokens.css`: ivory surfaces, coral accent (`--amber` remapped), serif display

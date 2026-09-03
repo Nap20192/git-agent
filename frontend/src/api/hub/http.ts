@@ -5,7 +5,11 @@
 import type { ChatEvent } from "./contract.ts";
 import { UnauthorizedError, type HubApi } from "./client.ts";
 
-const BASE = "/api";
+/* Hub base URL. Default "" = same-origin /api (vite proxies that to the
+   Python gateway :8080). To hit the Go hub (:8081) in dev, set
+   VITE_HUB_URL=/hub — vite.config.ts proxies /hub/* there, keeping the
+   session cookie same-origin. */
+const BASE = `${import.meta.env.VITE_HUB_URL ?? ""}/api`;
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -46,6 +50,11 @@ export function createHttpHubApi(): HubApi {
       req(`/repositories/${id}`, { method: "PATCH", body: JSON.stringify({ buildId }) }),
     disconnectRepository: (id) => req(`/repositories/${id}`, { method: "DELETE" }),
     listRepositoryEvents: (id) => req(`/repositories/${id}/events`),
+
+    listSubscriptions: (repositoryId) => req(`/repositories/${repositoryId}/subscriptions`),
+    createSubscription: (repositoryId, input) =>
+      req(`/repositories/${repositoryId}/subscriptions`, { method: "POST", body: JSON.stringify(input) }),
+    deleteSubscription: (id) => req(`/subscriptions/${id}`, { method: "DELETE" }),
 
     listBuilds: () => req("/builds"),
     createBuild: (input) => req("/builds", { method: "POST", body: JSON.stringify(input) }),

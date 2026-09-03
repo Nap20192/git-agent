@@ -121,11 +121,26 @@ export interface Finding {
 }
 
 /**
- * One SSE frame of POST /api/instances/{id}/chat. The openapi contract only
- * says "text/event-stream: события chat" — this shape is the frontend's
- * provisional spec (mirrored by the mock) until the backend pins it down.
+ * One SSE frame of POST /api/instances/{id}/chat. Fixed in the backend
+ * contract (openapi.yaml, schema ChatEvent): kind=token — a reply fragment,
+ * kind=activity — a status line, kind=done — terminal frame, stream closes.
  */
 export interface ChatEvent {
   kind: "token" | "activity" | "done";
-  text?: string;
+  text?: string | null;
+}
+
+/**
+ * Подписка Сборки на События Репозитория (ticket 011). Empty actions = all
+ * actions; null refMask = any ref (mask is a glob over the short ref, e.g.
+ * "release/*"). A repo with no subscriptions is served by the default Сборка.
+ * Mirrors the wt/backend DTO; re-check once its openapi.yaml commit lands.
+ */
+export interface Subscription {
+  id: number;
+  buildId: number;
+  repositoryId: number;
+  actions: string[];
+  refMask?: string | null;
+  createdAt?: string;
 }

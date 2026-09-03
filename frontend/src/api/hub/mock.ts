@@ -16,6 +16,7 @@ import type {
   Report,
   Repository,
   SandboxConnection,
+  Subscription,
 } from "./contract.ts";
 import { UnauthorizedError, type HubApi } from "./client.ts";
 
@@ -78,6 +79,15 @@ const events: Record<number, RepoEvent[]> = {
 const instances: AgentInstance[] = [
   { id: 1, buildId: 1, repositoryId: 1, sandboxInstanceId: 11, threadId: "inst-1", status: "running", runnerId: 1, updatedAt: iso(3) },
   { id: 2, buildId: 1, repositoryId: 2, sandboxInstanceId: null, threadId: "inst-2", status: "down", runnerId: null, updatedAt: iso(60 * 2) },
+  // веер: второй watcher того же репо (docs-watcher подписан на push @ release/*)
+  { id: 3, buildId: 2, repositoryId: 1, sandboxInstanceId: null, threadId: "inst-3", status: "down", runnerId: null, updatedAt: iso(60 * 8) },
+];
+
+// Подписки (ticket 011): upsert по (buildId, repositoryId); [] actions = все,
+// null refMask = любой ref. Репо 2 без подписок → его обслуживает default.
+const subscriptions: Subscription[] = [
+  { id: 1, buildId: 1, repositoryId: 1, actions: [], refMask: null, createdAt: iso(60 * 24 * 4) },
+  { id: 2, buildId: 2, repositoryId: 1, actions: ["push"], refMask: "release/*", createdAt: iso(60 * 24) },
 ];
 
 const reports: Record<number, Report[]> = {
@@ -198,10 +208,44 @@ export function createMockHubApi(): HubApi {
       await delay();
       const i = repositories.findIndex((r) => r.id === id);
       if (i >= 0) repositories.splice(i, 1);
+      for (let j = subscriptions.length - 1; j >= 0; j--)
+        if (subscriptions[j].repositoryId === id) subscriptions.splice(j, 1);
     },
     async listRepositoryEvents(id) {
       await delay();
       return [...(events[id] ?? [])];
+    },
+
+    async listSubscriptions(repositoryId) {
+      await delay();
+      authed();
+      return subscriptions.filter((s) => s.repositoryId === repositoryId);
+    },
+    async createSubscription(repositoryId, { buildId, actions, refMask }) {
+      await delay();
+      authed();
+      if (!builds.some((b) => b.id === buildId)) throw new Error("404 build not found");
+      const existing = subscriptions.find((s) => s.repositoryId === repositoryId && s.buildId === buildId);
+      if (existing) {
+        existing.actions = actions ?? [];
+        existing.refMask = refMask ?? null;
+        return { ...existing };
+      }
+      const sub: Subscription = {
+        id: nextId++,
+        buildId,
+        repositoryId,
+        actions: actions ?? [],
+        refMask: refMask ?? null,
+        createdAt: new Date().toISOString(),
+      };
+      subscriptions.push(sub);
+      return sub;
+    },
+    async deleteSubscription(id) {
+      await delay();
+      const i = subscriptions.findIndex((s) => s.id === id);
+      if (i >= 0) subscriptions.splice(i, 1);
     },
 
     async listBuilds() {

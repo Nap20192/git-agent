@@ -28,6 +28,10 @@ export function useRepoEvents(repositoryId: number | null) {
     [repositoryId],
   );
 }
+export function useSubscriptions(repositoryId: number) {
+  const api = useHubApi();
+  return useAsync(() => api.listSubscriptions(repositoryId), [repositoryId]);
+}
 export function useBuilds() {
   const api = useHubApi();
   return useAsync(() => api.listBuilds(), []);

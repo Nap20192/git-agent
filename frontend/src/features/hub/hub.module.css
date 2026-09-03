@@ -209,6 +209,42 @@
   align-items: start;
 }
 
+/* watchers (подписки) */
+.watcherRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.watcherRow:hover {
+  background: var(--hover-2);
+}
+.watcherSel {
+  background: var(--hover);
+  border-left-color: var(--amber);
+}
+.watcherName {
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.watcherFilter {
+  composes: mono;
+  flex: 1;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.watcherForm {
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--border-soft);
+  background: var(--panel-2);
+}
+
 /* journal (События) */
 .journal {
   display: flex;
