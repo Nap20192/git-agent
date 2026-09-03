@@ -78,8 +78,9 @@ export function RepoScreen() {
   const stop = (instId: number) => act(async () => { await api.stopInstance(instId); instancesQ.reload(); }, `instance #${instId} stopped`);
   const unsub = (s: Subscription) => act(async () => { await api.deleteSubscription(s.id); subsQ.reload(); }, `unsubscribed ${buildName(s.buildId)}`);
   const disconnect = () => {
-    if (!window.confirm(`Disconnect ${repo.owner}/${repo.name}? The webhook is removed; agents' knowledge stays in their checkpoints.`)) return;
-    act(async () => { await api.disconnectRepository(repo.id); navigate("/repos"); }, `disconnected ${repo.name} · webhook removed`);
+    const watch = repo.mode === "watch";
+    if (!window.confirm(`Disconnect ${repo.owner}/${repo.name}? ${watch ? "Nothing to remove upstream (watch mode)" : "The webhook is removed"}; agents' knowledge stays in their checkpoints.`)) return;
+    act(async () => { await api.disconnectRepository(repo.id); navigate("/repos"); }, `disconnected ${repo.name}${watch ? "" : " · webhook removed"}`);
   };
   const addSub = () => {
     const buildId = Number(f.build || builds[0]?.id);
@@ -106,7 +107,10 @@ export function RepoScreen() {
           <h1 style={{ marginTop: 4 }}>
             <span className="muted" style={{ fontWeight: 400 }}>{repo.owner}/</span>{repo.name}
           </h1>
-          <div className="sub comment">{repo.defaultBranch ?? "main"} · connected {ago(repo.connectedAt)} · webhook installed</div>
+          <div className="sub comment">
+            {repo.defaultBranch ?? "main"} · connected {ago(repo.connectedAt)} ·{" "}
+            {repo.mode === "watch" ? <><span className="tag" title="no webhook — run manually">watch</span> no webhook — run manually</> : "webhook installed"}
+          </div>
         </div>
         <div className="row">
           <button className="btn primary" disabled={busy} onClick={() => run()}>❯ trigger run @ {repo.defaultBranch ?? "main"}</button>

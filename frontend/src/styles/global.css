@@ -722,3 +722,19 @@ b {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* inline badge (repo mode `watch`) */
+.tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  font-size: 10px;
+  line-height: 16px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+}

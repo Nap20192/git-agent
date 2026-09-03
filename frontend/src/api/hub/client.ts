@@ -26,6 +26,10 @@ import type {
 } from "./contract.ts";
 
 /** Thrown by me() (and any authed call) on 401 — HubGate turns it into sign-in. */
+export type ConnectRepositoryInput =
+  | { identityId: number; externalId: string; buildId?: number | null }
+  | { url: string; buildId?: number | null };
+
 export class UnauthorizedError extends Error {
   constructor(message = "not signed in") {
     super(message);
@@ -45,7 +49,8 @@ export interface HubApi {
 
   // repositories + Событие journal
   listRepositories(): Promise<Repository[]>;
-  connectRepository(input: { identityId: number; externalId: string; buildId?: number | null }): Promise<Repository>;
+  /** Either an own repo via identity (hook mode) or a public repo by URL (watch mode). */
+  connectRepository(input: ConnectRepositoryInput): Promise<Repository>;
   setRepositoryBuild(id: number, buildId: number): Promise<Repository>;
   disconnectRepository(id: number): Promise<void>;
   listRepositoryEvents(id: number): Promise<RepoEvent[]>;

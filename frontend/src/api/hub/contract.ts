@@ -27,10 +27,16 @@ export interface ProviderRepo {
   private?: boolean;
 }
 
-/** A connected repository (webhook installed by the hub). */
+/** How a repository is connected: `hook` — own repo, hub installed a webhook;
+ *  `watch` — someone else's public repo added by URL, no webhook, manual runs only. */
+export type RepoMode = "hook" | "watch";
+
+/** A connected repository. */
 export interface Repository {
   id: number;
-  identityId: number;
+  /** null for watch repos — no identity behind them. */
+  identityId: number | null;
+  mode: RepoMode;
   provider: Provider;
   externalId: string;
   owner: string;

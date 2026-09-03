@@ -12,6 +12,7 @@ import type {
   Identity,
   LlmConnection,
   Me,
+  Provider,
   ProviderRepo,
   RepoEvent,
   Report,
@@ -66,8 +67,9 @@ const builds: AgentBuild[] = [
 ];
 
 const repositories: Repository[] = [
-  { id: 1, identityId: 1, provider: "github", externalId: "gh-101", owner: "vnkjd", name: "git-agent", defaultBranch: "main", buildId: 1, connectedAt: iso(60 * 24 * 4) },
-  { id: 2, identityId: 2, provider: "gitlab", externalId: "gl-201", owner: "vnkjd", name: "infra-playground", defaultBranch: "main", buildId: null, connectedAt: iso(60 * 5) },
+  { id: 1, identityId: 1, mode: "hook", provider: "github", externalId: "gh-101", owner: "vnkjd", name: "git-agent", defaultBranch: "main", buildId: 1, connectedAt: iso(60 * 24 * 4) },
+  { id: 2, identityId: 2, mode: "hook", provider: "gitlab", externalId: "gl-201", owner: "vnkjd", name: "infra-playground", defaultBranch: "main", buildId: null, connectedAt: iso(60 * 5) },
+  { id: 3, identityId: null, mode: "watch", provider: "github", externalId: "gh-999", owner: "gin-gonic", name: "gin", defaultBranch: "master", buildId: null, connectedAt: iso(60 * 24) },
 ];
 
 const events: Record<number, RepoEvent[]> = {
@@ -225,9 +227,28 @@ export function createMockHubApi(): HubApi {
       authed();
       return [...repositories];
     },
-    async connectRepository({ identityId, externalId, buildId }) {
+    async connectRepository(input) {
       await delay(500);
       authed();
+      if ("url" in input) {
+        // watch: public repo by URL — no identity, no webhook (hub checks the public API)
+        const m = /^https:\/\/(github|gitlab)\.com\/([^/\s]+(?:\/[^/\s]+)*)\/([^/\s]+?)(?:\.git)?\/?$/.exec(input.url.trim());
+        if (!m) throw new Error("400 url must be https://github.com/{owner}/{repo} or https://gitlab.com/{group}/{repo}");
+        const [, provider, owner, name] = m as unknown as [string, Provider, string, string];
+        if (name === "private") throw new Error("422 repository is private or not found");
+        const externalId = `${provider}-${owner}/${name}`;
+        if (repositories.some((r) => r.provider === provider && r.externalId === externalId))
+          throw new Error("409 repository already connected");
+        const repo: Repository = {
+          id: nextId++, identityId: null, mode: "watch", provider, externalId, owner, name,
+          defaultBranch: "main", buildId: input.buildId ?? builds.find((b) => b.isDefault)?.id ?? null,
+          connectedAt: new Date().toISOString(),
+        };
+        repositories.push(repo);
+        events[repo.id] = [];
+        return repo;
+      }
+      const { identityId, externalId, buildId } = input;
       const identity = identities.find((i) => i.id === identityId);
       const src = (providerRepos[identityId] ?? []).find((r) => r.externalId === externalId);
       if (!identity || !src) throw new Error("404 unknown identity or repo");
@@ -236,6 +257,7 @@ export function createMockHubApi(): HubApi {
       const repo: Repository = {
         id: nextId++,
         identityId,
+        mode: "hook",
         provider: identity.provider,
         externalId,
         owner: src.owner,

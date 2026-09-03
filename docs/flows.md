@@ -44,7 +44,7 @@ sequenceDiagram
     end
 ```
 
-## 2. Подключение репозитория (webhook ставит hub)
+## 2. Подключение репозитория (webhook ставит hub / watch по URL)
 
 ```mermaid
 sequenceDiagram
@@ -67,22 +67,39 @@ sequenceDiagram
         G-->>H: список репо
         H-->>F: [ProviderRepo]
     end
-    U->>F: «connect →»
-    F->>H: POST /api/repositories {identityId, externalId}
-    H->>DB: INSERT repositories (секрет хука AES-GCM, id нужен для URL)
-    H->>G: POST /repos/{o}/{r}/hooks {url: WEBHOOK_BASE_URL/hooks/github/{id}, secret, events:*}
-    alt нет admin-прав на репо
-        G-->>H: 404 Not Found
-        H->>DB: DELETE repositories (rollback)
-        H-->>F: 500 create provider hook: 404
-    else URL не публичный (localhost)
-        G-->>H: 422 url isn't reachable over the public Internet
-        H->>DB: rollback
-        H-->>F: 500 → нужен туннель/релей (WEBHOOK_BASE_URL)
-    else ok
-        G-->>H: hook id
-        H->>DB: UPDATE repositories.webhook_provider_id
-        H-->>F: 201 Repository (default-Сборка подхватит события, пока нет подписок)
+    alt hook: свой репо через связку
+        U->>F: «connect →»
+        F->>H: POST /api/repositories {identityId, externalId}
+        H->>DB: INSERT repositories (mode=hook, секрет хука AES-GCM, id нужен для URL)
+        H->>G: POST /repos/{o}/{r}/hooks {url: WEBHOOK_BASE_URL/hooks/github/{id}, secret, events:*}
+        alt нет admin-прав на репо
+            G-->>H: 404 Not Found
+            H->>DB: DELETE repositories (rollback)
+            H-->>F: 404 create provider hook: not found
+        else URL не публичный (localhost)
+            G-->>H: 422 url isn't reachable over the public Internet
+            H->>DB: rollback
+            H-->>F: 502 → нужен туннель/релей (WEBHOOK_BASE_URL)
+        else ok
+            G-->>H: hook id
+            H->>DB: UPDATE repositories.webhook_provider_id
+            H-->>F: 201 Repository (default-Сборка подхватит события, пока нет подписок)
+        end
+    else watch: чужой публичный репо по URL (тикет 015)
+        U->>F: «public repository URL» → «connect →»
+        F->>H: POST /api/repositories {url: https://github.com/{o}/{r}}
+        Note over H: провайдер — по хосту (github.com / gitlab.com)
+        H->>G: GET /repos/{o}/{r} (публичный API, без токена)
+        alt хост/путь не разобрать
+            H-->>F: 400 url must be https://github.com/{owner}/{repo} …
+        else приватный или не существует
+            G-->>H: private:true / 404
+            H-->>F: 422 repository is private or not found
+        else ok
+            G-->>H: id, owner, name, default_branch
+            H->>DB: INSERT repositories (mode=watch, identity_id/хук/секрет = NULL)
+            H-->>F: 201 Repository {mode: watch} — бейдж «watch», вебхука нет, запуск руками (/trigger: HEAD публичным API)
+        end
     end
 ```
 

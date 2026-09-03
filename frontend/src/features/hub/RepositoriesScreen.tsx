@@ -1,7 +1,8 @@
 /** Repositories — the hub's home. Table of connected repos (provider, name,
  *  branch, watchers, build, last Событие) + runners / instances / default
  *  build cards. Connect drawer: identity → provider repo → POST /api/repositories
- *  (hub installs the webhook). */
+ *  (hub installs the webhook), or a public repo by URL (watch mode: no webhook,
+ *  manual runs only). */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useHubApi, type AgentBuild, type RepoEvent } from "@/api/hub";
@@ -49,7 +50,7 @@ export function RepositoriesScreen() {
       <div className="head">
         <div>
           <h1>repositories</h1>
-          <div className="sub">{repos.length} connected · every connected repo has a webhook and at least one watcher</div>
+          <div className="sub">{repos.length} connected · hook repos get events by webhook, <span className="tag">watch</span> repos run manually</div>
         </div>
         <button className="btn primary" onClick={() => setConnecting(true)}>
           + connect repository
@@ -70,6 +71,7 @@ export function RepositoriesScreen() {
               <span className="ellip">
                 <span className="muted">{r.owner}/</span>
                 <b>{r.name}</b>
+                {r.mode === "watch" && <span className="tag" title="no webhook — run manually">watch</span>}
               </span>
               <span className="comment ellip">{r.defaultBranch ?? "main"}</span>
               <span>
@@ -82,7 +84,7 @@ export function RepositoriesScreen() {
           );
         })}
         {repos.length === 0 && (
-          <div className="empty">{reposQ.loading ? "loading…" : "nothing connected yet — connect a repository to install the webhook."}</div>
+          <div className="empty">{reposQ.loading ? "loading…" : "nothing connected yet — connect your own repository (webhook) or watch a public one by URL."}</div>
         )}
       </div>
 
@@ -131,18 +133,26 @@ export function ConnectDrawer({ open, builds, onClose, reload }: { open: boolean
   const reposQ = useHubRepositories();
   const [identityId, setIdentityId] = useState<number | null>(null);
   const [buildId, setBuildId] = useState("");
+  const [url, setUrl] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const identities = meQ.data?.identities ?? [];
   const current = identityId ?? identities[0]?.id ?? null;
   const providerQ = useIdentityRepos(open ? current : null);
   const connected = new Set((reposQ.data ?? []).map((r) => r.externalId));
 
-  const connect = async (externalId: string) => {
-    if (current == null) return;
-    setBusy(externalId);
+  const connect = async (input: { externalId: string } | { url: string }) => {
+    const build = buildId ? Number(buildId) : undefined;
+    setBusy("url" in input ? "url" : input.externalId);
     try {
-      const r = await api.connectRepository({ identityId: current, externalId, buildId: buildId ? Number(buildId) : undefined });
-      say(`connected ${r.owner}/${r.name} · webhook installed`);
+      const r =
+        "url" in input
+          ? await api.connectRepository({ url: input.url, buildId: build })
+          : current == null
+            ? undefined
+            : await api.connectRepository({ identityId: current, externalId: input.externalId, buildId: build });
+      if (!r) return;
+      say(`connected ${r.owner}/${r.name} · ${r.mode === "watch" ? "watch mode: no webhook — run manually" : "webhook installed"}`);
+      setUrl("");
       reload();
       reposQ.reload();
       onClose();
@@ -183,7 +193,7 @@ export function ConnectDrawer({ open, builds, onClose, reload }: { open: boolean
             {connected.has(p.externalId) ? (
               <span className="small muted">connected</span>
             ) : (
-              <button className="btn sm" disabled={busy != null} onClick={() => connect(p.externalId)}>
+              <button className="btn sm" disabled={busy != null} onClick={() => connect({ externalId: p.externalId })}>
                 {busy === p.externalId ? "…" : "connect →"}
               </button>
             )}
@@ -193,6 +203,30 @@ export function ConnectDrawer({ open, builds, onClose, reload }: { open: boolean
         {providerQ.error && <div className="empty err">{providerQ.error.message}</div>}
         {!providerQ.loading && (providerQ.data ?? []).length === 0 && current != null && <div className="empty">nothing visible for this identity.</div>}
       </div>
+
+      <div className="small comment pretty" style={{ marginTop: 16 }}>
+        or <span className="tag">watch</span> someone else's public repository by URL: no webhook is installed (no admin rights needed) — you run the agent manually.
+      </div>
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (url.trim()) void connect({ url: url.trim() });
+        }}
+      >
+        <input
+          className="input"
+          style={{ flex: 1 }}
+          type="url"
+          placeholder="https://github.com/owner/repo"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          disabled={busy != null}
+        />
+        <button className="btn sm" type="submit" disabled={busy != null || !url.trim()}>
+          {busy === "url" ? "…" : "connect →"}
+        </button>
+      </form>
     </Drawer>
   );
 }
