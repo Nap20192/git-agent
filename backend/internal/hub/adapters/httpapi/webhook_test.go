@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	pgstore "github.com/vnkjd/git-agent/backend/internal/hub/adapters/postgres"
 	"github.com/vnkjd/git-agent/backend/internal/hub/app"
+	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 	"github.com/vnkjd/git-agent/backend/internal/pkg/testdb"
 	"github.com/vnkjd/git-agent/backend/pkg/secrets"
 	"github.com/vnkjd/git-agent/backend/pkg/trace"
@@ -36,12 +38,36 @@ func TestParseEventGitHubPush(t *testing.T) {
 	}
 }
 
+// Диапазон push: before + объединение added/modified/removed по коммитам без дублей.
+func TestParseEventGitHubPushDiffContext(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-GitHub-Delivery", "d-1")
+	h.Set("X-GitHub-Event", "push")
+	e, _ := parseEvent("github", h, []byte(`{"after":"abc","before":"000abc","ref":"refs/heads/main",
+		"commits":[{"added":["a.go"],"modified":["b.go"],"removed":[]},{"modified":["b.go","c.go"],"removed":["d.go"]}]}`))
+	if e.BeforeSHA != "000abc" || strings.Join(e.ChangedFiles, ",") != "a.go,b.go,c.go,d.go" {
+		t.Errorf("got %+v", e)
+	}
+	// force-push / новая ветка — диапазона нет
+	e, _ = parseEvent("github", h, []byte(`{"after":"abc","before":"000abc","forced":true}`))
+	if e.BeforeSHA != "" {
+		t.Errorf("forced: beforeSha %q", e.BeforeSHA)
+	}
+	e, _ = parseEvent("github", h, []byte(`{"after":"abc","before":"0000000000000000000000000000000000000000"}`))
+	if e.BeforeSHA != "" || e.ChangedFiles != nil {
+		t.Errorf("new branch: got %+v", e)
+	}
+}
+
 func TestParseEventGitHubPullRequest(t *testing.T) {
 	h := http.Header{}
 	h.Set("X-GitHub-Delivery", "d-2")
 	h.Set("X-GitHub-Event", "pull_request")
-	e, ok := parseEvent("github", h, []byte(`{"pull_request":{"head":{"sha":"def456","ref":"feature"}}}`))
-	if !ok || e.CommitSHA != "def456" || e.Ref != "feature" {
+	longBody := strings.Repeat("я", domain.PRBodyMaxLen+10)
+	e, ok := parseEvent("github", h, []byte(`{"pull_request":{"number":42,"title":"Fix auth","body":"`+longBody+`",
+		"head":{"sha":"def456","ref":"feature"},"base":{"sha":"base789"}}}`))
+	if !ok || e.CommitSHA != "def456" || e.Ref != "feature" || e.BaseSHA != "base789" || e.HeadSHA != "def456" ||
+		e.PRNumber != 42 || e.PRTitle != "Fix auth" || len([]rune(e.PRBody)) != domain.PRBodyMaxLen || len(e.ChangedFiles) != 0 {
 		t.Errorf("got %+v ok=%v", e, ok)
 	}
 }
@@ -49,8 +75,9 @@ func TestParseEventGitHubPullRequest(t *testing.T) {
 func TestParseEventGitLabPush(t *testing.T) {
 	h := http.Header{}
 	h.Set("X-Gitlab-Event-UUID", "u-1")
-	e, ok := parseEvent("gitlab", h, []byte(`{"object_kind":"push","checkout_sha":"abc","ref":"refs/heads/main"}`))
-	if !ok || e.Action != "push" || e.CommitSHA != "abc" {
+	e, ok := parseEvent("gitlab", h, []byte(`{"object_kind":"push","checkout_sha":"abc","before":"bef","ref":"refs/heads/main",
+		"commits":[{"added":["x.py"],"modified":[],"removed":["y.py"]}]}`))
+	if !ok || e.Action != "push" || e.CommitSHA != "abc" || e.BeforeSHA != "bef" || strings.Join(e.ChangedFiles, ",") != "x.py,y.py" {
 		t.Errorf("got %+v ok=%v", e, ok)
 	}
 }
@@ -59,9 +86,17 @@ func TestParseEventGitLabMergeRequest(t *testing.T) {
 	h := http.Header{}
 	h.Set("X-Gitlab-Event-UUID", "u-2")
 	e, ok := parseEvent("gitlab", h,
-		[]byte(`{"object_kind":"merge_request","object_attributes":{"source_branch":"feat","last_commit":{"id":"c0ffee"}}}`))
-	if !ok || e.CommitSHA != "c0ffee" || e.Ref != "feat" {
+		[]byte(`{"object_kind":"merge_request","object_attributes":{"iid":7,"title":"MR","description":"desc","source_branch":"feat",
+			"last_commit":{"id":"c0ffee"},"diff_refs":{"base_sha":"b1","head_sha":"h1"}}}`))
+	if !ok || e.CommitSHA != "c0ffee" || e.Ref != "feat" || e.BaseSHA != "b1" || e.HeadSHA != "h1" ||
+		e.PRNumber != 7 || e.PRTitle != "MR" || e.PRBody != "desc" {
 		t.Errorf("got %+v ok=%v", e, ok)
+	}
+	// без diff_refs — head = last_commit
+	e, _ = parseEvent("gitlab", h,
+		[]byte(`{"object_kind":"merge_request","object_attributes":{"source_branch":"feat","last_commit":{"id":"c0ffee"}}}`))
+	if e.HeadSHA != "c0ffee" || e.BaseSHA != "" {
+		t.Errorf("fallback: got %+v", e)
 	}
 }
 
@@ -125,7 +160,7 @@ func TestWebhookIngest(t *testing.T) {
 	})))
 	defer srv.Close()
 
-	body := []byte(`{"after":"abc123","ref":"refs/heads/main"}`)
+	body := []byte(`{"after":"abc123","before":"000111","ref":"refs/heads/main","commits":[{"added":["a.go"],"modified":["b.go"]}]}`)
 	send := func(url, delivery, sig string) *http.Response {
 		req, _ := http.NewRequest("POST", url, bytes.NewReader(body))
 		req.Header.Set(trace.Header, "0123456789abcdef0123456789abcdef")
@@ -166,6 +201,15 @@ func TestWebhookIngest(t *testing.T) {
 	}
 	if n := count(t, db, `SELECT count(*) FROM hub.outbox WHERE payload->>'traceId' = $1`, traceID); n != 1 {
 		t.Fatalf("outbox traceId: %d", n)
+	}
+	// diff-контекст (миграция 006) — в журнале и в Rabbit-сообщении
+	if n := count(t, db, `SELECT count(*) FROM hub.events WHERE delivery_id = 'd-1' AND before_sha = '000111'
+		AND changed_files = '["a.go","b.go"]'::jsonb AND base_sha IS NULL AND pr_number IS NULL`); n != 1 {
+		t.Fatalf("events diff context: %d", n)
+	}
+	if n := count(t, db, `SELECT count(*) FROM hub.outbox WHERE payload->>'beforeSha' = '000111'
+		AND payload->'changedFiles' = '["a.go","b.go"]'::jsonb AND NOT payload ? 'baseSha'`); n != 1 {
+		t.Fatalf("outbox diff context: %d", n)
 	}
 
 	// повтор той же доставки — no-op (дедуп по provider+delivery_id), но всё равно 200
