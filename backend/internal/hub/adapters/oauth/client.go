@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
 type App struct{ ClientID, ClientSecret string }
@@ -129,6 +130,9 @@ func (c *Client) token(ctx context.Context, tokenURL string, form url.Values) (*
 	if err != nil {
 		return nil, err
 	}
+	if id := trace.FromContext(ctx); id != "" {
+		req.Header.Set(trace.Header, id)
+	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.http().Do(req)
@@ -177,6 +181,9 @@ func (c *Client) UserInfo(ctx context.Context, provider, accessToken string) (st
 	req, err := http.NewRequestWithContext(ctx, "GET", userURL, nil)
 	if err != nil {
 		return "", "", err
+	}
+	if id := trace.FromContext(ctx); id != "" {
+		req.Header.Set(trace.Header, id)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/json")

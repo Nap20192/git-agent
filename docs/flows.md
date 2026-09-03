@@ -3,6 +3,8 @@
 Каждый поток — с ветками ошибок (`alt/else`). Термины — CONTEXT.md. Рендер в PNG: `task diagrams`
 (mermaid-cli). Источник правды по контрактам — `backend/docs/openapi.yaml`, тикет 010 (Rabbit/раннер).
 
+trace_id: `X-Trace-Id` на всех HTTP-стрелках (фронт → hub → раннер/провайдер/OpenSandbox, эхо в ответе), `traceId` в Rabbit-сообщении, колонки `hub.events.trace_id` / `hub.activity.trace_id`; тот же id — поле `trace_id` в логах hub/раннера и тег `trace:<id>` в Langfuse/LangSmith.
+
 ## 1. Вход через GitHub/GitLab (OAuth)
 
 ```mermaid

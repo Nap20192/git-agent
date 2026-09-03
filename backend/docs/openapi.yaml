@@ -9,6 +9,14 @@ info:
     X-Runner-Token (общий секрет RUNNER_TOKEN), вебхуки — подпись провайдера.
     Ошибки (любой 4xx/5xx) — ApiError {"error": {"code", "message"}}, как у
     Python-gateway (frontend/docs/openapi.yaml); message — человекочитаемая причина.
+    Сквозной trace_id: КАЖДЫЙ запрос принимает заголовок X-Trace-Id
+    (#/components/parameters/TraceId; 32 hex, uuid4 без дефисов — невалидный
+    или отсутствующий hub заменяет своим) и КАЖДЫЙ ответ возвращает его
+    (#/components/headers/TraceId). Тот же id: в логах hub/раннера (поле
+    trace_id), в Event.traceId (hub.events) и в ActivityEvent.traceId
+    (hub.activity), в Rabbit-сообщении События (traceId), в тегах
+    Langfuse/LangSmith (trace:<id>) и в заголовке всех вызовов hub → раннер /
+    провайдер / OpenSandbox. Здесь не повторяется на каждом пути.
 
 paths:
   # ── Auth ────────────────────────────────────────────────────────────
@@ -536,12 +544,22 @@ paths:
 
 components:
   parameters:
+    TraceId:
+      name: X-Trace-Id
+      in: header
+      required: false
+      description: Сквозной trace_id (32 hex). Принимается на любом пути; без него hub генерирует свой.
+      schema: { type: string, pattern: "^[0-9a-f]{32}$" }
     Id: { name: id, in: path, required: true, schema: { type: integer } }
     Provider:
       name: provider
       in: path
       required: true
       schema: { type: string, enum: [github, gitlab] }
+  headers:
+    TraceId:
+      description: Сквозной trace_id запроса (принятый либо сгенерированный) — в любом ответе, включая ошибки и SSE.
+      schema: { type: string, pattern: "^[0-9a-f]{32}$" }
   schemas:
     ApiError:
       type: object
@@ -613,6 +631,7 @@ components:
         commitSha: { type: [string, "null"] }
         ref: { type: [string, "null"] }
         receivedAt: { type: string, format: date-time }
+        traceId: { type: string, description: "сквозной trace_id запроса (вебхук/trigger), породившего Событие; '' до миграции 004" }
     AgentBuildInput:
       type: object
       properties:
@@ -715,6 +734,7 @@ components:
         status: { type: [string, "null"], enum: [queued, working, done, failed, timeout, null] }
         findingsCount: { type: [integer, "null"] }
         ts: { type: [string, "null"], format: date-time }
+        traceId: { type: [string, "null"], description: "сквозной trace_id хода — тот же, что в логах hub/раннера и Langfuse/LangSmith" }
     TerminalEvent:
       type: object
       description: >
