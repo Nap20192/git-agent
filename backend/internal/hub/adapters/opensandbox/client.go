@@ -79,10 +79,11 @@ func (c *Client) do(ctx context.Context, apiKey, method, url string, body, out a
 func (c *Client) CreateSandbox(ctx context.Context, domain, apiKey, image string) (string, error) {
 	body := map[string]any{
 		"image": map[string]string{"uri": image},
-		// API требует entrypoint вместе с image; долгоживущий no-op —
-		// тот же дефолт, что у Python SDK
-		"entrypoint": []string{"tail", "-f", "/dev/null"},
-		"timeout":    nil, // no-TTL: жизненным циклом рулит юзер, не таймер
+		// API требует entrypoint и resourceLimits вместе с image;
+		// значения — как в примерах Python SDK (tail-noop, 1 cpu / 512Mi)
+		"entrypoint":     []string{"tail", "-f", "/dev/null"},
+		"resourceLimits": map[string]string{"cpu": "1", "memory": "512Mi"},
+		"timeout":        nil, // no-TTL: жизненным циклом рулит юзер, не таймер
 	}
 	var out struct {
 		ID string `json:"id"`
