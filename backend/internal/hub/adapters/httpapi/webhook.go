@@ -53,10 +53,21 @@ func parseEvent(provider string, header http.Header, body []byte) (domain.Event,
 		case "push":
 			e.CommitSHA, _ = p["after"].(string)
 			e.Ref, _ = p["ref"].(string)
+			if forced, _ := p["forced"].(bool); !forced {
+				e.BeforeSHA = beforeSHA(p)
+			}
+			e.ChangedFiles = changedFiles(p)
 		case "pull_request":
-			if head, ok := dig(p, "pull_request", "head"); ok {
-				e.CommitSHA, _ = head["sha"].(string)
-				e.Ref, _ = head["ref"].(string)
+			if pr, ok := dig(p, "pull_request"); ok {
+				if head, ok := pr["head"].(map[string]any); ok {
+					e.CommitSHA, _ = head["sha"].(string)
+					e.Ref, _ = head["ref"].(string)
+				}
+				if base, ok := pr["base"].(map[string]any); ok {
+					e.BaseSHA, _ = base["sha"].(string)
+				}
+				e.HeadSHA = e.CommitSHA
+				e.PRNumber, e.PRTitle, e.PRBody = prMeta(pr, "number", "body")
 			}
 		}
 	case "gitlab":
@@ -69,16 +80,68 @@ func parseEvent(provider string, header http.Header, body []byte) (domain.Event,
 		case "push", "tag_push":
 			e.CommitSHA, _ = p["checkout_sha"].(string)
 			e.Ref, _ = p["ref"].(string)
+			e.BeforeSHA = beforeSHA(p)
+			e.ChangedFiles = changedFiles(p)
 		case "merge_request":
 			if attrs, ok := dig(p, "object_attributes"); ok {
 				if last, ok := attrs["last_commit"].(map[string]any); ok {
 					e.CommitSHA, _ = last["id"].(string)
 				}
 				e.Ref, _ = attrs["source_branch"].(string)
+				e.HeadSHA = e.CommitSHA
+				if refs, ok := attrs["diff_refs"].(map[string]any); ok {
+					e.BaseSHA, _ = refs["base_sha"].(string)
+					if head, _ := refs["head_sha"].(string); head != "" {
+						e.HeadSHA = head
+					}
+				}
+				e.PRNumber, e.PRTitle, e.PRBody = prMeta(attrs, "iid", "description")
 			}
 		}
 	}
 	return e, e.DeliveryID != "" && e.Action != ""
+}
+
+// beforeSHA — payload.before; нулевой sha (новая ветка) = диапазона нет.
+func beforeSHA(p map[string]any) string {
+	before, _ := p["before"].(string)
+	if strings.Trim(before, "0") == "" {
+		return ""
+	}
+	return before
+}
+
+// changedFiles — объединение added/modified/removed по payload.commits
+// (GitHub и GitLab шлют одинаково), без дублей, в порядке появления.
+func changedFiles(p map[string]any) []string {
+	commits, _ := p["commits"].([]any)
+	var out []string
+	seen := map[string]bool{}
+	for _, c := range commits {
+		cm, _ := c.(map[string]any)
+		for _, k := range []string{"added", "modified", "removed"} {
+			files, _ := cm[k].([]any)
+			for _, f := range files {
+				if path, ok := f.(string); ok && !seen[path] {
+					seen[path] = true
+					out = append(out, path)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// prMeta — номер/заголовок/описание PR (GitHub: number/body, GitLab: iid/description);
+// описание обрезается до domain.PRBodyMaxLen символов.
+func prMeta(pr map[string]any, numberKey, bodyKey string) (int, string, string) {
+	number, _ := pr[numberKey].(float64)
+	title, _ := pr["title"].(string)
+	body, _ := pr[bodyKey].(string)
+	if r := []rune(body); len(r) > domain.PRBodyMaxLen {
+		body = string(r[:domain.PRBodyMaxLen])
+	}
+	return int(number), title, body
 }
 
 func dig(m map[string]any, keys ...string) (map[string]any, bool) {

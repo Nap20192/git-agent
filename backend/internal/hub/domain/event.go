@@ -15,7 +15,20 @@ type Event struct {
 	CommitSHA  string
 	Ref        string
 	TraceID    string // сквозной trace_id запроса, породившего Событие (pkg/trace)
+
+	// Диапазон изменений (миграция 006) — чтобы агент аудитил дифф, а не весь
+	// репозиторий. Все поля необязательны: пусто = неизвестно.
+	BeforeSHA    string // push: parent-коммит диапазона; пусто при force-push/новой ветке
+	BaseSHA      string // PR/MR: base
+	HeadSHA      string // PR/MR: head
+	PRNumber     int    // PR number / MR iid
+	PRTitle      string
+	PRBody       string   // обрезано до PRBodyMaxLen
+	ChangedFiles []string // push: объединение added/modified/removed по коммитам; PR — пусто
 }
+
+// PRBodyMaxLen — потолок PRBody (символов): описание PR идёт в промпт целиком.
+const PRBodyMaxLen = 4000
 
 // Repository — подключённый Репозиторий. Привязка Сборок — подписками
 // (BuildSubscription, тикет 011); BuildID — derived-поле для deprecated
@@ -54,7 +67,7 @@ func RoutingKey(provider string, repositoryID int64, action string) string {
 // Событие с готовыми id — Экземпляр отрезолвлен backend'ом на вебхуке,
 // раннер тупо клеймит и исполняет. Без секретов и LLM-конфига.
 func EventMessage(eventID, instanceID int64, threadID string, repo *Repository, e Event) []byte {
-	b, _ := json.Marshal(map[string]any{
+	m := map[string]any{
 		"eventId":      eventID,
 		"instanceId":   instanceID,
 		"threadId":     threadID,
@@ -65,7 +78,21 @@ func EventMessage(eventID, instanceID int64, threadID string, repo *Repository, 
 		"ref":          e.Ref,
 		"dedupKey":     DedupKey(eventID, e),
 		"traceId":      e.TraceID,
-	})
+	}
+	// diff-контекст — только заполненные поля (раннер читает их как optional)
+	for k, v := range map[string]string{"beforeSha": e.BeforeSHA, "baseSha": e.BaseSHA, "headSha": e.HeadSHA,
+		"prTitle": e.PRTitle, "prBody": e.PRBody} {
+		if v != "" {
+			m[k] = v
+		}
+	}
+	if e.PRNumber != 0 {
+		m["prNumber"] = e.PRNumber
+	}
+	if len(e.ChangedFiles) > 0 {
+		m["changedFiles"] = e.ChangedFiles
+	}
+	b, _ := json.Marshal(m)
 	return b
 }
 

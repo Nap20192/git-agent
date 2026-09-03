@@ -35,8 +35,18 @@ UPDATE hub.repositories SET webhook_provider_id = @webhook_provider_id WHERE id 
 DELETE FROM hub.repositories WHERE id = @id;
 
 -- name: Events :many
-SELECT id, provider, action, commit_sha, ref, received_at, trace_id
+SELECT id, provider, action, commit_sha, ref, received_at, trace_id,
+       before_sha, base_sha, head_sha, pr_number, pr_title, pr_body, changed_files
   FROM hub.events WHERE repository_id = @repository_id ORDER BY id DESC LIMIT @row_limit::int;
+
+-- LastProcessedCommit — коммит последнего успешно обработанного События репо
+-- (before_sha для ручного запуска: дифф «с прошлого ревью»). Нет — пусто.
+-- name: LastProcessedCommit :one
+SELECT coalesce(e.commit_sha, '')::text
+  FROM hub.instance_events ie
+  JOIN hub.events e ON e.id = ie.event_id
+ WHERE e.repository_id = @repository_id AND ie.processed_at IS NOT NULL AND e.commit_sha IS NOT NULL
+ ORDER BY ie.processed_at DESC LIMIT 1;
 
 -- name: SubscriptionsByRepo :many
 SELECT id, build_id, repository_id, actions, ref_mask, created_at

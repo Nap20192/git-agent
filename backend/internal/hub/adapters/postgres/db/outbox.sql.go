@@ -7,13 +7,17 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const insertEvent = `-- name: InsertEvent :one
 
-INSERT INTO hub.events (provider, delivery_id, repository_id, action, commit_sha, ref, payload, trace_id)
+INSERT INTO hub.events (provider, delivery_id, repository_id, action, commit_sha, ref, payload, trace_id,
+                        before_sha, base_sha, head_sha, pr_number, pr_title, pr_body, changed_files)
 VALUES ($1, $2, $3, $4,
-        NULLIF($5::text, ''), NULLIF($6::text, ''), $7, $8)
+        NULLIF($5::text, ''), NULLIF($6::text, ''), $7, $8,
+        NULLIF($9::text, ''), NULLIF($10::text, ''), NULLIF($11::text, ''),
+        NULLIF($12::int, 0), NULLIF($13::text, ''), NULLIF($14::text, ''), $15)
 ON CONFLICT (provider, delivery_id) DO NOTHING
 RETURNING id
 `
@@ -27,6 +31,13 @@ type InsertEventParams struct {
 	Ref          string
 	Payload      []byte
 	TraceID      string
+	BeforeSHA    string
+	BaseSHA      string
+	HeadSHA      string
+	PRNumber     int
+	PRTitle      string
+	PRBody       string
+	ChangedFiles json.RawMessage
 }
 
 // Ingest вебхука (одна транзакция в Store.Ingest) и transactional outbox
@@ -40,6 +51,13 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (int64
 		arg.Ref,
 		arg.Payload,
 		arg.TraceID,
+		arg.BeforeSHA,
+		arg.BaseSHA,
+		arg.HeadSHA,
+		arg.PRNumber,
+		arg.PRTitle,
+		arg.PRBody,
+		arg.ChangedFiles,
 	)
 	var id int64
 	err := row.Scan(&id)

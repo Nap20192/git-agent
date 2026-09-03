@@ -7,6 +7,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -119,6 +120,8 @@ func (s *Store) Ingest(ctx context.Context, repo *domain.Repository, e domain.Ev
 	eventID, err := q.InsertEvent(ctx, db.InsertEventParams{
 		Provider: repo.Provider, DeliveryID: e.DeliveryID, RepositoryID: repo.ID,
 		Action: e.Action, CommitSHA: e.CommitSHA, Ref: e.Ref, Payload: payload, TraceID: e.TraceID,
+		BeforeSHA: e.BeforeSHA, BaseSHA: e.BaseSHA, HeadSHA: e.HeadSHA,
+		PRNumber: e.PRNumber, PRTitle: e.PRTitle, PRBody: e.PRBody, ChangedFiles: changedFilesJSON(e.ChangedFiles),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return true, nil, nil
@@ -150,6 +153,15 @@ func (s *Store) Ingest(ctx context.Context, repo *domain.Repository, e domain.Ev
 		instanceIDs = append(instanceIDs, inst.ID)
 	}
 	return false, instanceIDs, tx.Commit(ctx)
+}
+
+// changedFilesJSON — JSON-массив для jsonb; nil при пустом списке → NULL.
+func changedFilesJSON(files []string) json.RawMessage {
+	if len(files) == 0 {
+		return nil
+	}
+	b, _ := json.Marshal(files)
+	return b
 }
 
 func (s *Store) Unpublished(ctx context.Context, limit int) ([]domain.OutboxMessage, error) {
@@ -264,6 +276,14 @@ func (s *Store) DeleteRepository(ctx context.Context, id int64) error {
 func (s *Store) Events(ctx context.Context, repoID int64, limit int) ([]domain.EventRecord, error) {
 	rows, err := s.q().Events(ctx, db.EventsParams{RepositoryID: repoID, RowLimit: limit})
 	return mapRows(rows, err, func(r db.EventsRow) domain.EventRecord { return domain.EventRecord(r) })
+}
+
+func (s *Store) LastProcessedCommit(ctx context.Context, repoID int64) (string, error) {
+	sha, err := s.q().LastProcessedCommit(ctx, repoID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return sha, err
 }
 
 // ── Subscriptions (тикет 011) ───────────────────────────────────────────────

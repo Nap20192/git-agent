@@ -17,7 +17,16 @@ sql:
           cwe: CWE
           cve: CVE
           commit_sha: CommitSHA
+          before_sha: BeforeSHA
+          base_sha: BaseSHA
+          head_sha: HeadSHA
+          pr_number: PRNumber
+          pr_title: PRTitle
+          pr_body: PRBody
         overrides:
+          # changed_files — сырой JSON-массив путей, отдаётся в DTO как есть
+          - column: "hub.events.changed_files"
+            go_type: { import: "encoding/json", type: "RawMessage" }
           - db_type: "timestamptz"
             go_type: "time.Time"
           - db_type: "timestamptz"

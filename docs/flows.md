@@ -125,14 +125,14 @@ sequenceDiagram
         H-->>G: 200 (лог: duplicate delivery)
     else ok
         Note over H,DB: одна транзакция
-        H->>DB: INSERT hub.events (журнал, payload jsonb)
+        H->>DB: INSERT hub.events (журнал, payload jsonb, diff-контекст: before/base/head sha, pr_*, changed_files)
         H->>DB: SELECT build_subscriptions WHERE repo (actions ∋ action, ref ~ ref_mask)
         alt подписок нет
             H->>DB: default-Сборка на всё
         end
         loop каждая совпавшая Сборка
             H->>DB: UPSERT agent_instances (build, repo) — один Экземпляр на пару
-            H->>DB: INSERT outbox {eventId, instanceId, threadId, dedupKey}
+            H->>DB: INSERT outbox {eventId, instanceId, threadId, dedupKey, beforeSha?, baseSha?, headSha?, prNumber?, prTitle?, prBody?, changedFiles?}
         end
         H-->>G: 200
     end
@@ -160,7 +160,7 @@ sequenceDiagram
     participant H as hub
 
     Note over MQ,H: ФАЗА 4 — ИСПОЛНЕНИЕ (гарантии = БД + чекпоинты, auto-ack)
-    MQ->>RN: Событие {eventId, instanceId, threadId, dedupKey…}
+    MQ->>RN: Событие {eventId, instanceId, threadId, dedupKey, commitSha, beforeSha?/baseSha?/headSha?, changedFiles?…}
     alt сообщение не парсится
         RN-->>MQ: drop (лог unparseable)
     end
@@ -183,6 +183,7 @@ sequenceDiagram
         RN-->>DB: run_failed
     else ok
         RN->>SB: git clone / fetch + checkout commitSha
+        Note over RN,SB: есть beforeSha или baseSha..headSha — аудит диффа диапазона, иначе репозиторий целиком
         alt git не достучался (DNS/сеть)
             RN-->>DB: run_failed (событие не потеряно, ре-публикация повторит)
         end
@@ -225,6 +226,7 @@ sequenceDiagram
     alt mode=manual, коммит уже запускали
         H-->>U: 202 {duplicate:true, instanceIds:[]}
     else mode=manual
+        H->>DB: beforeSha = commit последнего обработанного События репо (instance_events.processed_at), иначе пусто
         H->>DB: Событие action=manual (delivery manual-{repo}-{sha}) → fan-out как вебхук
         H-->>U: 202 {commitSha, instanceIds}
     else mode=full

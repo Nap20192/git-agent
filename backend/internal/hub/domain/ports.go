@@ -90,6 +90,9 @@ type RepositoryAdmin interface {
 	SetWebhook(ctx context.Context, id int64, providerHookID string) error
 	DeleteRepository(ctx context.Context, id int64) error
 	Events(ctx context.Context, repoID int64, limit int) ([]EventRecord, error)
+	// LastProcessedCommit — commit_sha последнего успешно обработанного
+	// События репо ("" — нет): beforeSha ручного запуска.
+	LastProcessedCommit(ctx context.Context, repoID int64) (string, error)
 }
 
 // BuildStore — Сборки Агентов.

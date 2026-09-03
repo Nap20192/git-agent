@@ -105,6 +105,11 @@ func TestTrigger(t *testing.T) {
 		t.Fatalf("outbox traceId: %d", n)
 	}
 
+	// обработанных Событий ещё нет → beforeSha пуст
+	if n := count(t, db, `SELECT count(*) FROM hub.outbox WHERE payload ? 'beforeSha'`); n != 0 {
+		t.Fatalf("beforeSha on first manual: %d", n)
+	}
+
 	// повтор на том же коммите — идемпотентный no-op
 	status, res = trigger(repoID, `{"commitSha":"headsha"}`)
 	if status != http.StatusAccepted || !res.Duplicate {
@@ -129,9 +134,19 @@ func TestTrigger(t *testing.T) {
 		RETURNING id`).Scan(&defaultBuild); err != nil {
 		t.Fatal(err)
 	}
+	// первое Событие обработано → следующий manual несёт beforeSha = его коммит
+	if _, err := db.Exec(ctx, `UPDATE hub.instance_events SET processed_at = now()`); err != nil {
+		t.Fatal(err)
+	}
 	status, res = trigger(repoID, `{"commitSha":"othersha"}`)
 	if status != http.StatusAccepted || res.Duplicate || len(res.InstanceIDs) != 1 {
 		t.Fatalf("fallback status=%d res=%+v", status, res)
+	}
+	if n := count(t, db, `SELECT count(*) FROM hub.events WHERE commit_sha = 'othersha' AND before_sha = 'headsha'`); n != 1 {
+		t.Fatalf("events.before_sha: %d", n)
+	}
+	if n := count(t, db, `SELECT count(*) FROM hub.outbox WHERE payload->>'commitSha' = 'othersha' AND payload->>'beforeSha' = 'headsha'`); n != 1 {
+		t.Fatalf("outbox beforeSha: %d", n)
 	}
 	if n := count(t, db, `SELECT count(*) FROM hub.agent_instances WHERE build_id = $1`, defaultBuild); n != 1 {
 		t.Fatalf("instances for default build: %d", n)

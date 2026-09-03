@@ -1,9 +1,12 @@
 -- Ingest вебхука (одна транзакция в Store.Ingest) и transactional outbox
 
 -- name: InsertEvent :one
-INSERT INTO hub.events (provider, delivery_id, repository_id, action, commit_sha, ref, payload, trace_id)
+INSERT INTO hub.events (provider, delivery_id, repository_id, action, commit_sha, ref, payload, trace_id,
+                        before_sha, base_sha, head_sha, pr_number, pr_title, pr_body, changed_files)
 VALUES (@provider, @delivery_id, @repository_id, @action,
-        NULLIF(@commit_sha::text, ''), NULLIF(@ref::text, ''), @payload, @trace_id)
+        NULLIF(@commit_sha::text, ''), NULLIF(@ref::text, ''), @payload, @trace_id,
+        NULLIF(@before_sha::text, ''), NULLIF(@base_sha::text, ''), NULLIF(@head_sha::text, ''),
+        NULLIF(@pr_number::int, 0), NULLIF(@pr_title::text, ''), NULLIF(@pr_body::text, ''), @changed_files)
 ON CONFLICT (provider, delivery_id) DO NOTHING
 RETURNING id;
 

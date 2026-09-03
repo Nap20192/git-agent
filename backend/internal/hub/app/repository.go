@@ -278,8 +278,19 @@ func (s *RepositoryService) Trigger(ctx context.Context, userID, id int64, ref, 
 		CommitSHA:  commitSHA,
 		Ref:        ref,
 	}
+	// manual: диапазон «с прошлого ревью» — коммит последнего обработанного
+	// События репо; нет или тот же коммит — пусто (полный контекст)
+	if action == "manual" {
+		before, err := s.Repos.LastProcessedCommit(ctx, repo.ID)
+		if err != nil {
+			return nil, fmt.Errorf("last processed commit: %w", err)
+		}
+		if before != commitSHA {
+			e.BeforeSHA = before
+		}
+	}
 	payload, _ := json.Marshal(map[string]any{
-		"action": action, "ref": ref, "commitSha": commitSHA, "userId": userID,
+		"action": action, "ref": ref, "commitSha": commitSHA, "userId": userID, "beforeSha": e.BeforeSHA,
 	})
 	if err := s.provisionSandboxes(ctx, repo, action, ref); err != nil {
 		return nil, err

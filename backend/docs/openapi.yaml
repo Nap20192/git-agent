@@ -17,6 +17,12 @@ info:
     (hub.activity), в Rabbit-сообщении События (traceId), в тегах
     Langfuse/LangSmith (trace:<id>) и в заголовке всех вызовов hub → раннер /
     провайдер / OpenSandbox. Здесь не повторяется на каждом пути.
+    Rabbit-сообщение События (exchange events, key provider.repoId.action):
+    {eventId, instanceId, threadId, repositoryId, provider, action, commitSha,
+    ref, dedupKey, traceId} + необязательный diff-контекст (только заполненные
+    ключи): beforeSha, baseSha, headSha, prNumber, prTitle, prBody,
+    changedFiles — те же поля, что в #/components/schemas/Event. Раннер по
+    ним аудитит дифф (before..commit / base..head), без них — репозиторий целиком.
 
 paths:
   # ── Auth ────────────────────────────────────────────────────────────
@@ -159,7 +165,9 @@ paths:
         привязывает; ошибка OpenSandbox — 502, Событие не публикуется. Повторный запуск на том же коммите в том же режиме
         идемпотентен (duplicate=true, ничего не создаётся); dedup-ключ
         full-режима — "full-"+sha, полный скан возможен и на уже
-        разобранном коммите.
+        разобранном коммите. manual несёт beforeSha = коммит последнего
+        успешно обработанного События репо (диапазон «с прошлого ревью»);
+        нет такого или совпадает с commitSha — пусто.
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: false
@@ -654,6 +662,16 @@ components:
         ref: { type: [string, "null"] }
         receivedAt: { type: string, format: date-time }
         traceId: { type: string, description: "сквозной trace_id запроса (вебхук/trigger), породившего Событие; '' до миграции 004" }
+        beforeSha: { type: [string, "null"], description: "push: parent-коммит диапазона (payload.before); null при force-push/новой ветке. manual: коммит последнего обработанного События репо" }
+        baseSha: { type: [string, "null"], description: "PR/MR: base (pull_request.base.sha / diff_refs.base_sha)" }
+        headSha: { type: [string, "null"], description: "PR/MR: head (pull_request.head.sha / diff_refs.head_sha, fallback last_commit.id)" }
+        prNumber: { type: [integer, "null"], description: "PR number / MR iid" }
+        prTitle: { type: [string, "null"] }
+        prBody: { type: [string, "null"], description: "описание PR/MR, обрезано до 4000 символов" }
+        changedFiles:
+          type: [array, "null"]
+          items: { type: string }
+          description: "push: объединение added/modified/removed по коммитам payload; PR/MR — null (раннер берёт из diff)"
     AgentBuildInput:
       type: object
       properties:
