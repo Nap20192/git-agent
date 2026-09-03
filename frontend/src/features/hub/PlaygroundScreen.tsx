@@ -147,14 +147,15 @@ export function PlaygroundScreen() {
     }
   };
 
-  const runAgent = async () => {
+  const runAgent = async (mode?: "full") => {
+    if (mode === "full" && !window.confirm("Full scan is a long and expensive run — start it?")) return;
     setTriggering(true);
     setTriggerError(null);
     try {
-      const res = await api.triggerRepository(inst.repositoryId);
+      const res = await api.triggerRepository(inst.repositoryId, mode ? { mode } : undefined);
       setActivity((a) => [
         ...a,
-        { at: new Date(), text: `manual trigger → Событие #${res.event.id} @ ${res.event.commitSha?.slice(0, 8) ?? "HEAD"}` },
+        { at: new Date(), text: `${mode === "full" ? "full scan" : "manual trigger"} → Событие #${res.event.id} @ ${res.event.commitSha?.slice(0, 8) ?? "HEAD"}` },
       ]);
       reloadRef.current();
     } catch (err) {
@@ -177,8 +178,11 @@ export function PlaygroundScreen() {
           </h1>
           {repo && <Badge tone={repo.provider === "github" ? "text" : "burnt"}>{repo.provider}</Badge>}
           <div style={{ flex: 1 }} />
-          <Button variant="primary" disabled={triggering} onClick={runAgent}>
+          <Button variant="primary" disabled={triggering} onClick={() => runAgent()}>
             {triggering ? "Triggering…" : "▶ Run agent"}
+          </Button>
+          <Button variant="ghost" disabled={triggering} onClick={() => runAgent("full")}>
+            Full scan
           </Button>
         </div>
         {triggerError && <p className={styles.error}>{triggerError}</p>}

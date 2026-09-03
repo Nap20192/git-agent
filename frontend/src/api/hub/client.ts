@@ -49,8 +49,12 @@ export interface HubApi {
   setRepositoryBuild(id: number, buildId: number): Promise<Repository>;
   disconnectRepository(id: number): Promise<void>;
   listRepositoryEvents(id: number): Promise<RepoEvent[]>;
-  /** Manual agent run — same path as a webhook push. Empty input = HEAD of the default branch. */
-  triggerRepository(id: number, input?: { ref?: string; commitSha?: string }): Promise<TriggerResult>;
+  /** Manual agent run — same path as a webhook push. Empty input = HEAD of the default branch.
+   *  mode "full" = full security audit of the whole repo (Событие full_scan). */
+  triggerRepository(
+    id: number,
+    input?: { ref?: string; commitSha?: string; mode?: "manual" | "full" },
+  ): Promise<TriggerResult>;
 
   // Подписки — which Сборки watch a repo (upsert per build+repo pair)
   listSubscriptions(repositoryId: number): Promise<Subscription[]>;

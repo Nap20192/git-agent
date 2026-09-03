@@ -281,7 +281,7 @@ export function createMockHubApi(): HubApi {
       const event: RepoEvent = {
         id: nextId++,
         provider: repo.provider,
-        action: "manual_trigger",
+        action: input?.mode === "full" ? "full_scan" : "manual_trigger",
         commitSha: sha,
         ref: `refs/heads/${input?.ref ?? repo.defaultBranch ?? "main"}`,
         receivedAt: new Date().toISOString(),

@@ -128,11 +128,14 @@ paths:
     post:
       summary: Запустить агента вручную (без вебхука)
       description: >
-        Синтезирует Событие action=manual и прогоняет его тем же fan-out, что
+        Синтезирует Событие action=manual (mode=full — action=full_scan,
+        полный security-аудит) и прогоняет его тем же fan-out, что
         и вебхук (подписки → Экземпляры → outbox). commitSha не задан —
         резолвится HEAD ref (по умолчанию — default-ветки) через API
-        провайдера. Повторный запуск на том же коммите идемпотентен
-        (duplicate=true, ничего не создаётся).
+        провайдера. Повторный запуск на том же коммите в том же режиме
+        идемпотентен (duplicate=true, ничего не создаётся); dedup-ключ
+        full-режима — "full-"+sha, полный скан возможен и на уже
+        разобранном коммите.
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: false
@@ -143,6 +146,11 @@ paths:
               properties:
                 ref: { type: string, description: ветка/тег; пусто = default-ветка }
                 commitSha: { type: string, description: явный коммит; пусто = HEAD ref }
+                mode:
+                  type: string
+                  enum: [manual, full]
+                  default: manual
+                  description: full — полный security-аудит всего репозитория
       responses:
         "202":
           content:

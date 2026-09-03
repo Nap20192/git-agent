@@ -76,10 +76,12 @@ export function RepoScreen() {
 
   // Manual run — same path as a webhook push; jump straight to the raised
   // agent's Playground (prefer the selected watcher's Экземпляр).
-  const runAgent = async () => {
+  // mode "full" = full security audit of the whole repo, confirmed first.
+  const runAgent = async (mode?: "full") => {
+    if (mode === "full" && !window.confirm("Full scan is a long and expensive run — start it?")) return;
     setBusy(true);
     try {
-      const res = await api.triggerRepository(repo!.id);
+      const res = await api.triggerRepository(repo!.id, mode ? { mode } : undefined);
       const target =
         res.instances.find((i) => i.buildId === activeBuildId) ?? res.instances[0];
       if (target) navigate(`/instances/${target.id}`);
@@ -127,8 +129,11 @@ export function RepoScreen() {
           <Badge tone={repo.provider === "github" ? "text" : "burnt"}>{repo.provider}</Badge>
           <AgentPresence instance={activeInstance} />
           <div style={{ flex: 1 }} />
-          <Button variant="primary" disabled={busy} onClick={runAgent}>
+          <Button variant="primary" disabled={busy} onClick={() => runAgent()}>
             {busy ? "…" : "▶ Run agent"}
+          </Button>
+          <Button variant="ghost" disabled={busy} onClick={() => runAgent("full")}>
+            Full scan
           </Button>
           {activeInstance && (
             <Button variant="ghost" onClick={() => navigate(`/instances/${activeInstance.id}`)}>

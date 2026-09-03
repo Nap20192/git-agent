@@ -134,9 +134,10 @@ type TriggerResult struct {
 
 // Trigger — ручной запуск агента (без вебхука): резолвит HEAD ветки через
 // API провайдера (если commitSHA не задан), синтезирует Событие action=manual
-// и прогоняет его тем же fan-out, что и вебхук. delivery_id детерминирован
-// по (репо, коммит) — повторный запуск на том же коммите дедупится журналом.
-func (s *RepositoryService) Trigger(ctx context.Context, userID, id int64, ref, commitSHA string) (*TriggerResult, error) {
+// (mode=full — action=full_scan, полный аудит) и прогоняет его тем же fan-out,
+// что и вебхук. delivery_id детерминирован по (режим, репо, коммит) —
+// повторный запуск на том же коммите дедупится журналом.
+func (s *RepositoryService) Trigger(ctx context.Context, userID, id int64, ref, commitSHA, mode string) (*TriggerResult, error) {
 	repo, err := s.Repos.Repository(ctx, id, userID)
 	if err != nil {
 		return nil, err
@@ -167,14 +168,18 @@ func (s *RepositoryService) Trigger(ctx context.Context, userID, id int64, ref, 
 		}
 	}
 
+	action, prefix := "manual", "manual"
+	if mode == "full" {
+		action, prefix = "full_scan", "full"
+	}
 	e := domain.Event{
-		DeliveryID: fmt.Sprintf("manual-%d-%s", repo.ID, commitSHA),
-		Action:     "manual",
+		DeliveryID: fmt.Sprintf("%s-%d-%s", prefix, repo.ID, commitSHA),
+		Action:     action,
 		CommitSHA:  commitSHA,
 		Ref:        ref,
 	}
 	payload, _ := json.Marshal(map[string]any{
-		"action": "manual", "ref": ref, "commitSha": commitSHA, "userId": userID,
+		"action": action, "ref": ref, "commitSha": commitSHA, "userId": userID,
 	})
 	duplicate, instanceIDs, err := s.Webhook.FanOut(ctx, repo, e, payload)
 	if err != nil {

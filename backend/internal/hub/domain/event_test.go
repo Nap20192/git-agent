@@ -22,6 +22,9 @@ func TestDedupKey(t *testing.T) {
 	if got := DedupKey(5, Event{}); got != "5" {
 		t.Errorf("commitless event: got %q", got)
 	}
+	if got := DedupKey(5, Event{Action: "full_scan", CommitSHA: "abc"}); got != "full-abc" {
+		t.Errorf("full_scan event: got %q", got)
+	}
 }
 
 // Контракт сообщения — тикет 010: готовые id, dedupKey, без секретов.

@@ -50,6 +50,17 @@ def test_parse_event_optional_and_bad():
         parse_event({"eventId": 1})
 
 
+def test_event_prompt_full_scan():
+    from core.runner.executor import _event_prompt
+
+    ctx = {"owner": "acme", "name": "repo", "prompt": "Сборка: смотри в оба"}
+    full = _event_prompt(ctx, parse_event({**WIRE, "action": "full_scan", "dedupKey": "full-abc123"}))
+    for marker in ("ПОЛНЫЙ security-аудит", "план", "Сабагенту", "task", "report_finding", "write_report"):
+        assert marker in full
+    assert "Сборка: смотри в оба" in full  # промпт Сборки остаётся
+    assert "ПОЛНЫЙ" not in _event_prompt(ctx, parse_event(WIRE))
+
+
 def test_crypto_roundtrip():
     key = (b"k" * 32).hex()
     blob = encrypt("s3cret", key, nonce=os.urandom(12))

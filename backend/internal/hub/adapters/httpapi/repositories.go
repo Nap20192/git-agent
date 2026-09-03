@@ -106,7 +106,8 @@ func (h *RepositoriesHandler) Disconnect(w http.ResponseWriter, r *http.Request)
 }
 
 // Trigger — POST /api/repositories/{id}/trigger: ручной запуск агента.
-// Тело необязательно ({ref?, commitSha?}); пустое — HEAD default-ветки.
+// Тело необязательно ({ref?, commitSha?, mode?}); пустое — HEAD default-ветки;
+// mode=full — полный security-аудит (Событие full_scan).
 func (h *RepositoriesHandler) Trigger(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
@@ -115,12 +116,17 @@ func (h *RepositoriesHandler) Trigger(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Ref       string `json:"ref"`
 		CommitSHA string `json:"commitSha"`
+		Mode      string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		http.Error(w, `{"error":"bad json"}`, http.StatusBadRequest)
 		return
 	}
-	res, err := h.Service.Trigger(r.Context(), userID(r), id, req.Ref, req.CommitSHA)
+	if req.Mode != "" && req.Mode != "manual" && req.Mode != "full" {
+		http.Error(w, `{"error":"mode must be manual or full"}`, http.StatusBadRequest)
+		return
+	}
+	res, err := h.Service.Trigger(r.Context(), userID(r), id, req.Ref, req.CommitSHA, req.Mode)
 	if err != nil {
 		writeError(w, err)
 		return

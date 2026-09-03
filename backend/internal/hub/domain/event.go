@@ -67,9 +67,14 @@ func EventMessage(eventID, instanceID int64, threadID string, repo *Repository, 
 }
 
 // DedupKey — идемпотентность реакции Экземпляра (тикет 002):
-// commit_sha для коммитных событий, иначе id События.
+// commit_sha для коммитных событий, иначе id События. full_scan — свой
+// неймспейс "full-"+sha: полный аудит возможен на уже разобранном коммите,
+// но дубль клика не плодит два.
 func DedupKey(eventID int64, e Event) string {
 	if e.CommitSHA != "" {
+		if e.Action == "full_scan" {
+			return "full-" + e.CommitSHA
+		}
 		return e.CommitSHA
 	}
 	return strconv.FormatInt(eventID, 10)

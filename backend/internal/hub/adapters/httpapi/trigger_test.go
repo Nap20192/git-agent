@@ -124,6 +124,28 @@ func TestTrigger(t *testing.T) {
 		t.Fatalf("instances for default build: %d", n)
 	}
 
+	// mode=full: Событие full_scan, не дедупится об manual на том же коммите,
+	// dedup-ключ Экземпляра — "full-"+sha
+	status, res = trigger(repoID, `{"commitSha":"headsha","mode":"full"}`)
+	if status != http.StatusAccepted || res.Duplicate || len(res.InstanceIDs) != 1 {
+		t.Fatalf("full status=%d res=%+v", status, res)
+	}
+	if n := count(t, db, `SELECT count(*) FROM hub.events WHERE action = 'full_scan' AND commit_sha = 'headsha'`); n != 1 {
+		t.Fatalf("full_scan events: %d", n)
+	}
+	if n := count(t, db, `SELECT count(*) FROM hub.instance_events WHERE dedup_key = 'full-headsha'`); n != 1 {
+		t.Fatalf("full dedup keys: %d", n)
+	}
+	// повторный full на том же коммите — идемпотентный no-op
+	if status, res = trigger(repoID, `{"commitSha":"headsha","mode":"full"}`); status != http.StatusAccepted || !res.Duplicate {
+		t.Fatalf("full dup status=%d res=%+v", status, res)
+	}
+
+	// кривой mode — 400
+	if status, _ := trigger(repoID, `{"mode":"turbo"}`); status != http.StatusBadRequest {
+		t.Fatalf("bad mode status=%d", status)
+	}
+
 	// чужой/несуществующий репозиторий — 404
 	if status, _ := trigger(999999, ""); status != http.StatusNotFound {
 		t.Fatalf("unknown repo status=%d", status)
