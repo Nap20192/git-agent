@@ -501,3 +501,111 @@ def test_terminal_carries_cwd_between_commands():
         assert executor.terminal_calls[-1] == ("ls", None)
 
     asyncio.run(run())
+
+
+SCOPE_WIRE = {
+    **WIRE,
+    "beforeSha": "bbb111",
+    "baseSha": "base22",
+    "headSha": "head33",
+    "prNumber": 42,
+    "prTitle": "Add login",
+    "prBody": "Adds password login",
+    "changedFiles": ["a.py", "b/c.go"],
+}
+
+
+def test_parse_event_scope_fields_optional_and_roundtrip():
+    old = parse_event(WIRE)  # сообщение без полей скоупа — как прежде
+    assert (old.before_sha, old.base_sha, old.head_sha, old.pr_number) == (None,) * 4
+    assert old.changed_files == () and "beforeSha" not in old.to_wire()
+    event = parse_event(SCOPE_WIRE)
+    assert (event.before_sha, event.base_sha, event.head_sha) == ("bbb111", "base22", "head33")
+    assert (event.pr_number, event.pr_title, event.pr_body) == (
+        42,
+        "Add login",
+        "Adds password login",
+    )
+    assert event.changed_files == ("a.py", "b/c.go")
+    assert parse_event(event.to_wire()) == event
+    # нулевой sha провайдера (первый пуш ветки) — отсутствие значения
+    assert parse_event({**WIRE, "beforeSha": "0" * 40}).before_sha is None
+    with pytest.raises(ValueError):
+        parse_event({**WIRE, "changedFiles": "a.py"})
+
+
+def test_has_code_target_by_action_and_commit():
+    assert parse_event(WIRE).has_code_target  # push с коммитом
+    no_commit = {k: v for k, v in WIRE.items() if k != "commitSha"}
+    assert not parse_event({**no_commit, "action": "ping"}).has_code_target
+    assert not parse_event({**no_commit, "action": "push"}).has_code_target
+    assert parse_event({**no_commit, "action": "full_scan"}).has_code_target
+    assert parse_event({**no_commit, "action": "manual"}).has_code_target
+    assert parse_event({**no_commit, "action": "pull_request", "headSha": "h"}).has_code_target
+
+
+def test_event_prompt_by_action():
+    from core.runner.executor import _event_prompt
+
+    ctx = {"owner": "acme", "name": "repo"}
+    push = _event_prompt(ctx, parse_event(SCOPE_WIRE))
+    for marker in (
+        "bbb111..abc123",
+        "git_diff(ref='abc123', base='bbb111', stat=true)",
+        "git log",
+        "ТОЛЬКО затронутого",
+        "не сканировать",
+        "a.py, b/c.go",
+        "report_finding",
+        "write_report",
+    ):
+        assert marker in push, marker
+    first_push = _event_prompt(ctx, parse_event(WIRE))
+    assert (
+        "force-push" in first_push
+        and "HEAD~1" in first_push
+        and "git_diff(ref='abc123', stat=true)" in first_push
+    )
+    pr = _event_prompt(ctx, parse_event({**SCOPE_WIRE, "action": "pull_request"}), merge_base="mb0")
+    for marker in (
+        "PR #42: Add login",
+        "Adds password login",
+        "mb0...head33",
+        "git_diff(ref='head33', base='mb0', stat=true)",
+        "РЕЖИМ РЕВЬЮ",
+        "attack surface",
+        "PR-ревью",
+        "не сканировать",
+    ):
+        assert marker in pr, marker
+    pr_no_mb = _event_prompt(ctx, parse_event({**SCOPE_WIRE, "action": "merge_request"}))
+    assert "base22...head33" in pr_no_mb and "база PR" in pr_no_mb
+    manual = _event_prompt(ctx, parse_event({**WIRE, "action": "manual"}))
+    assert (
+        "Ручной запуск" in manual and "предыдущий коммит" in manual and "не сканировать" in manual
+    )
+    full = _event_prompt(ctx, parse_event({**WIRE, "action": "full_scan"}))
+    assert "ПОЛНЫЙ" in full and "не сканировать" not in full
+    long_body = _event_prompt(
+        ctx, parse_event({**SCOPE_WIRE, "action": "pull_request", "prBody": "x" * 5000})
+    )
+    assert "[обрезано]" in long_body and "x" * 2001 not in long_body
+
+
+def test_event_without_commit_skipped_and_marked_processed():
+    """ping/issues/comments: ход не поднимается, Экземпляр не клеймится, processed_at стоит."""
+
+    async def run():
+        store = MemStore()
+        seed(store)
+        executor = FakeExecutor()
+        service = await started(make_service(store, executor=executor))
+        wire = {k: v for k, v in WIRE.items() if k != "commitSha"}
+        event = parse_event({**wire, "action": "ping", "dedupKey": "ping-1"})
+        assert await service.handle_event(event) == "skipped_no_commit"
+        assert executor.processed == []
+        assert store.journal[(3, "ping-1")] is True  # processed_at — ре-публикации не будет
+        assert store.instances[3]["status"] == "down" and service.busy == 0
+        assert await service.handle_event(event) == "skipped_no_commit"  # идемпотентно
+
+    asyncio.run(run())

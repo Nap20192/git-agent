@@ -7,7 +7,7 @@
   osv-scanner), пока не собирается (Docker Hub недоступен).
 Анализаторы тулы не устанавливают и на конкретный набор не полагаются: перед запуском
 анализатора через sandbox_run проверяй `command -v <bin>`. На минимальном alpine/git
-работает всё, кроме rg (grep_code падает на grep -rn).
+работает всё, кроме rg (grep_code падает на grep -rn) и browse (нужен python3).
 
 Ошибки команд возвращаются моделью-читаемым текстом, а не исключением —
 модель сама скорректируется. Вывод усечён для защиты контекста.
@@ -38,6 +38,7 @@ def _error(exc: SandboxCommandError) -> str:
 
 def build_sandbox_tools(sandbox: Sandbox) -> list[BaseTool]:
     """Тулы, замкнутые на конкретную песочницу (одна на Ран)."""
+    from core.tools.sandbox.browse import build_browse_tool
     from core.tools.sandbox.git import build_git_tools
     from core.tools.sandbox.search import build_grep_tool
 
@@ -115,4 +116,5 @@ def build_sandbox_tools(sandbox: Sandbox) -> list[BaseTool]:
         list_dir,
         build_grep_tool(sandbox),
         *build_git_tools(sandbox),
+        build_browse_tool(sandbox),
     ]

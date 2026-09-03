@@ -178,7 +178,8 @@ class RunnerService:
     async def handle_event(self, event: Event) -> str:
         """Обработать Событие: клейм → локально либо форвард держателю → дедуп → исполнение.
 
-        Возвращает исход: processed | duplicate | forwarded | dropped | cancelled.
+        Возвращает исход: processed | duplicate | forwarded | dropped | cancelled |
+        skipped_no_commit (Событие без коммита и не full_scan/manual — ход не поднимается).
         Исключение исполнения логируется здесь (один раз, с трейсбеком и контекстом
         хода) и пробрасывается: processed_at не ставится — Событие доисполнит
         ре-публикация backend'а.
@@ -208,6 +209,13 @@ class RunnerService:
             return outcome
 
     async def _handle_event(self, event: Event) -> str:
+        if not event.has_code_target:
+            # ping/issues/comments…: ход не поднимаем вовсе; processed_at ставим,
+            # чтобы hub не ре-публиковал Событие
+            if await self._store.begin_event(event):
+                await self._store.mark_processed(event.instance_id, event.dedup_key)
+            log.info("event without code target skipped", action=event.action)
+            return "skipped_no_commit"
         # чужое/пропавшее — определяем ДО ожидания слота (peek без клейма);
         # гонку peek→claim решает CAS: _raise вернёт held_by_other и мы форварднём
         if event.instance_id not in self._instances:

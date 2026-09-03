@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage
 
 from core.agents.llm import make_model
 from core.ports import Sandbox, SandboxCommandError
-from core.runner.events import Event
+from core.runner.events import PR_ACTIONS, Event
 from core.runner.history import repair_dangling_tool_calls
 from core.runner.ports import InstanceStore
 from core.tracing import TurnTracer, inject_langfuse_metadata
@@ -72,7 +72,74 @@ def repo_url(ctx: dict[str, Any]) -> str:
     return f"https://{host}/{ctx['owner']}/{ctx['name']}.git"
 
 
-def _event_prompt(ctx: dict[str, Any], event: Event) -> str:
+PR_BODY_MAX_CHARS = 2000
+_FIX_TAIL = (
+    "Подтверждённые уязвимости фиксируй report_finding (файл:строки из диффа), в конце —"
+    " write_report."
+)
+
+
+def _scope_push(event: Event) -> str:
+    head = event.commit_sha or "HEAD"
+    if event.before_sha:
+        return (
+            f"СКОУП — изменения {event.before_sha}..{head}"
+            f"{f' (ветка {event.ref})' if event.ref else ''}. Порядок: 1) git_diff(ref={head!r},"
+            f" base={event.before_sha!r}, stat=true) — список затронутых файлов; 2) сообщения"
+            f" коммитов: sandbox_run `git log --oneline {event.before_sha}..{head}`; 3) аудит"
+            " ТОЛЬКО затронутого кода: патч по файлам git_diff(path=…), окружение изменённых"
+            " строк — read_file/grep_code (вызывающие, sink'и, проверки). Весь репозиторий"
+            " не сканировать; группы файлов делегируй Сабагентам через task."
+        )
+    return (
+        f"СКОУП — изменения последнего коммита {head} (предыдущее состояние ветки неизвестно:"
+        f" первый пуш или force-push). Порядок: 1) git_diff(ref={head!r}, stat=true), затем патч"
+        " по файлам; 2) аудит ТОЛЬКО затронутого кода с чтением окружения через"
+        " read_file/grep_code; весь репозиторий не сканировать. В отчёте сделай оговорку,"
+        " что сравнение — с HEAD~1, а не с состоянием до пуша."
+    )
+
+
+def _scope_pr(event: Event, merge_base: str | None) -> str:
+    head = event.head_sha or event.commit_sha or "HEAD"
+    base = merge_base or event.base_sha
+    title = f"PR #{event.pr_number}" if event.pr_number else "PR"
+    parts = [f"{title}: {event.pr_title}" if event.pr_title else f"{title} без заголовка."]
+    if event.pr_body:
+        body = event.pr_body.strip()
+        if len(body) > PR_BODY_MAX_CHARS:
+            body = body[:PR_BODY_MAX_CHARS] + "… [обрезано]"
+        parts.append(f"Описание PR (намерение автора, контекст, не истина):\n{body}")
+    if base:
+        diff_call = f"git_diff(ref={head!r}, base={base!r}"
+        origin = "merge-base с базой" if merge_base else "база PR"
+        scope = f"СКОУП — diff {base}...{head} ({origin}): {diff_call}, stat=true), затем"
+    else:
+        scope = f"СКОУП — изменения головы PR {head}: git_diff(ref={head!r}, stat=true), затем"
+    parts.append(
+        f"{scope} патч по файлам git_diff(path=…). РЕЖИМ РЕВЬЮ: Находки — по строкам диффа,"
+        " с чтением окружения изменённых строк через read_file/grep_code; весь репозиторий не"
+        " сканировать, группы файлов делегируй Сабагентам через task. Отдельно оцени, что"
+        " изменение ломает или расширяет в attack surface (новые входы, ослабленные проверки,"
+        " новые зависимости/права). Итог write_report — как PR-ревью: вердикт, риски, Находки."
+    )
+    return "\n".join(parts)
+
+
+def _scope_manual(event: Event) -> str:
+    head = event.commit_sha or "HEAD"
+    return (
+        f"Ручной запуск на коммите {head}. Если в этом треде уже разобран предыдущий коммит —"
+        f" СКОУП — изменения от него до {head}: git_diff(ref={head!r}, base=<тот sha>, stat=true);"
+        f" иначе — последний коммит: git_diff(ref={head!r}, stat=true). Затем патч по файлам и"
+        " аудит ТОЛЬКО затронутого кода с чтением окружения через read_file/grep_code; весь"
+        " репозиторий не сканировать."
+    )
+
+
+def _event_prompt(ctx: dict[str, Any], event: Event, *, merge_base: str | None = None) -> str:
+    """Задание хода по типу События: push/PR/manual — аудит КОНКРЕТНЫХ изменений,
+    full_scan — полный аудит, прочее с коммитом — разбор в контексте треда."""
     parts = [
         f"Событие в репозитории {ctx['owner']}/{ctx['name']} ({event.provider}): {event.action}."
     ]
@@ -80,6 +147,8 @@ def _event_prompt(ctx: dict[str, Any], event: Event) -> str:
         parts.append(f"Коммит: {event.commit_sha}.")
     if event.ref:
         parts.append(f"Ref: {event.ref}.")
+    if event.changed_files:
+        parts.append("Изменённые файлы (по данным провайдера): " + ", ".join(event.changed_files))
     if ctx.get("prompt"):
         parts.append(str(ctx["prompt"]))
     if event.action == "full_scan":
@@ -90,6 +159,12 @@ def _event_prompt(ctx: dict[str, Any], event: Event) -> str:
             " собери и зафиксируй все подтверждённые Находки report_finding,"
             " в конце — сводный write_report. Не ограничивайся диффом — весь код."
         )
+    elif event.action == "push":
+        parts.extend([_scope_push(event), _FIX_TAIL])
+    elif event.action in PR_ACTIONS:
+        parts.append(_scope_pr(event, merge_base))
+    elif event.action == "manual":
+        parts.extend([_scope_manual(event), _FIX_TAIL])
     else:
         parts.append(
             "Разбери это Событие в контексте того, что ты уже знаешь о репозитории"
@@ -195,6 +270,20 @@ class EventExecutor:
                 log.warning("post-cancel thread repair failed", error=describe(exc))
             raise
 
+    async def _ensure_scope(self, sandbox: Sandbox, event: Event) -> str | None:
+        """Коммиты скоупа (before / base / head) должны быть в shallow-клоне до хода;
+        для PR — merge-base базы и головы (для двухточечного git_diff = трёхточечному)."""
+        from core.repo import ensure_commits
+
+        pair = None
+        if event.action in PR_ACTIONS and event.base_sha and (event.head_sha or event.commit_sha):
+            pair = (event.base_sha, event.head_sha or event.commit_sha or "")
+        shas = [event.before_sha, event.base_sha, event.head_sha, event.commit_sha]
+        started = time.monotonic()
+        merge_base = await ensure_commits(sandbox, [x for x in shas if x], merge_base_of=pair)
+        log.info("scope commits ensured", duration_ms=_ms(started), merge_base=merge_base)
+        return merge_base
+
     async def process_event(
         self,
         ctx: dict[str, Any],
@@ -217,11 +306,16 @@ class EventExecutor:
             elif event.commit_sha:  # репо уже есть: без переклона, только продвинуть
                 await advance_repo(sandbox, event.commit_sha)
                 log.info("repo advanced", duration_ms=_ms(started), commit=event.commit_sha)
+            merge_base = await self._ensure_scope(sandbox, event)
             graph, profile = self._graph(ctx, sandbox, event.event_id)
             config = self._run_config(ctx, profile, tracer, turn="event")
             async with self._repaired_thread(graph, config):
                 async for mode, chunk in graph.astream(
-                    {"messages": [HumanMessage(content=_event_prompt(ctx, event))]},
+                    {
+                        "messages": [
+                            HumanMessage(content=_event_prompt(ctx, event, merge_base=merge_base))
+                        ]
+                    },
                     config=config,
                     stream_mode=profile.stream_modes,
                 ):

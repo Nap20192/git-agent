@@ -39,6 +39,7 @@ def test_toolset_names_both_for_lead_and_subagents():
         "grep_code",
         "git_diff",
         "git_blame",
+        "browse",
     }
 
 
@@ -122,3 +123,42 @@ def test_git_blame_range_defaults():
         assert sb.commands == ["git -C /repo blame --date=short -L 10,60 -- sub/b.go"]
 
     asyncio.run(run())
+
+
+def test_browse_validates_scheme_runs_in_sandbox_and_clips():
+    async def run():
+        sb = FakeSandbox("Title: T\nURL: https://x/final\n\nbody")
+        browse = tools(sb)["browse"]
+        for bad in ("ftp://x/y", "file:///etc/passwd", "javascript:alert(1)", "nvd.nist.gov"):
+            assert (await browse.ainvoke({"url": bad})).startswith("browse: only http(s)")
+        assert sb.commands == []  # до песочницы невалидный URL не доходит
+        out = await browse.ainvoke({"url": " https://nvd.nist.gov/vuln/detail/CVE-2024-1 "})
+        assert out.startswith("Title: T\nURL: https://x/final")
+        cmd = sb.commands[0]
+        assert cmd.startswith("command -v python3") and "python3 -c " in cmd
+        assert cmd.endswith(" https://nvd.nist.gov/vuln/detail/CVE-2024-1 160000")
+        assert "def extract_text" in cmd  # экстрактор уезжает в песочницу целиком
+        long = FakeSandbox("x" * 5000)
+        clipped = await tools(long)["browse"].ainvoke({"url": "http://a/b", "max_chars": 1000})
+        assert clipped.startswith("x" * 1000) and "truncated at 1000" in clipped
+        nopy = FakeSandbox(SandboxCommandError("python3", 3, "browse: python3 is not installed"))
+        err = await tools(nopy)["browse"].ainvoke({"url": "https://a/b"})
+        assert err.startswith("browse failed (exit 3)") and "not installed" in err
+
+    asyncio.run(run())
+
+
+def test_html_text_extractor_keeps_structure_and_drops_chrome():
+    from core.tools.sandbox.html_text import extract_text
+
+    html = """<html><head><title> CVE-2024-1 &amp; co </title><style>p{}</style>
+    <script>alert(1)</script></head><body><nav><a href=/>Home</a></nav>
+    <h1>Overview</h1><p>Some   text<br>here</p><ul><li>one</li><li>two</li></ul>
+    <pre><code>x = 1
+  y = 2</code></pre><footer>c 2026</footer></body></html>"""
+    title, text = extract_text(html)
+    assert title == "CVE-2024-1 & co"
+    assert "Home" not in text and "alert" not in text and "2026" not in text
+    assert text.startswith("# Overview\n\nSome text\nhere")
+    assert "- one\n- two" in text
+    assert "```\nx = 1\ny = 2\n```" in text
