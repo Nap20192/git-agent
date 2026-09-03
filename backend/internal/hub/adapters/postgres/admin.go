@@ -630,31 +630,56 @@ func (s *Store) AliveRunner(ctx context.Context, aliveWithin time.Duration) (*do
 	return &list[0], nil
 }
 
+// republishUnprocessedSQL — общая механика ре-публикации (heartbeat + resume):
+// незавершённые События (instance_events без processed_at) Экземпляров из CTE
+// targets(id) — новыми строками outbox; routing_key/payload копируются из
+// исходной публикации ЭТОГО Экземпляра (по instanceId в payload — при веере
+// одного События на несколько Экземпляров строки outbox различаются).
+const republishUnprocessedSQL = `
+	INSERT INTO hub.outbox (event_id, routing_key, payload)
+	SELECT ie.event_id, o.routing_key, o.payload
+	  FROM hub.instance_events ie
+	  JOIN targets t ON t.id = ie.instance_id
+	  JOIN LATERAL (SELECT routing_key, payload FROM hub.outbox o2
+	                 WHERE o2.event_id = ie.event_id
+	                   AND (o2.payload->>'instanceId')::bigint = ie.instance_id
+	                 ORDER BY o2.id LIMIT 1) o ON true
+	 WHERE ie.processed_at IS NULL
+	 RETURNING event_id`
+
 // RequeueStale — один SQL-стейтмент: running-Экземпляры протухших Раннеров →
-// down, их необработанные События (instance_events без processed_at) — новыми
-// строками outbox (routing_key/payload копируются из исходной публикации).
+// down, их необработанные События — снова в outbox (republishUnprocessedSQL).
 func (s *Store) RequeueStale(ctx context.Context, timeout time.Duration) (int, int, error) {
 	var downed, requeued int
 	err := s.Pool.QueryRow(ctx, `
-		WITH downed AS (
+		WITH targets AS (
 			UPDATE hub.agent_instances SET status = 'down', runner_id = NULL, updated_at = now()
 			 WHERE status = 'running'
 			   AND runner_id IN (SELECT id FROM hub.runners WHERE last_heartbeat_at < now() - $1::interval)
 			 RETURNING id
-		), requeued AS (
-			INSERT INTO hub.outbox (event_id, routing_key, payload)
-			SELECT ie.event_id, o.routing_key, o.payload
-			  FROM hub.instance_events ie
-			  JOIN downed d ON d.id = ie.instance_id
-			  JOIN LATERAL (SELECT routing_key, payload FROM hub.outbox o2
-			                 WHERE o2.event_id = ie.event_id ORDER BY o2.id LIMIT 1) o ON true
-			 WHERE ie.processed_at IS NULL
-			 RETURNING id
+		), requeued AS (`+republishUnprocessedSQL+`
 		)
-		SELECT (SELECT count(*) FROM downed), (SELECT count(*) FROM requeued)`,
+		SELECT (SELECT count(*) FROM targets), (SELECT count(*) FROM requeued)`,
 		timeout,
 	).Scan(&downed, &requeued)
 	return downed, requeued, err
+}
+
+// RequeueInstance — «Продолжить»: незавершённые События одного Экземпляра —
+// снова в outbox (та же механика, что heartbeat-ре-публикация); возвращает
+// пере-опубликованные eventId (пусто = нечего продолжать). Дубли и уже
+// исполняющиеся ходы гасит дедуп Экземпляра на раннере.
+func (s *Store) RequeueInstance(ctx context.Context, instanceID int64) ([]int64, error) {
+	rows, err := s.Pool.Query(ctx,
+		`WITH targets AS (SELECT $1::bigint AS id)`+republishUnprocessedSQL, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	return collect(rows, func(r pgx.Rows) (int64, error) {
+		var id int64
+		err := r.Scan(&id)
+		return id, err
+	})
 }
 
 // ── скан-хелперы ────────────────────────────────────────────────────────────

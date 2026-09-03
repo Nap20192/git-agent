@@ -71,6 +71,8 @@ func NewMux(h Handlers) *http.ServeMux {
 	mux.HandleFunc("GET /api/instances/{id}/reports", s(h.Instances.Reports))
 	mux.HandleFunc("GET /api/instances/{id}/findings", s(h.Instances.Findings))
 	mux.HandleFunc("POST /api/instances/{id}/stop", s(h.Instances.Stop))
+	mux.HandleFunc("POST /api/instances/{id}/raise", s(h.Instances.Raise))
+	mux.HandleFunc("POST /api/instances/{id}/resume", s(h.Instances.Resume))
 	mux.HandleFunc("POST /api/instances/{id}/chat", s(h.Instances.Chat))
 	mux.HandleFunc("GET /api/instances/{id}/activity", s(h.Instances.Activity))
 	mux.HandleFunc("POST /api/instances/{id}/terminal", s(h.Instances.Terminal))

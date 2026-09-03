@@ -54,6 +54,8 @@ export function PlaygroundScreen() {
   const { frames, done: turnDone } = useInstanceActivity(id, graphEventId);
   const [triggering, setTriggering] = useState(false);
   const [triggerError, setTriggerError] = useState<string | null>(null);
+  const [stopping, setStopping] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const [sandboxBusy, setSandboxBusy] = useState(false);
   const [sandboxError, setSandboxError] = useState<string | null>(null);
 
@@ -109,6 +111,10 @@ export function PlaygroundScreen() {
   const findings = [...(findingsQ.data ?? [])].reverse();
   const reportFor = (e: RepoEvent): Report | undefined => reports.find((r) => r.eventId === e.id);
   const running = inst.status === "running";
+  // честные состояния кнопок: остановить можно только исполняющийся live-ход,
+  // продолжить — только когда есть Событие без Отчёта
+  const turnActive = graphEventId == null && frames.length > 0 && !turnDone;
+  const hasUnfinished = events.some((e) => !reportFor(e));
 
   // Песочницу создаёт юзер: hub зовёт OpenSandbox (no-TTL) по подключению
   // Сборки и привязывает Экземпляр; раннер только подключается по externalId.
@@ -165,6 +171,54 @@ export function PlaygroundScreen() {
     }
   };
 
+  // «Остановить ход»: раннер отменяет исполняющийся ход, Событие остаётся
+  // незавершённым (processed_at NULL) — «Продолжить» доисполнит с чекпоинта.
+  const stopTurn = async () => {
+    if (!window.confirm("Остановить исполняющийся ход? Событие останется незавершённым — его можно будет продолжить с чекпоинта.")) return;
+    setStopping(true);
+    setTriggerError(null);
+    try {
+      await api.stopInstance(inst.id);
+      setActivity((a) => [...a, { at: new Date(), text: "ход остановлен — Экземпляр опущен, Событие можно продолжить" }]);
+      reloadRef.current();
+    } catch (err) {
+      setTriggerError(err instanceof Error ? err.message : "stop failed");
+    } finally {
+      setStopping(false);
+    }
+  };
+
+  // «Продолжить»: пере-публикация незавершённых Событий + быстрый raise
+  // (202 queued = Экземпляр в очереди за слотом раннера).
+  const resumeTurn = async () => {
+    setResuming(true);
+    setTriggerError(null);
+    try {
+      const { eventIds } = await api.resumeInstance(inst.id);
+      if (eventIds.length === 0) {
+        setActivity((a) => [...a, { at: new Date(), text: "продолжать нечего — незавершённых Событий нет" }]);
+        return;
+      }
+      const { status } = await api.raiseInstance(inst.id);
+      setActivity((a) => [
+        ...a,
+        {
+          at: new Date(),
+          text:
+            status === "queued"
+              ? `Продолжить: Событие #${eventIds.join(", #")} снова в очереди; Экземпляр в очереди за слотом раннера`
+              : `Продолжить: Событие #${eventIds.join(", #")} доисполняется с чекпоинта`,
+        },
+      ]);
+      setGraphEventId(null); // живой граф
+      reloadRef.current();
+    } catch (err) {
+      setTriggerError(err instanceof Error ? err.message : "resume failed");
+    } finally {
+      setResuming(false);
+    }
+  };
+
   return (
     <div className={styles.screen}>
       <div className={styles.inner}>
@@ -178,6 +232,25 @@ export function PlaygroundScreen() {
           </h1>
           {repo && <Badge tone={repo.provider === "github" ? "text" : "burnt"}>{repo.provider}</Badge>}
           <div style={{ flex: 1 }} />
+          {running ? (
+            <Button
+              disabled={stopping || !turnActive}
+              style={{ color: "var(--crit)", borderColor: "var(--crit)" }}
+              title={turnActive ? "отменить исполняющийся ход; Событие останется незавершённым" : "нет исполняющегося хода"}
+              onClick={stopTurn}
+            >
+              {stopping ? "Останавливаю…" : "■ Остановить ход"}
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              disabled={resuming || !hasUnfinished}
+              title={hasUnfinished ? "пере-опубликовать незавершённые События; ход доисполнится с чекпоинта" : "незавершённых Событий нет"}
+              onClick={resumeTurn}
+            >
+              {resuming ? "Продолжаю…" : "⟳ Продолжить"}
+            </Button>
+          )}
           <Button variant="primary" disabled={triggering} onClick={() => runAgent()}>
             {triggering ? "Triggering…" : "▶ Run agent"}
           </Button>

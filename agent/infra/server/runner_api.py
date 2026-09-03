@@ -11,7 +11,7 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from core.runner import RunnerService, parse_event
 
@@ -32,9 +32,14 @@ async def health(request: Request) -> dict[str, Any]:
 
 
 @api.post("/instances/{instance_id}/raise")
-async def raise_instance(instance_id: int, request: Request) -> dict[str, Any]:
-    if not await _service(request).raise_instance(instance_id):
+async def raise_instance(instance_id: int, request: Request):
+    """Быстрый ответ: слот есть — 200 running; слоты заняты — 202 queued
+    (подъём продолжается фоном); чужой/незнакомый Экземпляр — 409."""
+    status = await _service(request).raise_instance(instance_id)
+    if status == "rejected":
         raise HTTPException(409, "instance is held by another runner or missing")
+    if status == "queued":
+        return JSONResponse({"status": "queued"}, status_code=202)
     return {"status": "running"}
 
 

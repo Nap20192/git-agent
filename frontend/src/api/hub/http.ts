@@ -84,6 +84,8 @@ export function createHttpHubApi(): HubApi {
       req(`/instances${repositoryId != null ? `?repositoryId=${repositoryId}` : ""}`),
     getInstance: (id) => req(`/instances/${id}`),
     stopInstance: (id) => req(`/instances/${id}/stop`, { method: "POST" }),
+    raiseInstance: (id) => req(`/instances/${id}/raise`, { method: "POST" }),
+    resumeInstance: (id) => req(`/instances/${id}/resume`, { method: "POST" }),
     listInstanceReports: (id) => req(`/instances/${id}/reports`),
     listInstanceFindings: (id) => req(`/instances/${id}/findings`),
 

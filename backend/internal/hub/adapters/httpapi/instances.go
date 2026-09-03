@@ -117,6 +117,45 @@ func (h *InstancesHandler) Stop(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Raise — POST /api/instances/{id}/raise: явный подъём через Раннер.
+// 200 {status: running} — поднят; 202 {status: queued} — слоты заняты,
+// раннер поднимет фоном (202 раннера пробрасывается как есть).
+func (h *InstancesHandler) Raise(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	queued, err := h.Service.Raise(r.Context(), id, userID(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if queued {
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "running"})
+}
+
+// Resume — POST /api/instances/{id}/resume: «Продолжить» — незавершённые
+// События Экземпляра снова в outbox; ответ — пере-опубликованные eventId
+// (пустой список = нечего продолжать).
+func (h *InstancesHandler) Resume(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	eventIDs, err := h.Service.Resume(r.Context(), id, userID(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if eventIDs == nil {
+		eventIDs = []int64{}
+	}
+	writeJSON(w, http.StatusOK, map[string][]int64{"eventIds": eventIDs})
+}
+
 // Chat — POST /api/instances/{id}/chat: SSE-прокси в Раннер (down-Экземпляр
 // сначала поднимается). Кадры ChatEvent (openapi.yaml) идут от раннера как есть.
 func (h *InstancesHandler) Chat(w http.ResponseWriter, r *http.Request) {
