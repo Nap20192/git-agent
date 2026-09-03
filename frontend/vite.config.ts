@@ -15,6 +15,14 @@ export default defineConfig({
     // adapter in src/api instead if the backend isn't running (see docs/API_CONTRACT.md).
     proxy: {
       "/api": { target: "http://localhost:8080", changeOrigin: true },
+      // Go hub (backend/cmd/hub, HUB_ADDR, default :8081). The hub api layer
+      // prefixes its requests with VITE_HUB_URL=/hub; strip it here so the
+      // session cookie stays same-origin.
+      "/hub": {
+        target: "http://localhost:8081",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/hub/, ""),
+      },
     },
   },
 });
