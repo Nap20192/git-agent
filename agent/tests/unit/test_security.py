@@ -24,9 +24,13 @@ def test_validate_requested_skills():
 
 
 def test_report_finding_validation():
-    assert "recorded high" in report_finding.func(title="SQLi", severity="high", description="x")
-    assert "bad severity" in report_finding.func(title="t", severity="apocalyptic", description="x")
-    assert "required" in report_finding.func(title="", severity="high", description="x")
+    assert "recorded high" in report_finding.func(title="SQLi", severity="high", file="a.py")
+    assert "bad severity" in report_finding.func(title="t", severity="apocalyptic", file="a.py")
+    assert "required" in report_finding.func(title="", severity="high", file="a.py")
+    assert "file is required" in report_finding.func(title="t", severity="high", description="x")
+    assert "normalized" in report_finding.func(
+        title="t", severity="low", file="a", category="weird"
+    )
 
 
 def test_collect_findings_dedup_and_sort():
@@ -43,7 +47,8 @@ def test_collect_findings_dedup_and_sort():
     ]
     findings = collect_findings(msgs)
     assert [f["title"] for f in findings] == ["RCE", "XSS"]
-    assert findings[0]["file"] == "app.py" and findings[0]["startLine"] == 5
+    assert findings[0]["file"] == "app.py" and findings[0]["lineStart"] == 5
+    assert findings[0]["category"] == "other" and findings[0]["blameAuthor"] is None
 
 
 def test_mcp_config_off_by_default(monkeypatch):

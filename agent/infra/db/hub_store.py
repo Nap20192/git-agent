@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from psycopg.errors import UndefinedColumn
 from psycopg.types.json import Json
 
 from core.runner.events import Event
 from core.runner.ports import ClaimResult
 from infra.db.postgres import get_async_pool
+from pkg.logger import get_logger
+
+log = get_logger(__name__)
 
 _CONTEXT_SQL = """
     SELECT i.id, i.thread_id, i.build_id, i.repository_id, i.sandbox_instance_id,
@@ -145,37 +149,85 @@ class HubInstanceStore:
                 (sandbox_instance_id,),
             )
 
-    async def add_report(self, instance_id: int, *, event_id: int | None, summary: str) -> int:
+    async def add_report(
+        self,
+        instance_id: int,
+        *,
+        event_id: int | None,
+        summary: str,
+        structured: dict[str, Any] | None = None,
+    ) -> int:
         pool = await get_async_pool()
         async with pool.connection() as conn:
-            row = await (
-                await conn.execute(
-                    "INSERT INTO hub.reports (instance_id, event_id, summary)"
-                    " VALUES (%s, %s, %s) RETURNING id",
-                    (instance_id, event_id, summary),
-                )
-            ).fetchone()
+            try:
+                row = await (
+                    await conn.execute(
+                        "INSERT INTO hub.reports (instance_id, event_id, summary, structured)"
+                        " VALUES (%s, %s, %s, %s) RETURNING id",
+                        (instance_id, event_id, summary, Json(structured) if structured else None),
+                    )
+                ).fetchone()
+            except UndefinedColumn:  # hub.reports.structured — миграция 007 hub'а ещё не применена
+                await conn.rollback()
+                _warn_schema_v1("hub.reports.structured")
+                row = await (
+                    await conn.execute(
+                        "INSERT INTO hub.reports (instance_id, event_id, summary)"
+                        " VALUES (%s, %s, %s) RETURNING id",
+                        (instance_id, event_id, summary),
+                    )
+                ).fetchone()
         return row["id"]
 
     async def add_finding(self, instance_id: int, finding: dict[str, Any]) -> None:
         pool = await get_async_pool()
+        v1 = (
+            instance_id,
+            finding.get("severity") or "info",
+            finding.get("cwe"),
+            finding.get("cve"),
+            finding.get("file"),
+            finding.get("lineStart"),
+            finding.get("lineEnd"),
+            _evidence(
+                finding
+            ),  # по-прежнему несёт title/description/impact для UI на старых колонках
+            finding.get("remediation"),
+        )
+        v2 = (
+            finding.get("title"),
+            finding.get("description"),
+            finding.get("impact"),
+            finding.get("confidence"),
+            finding.get("category"),
+            Json(finding.get("references") or []),
+            finding.get("blameAuthor"),
+            finding.get("blameEmail"),
+            finding.get("blameCommit"),
+            finding.get("blameDate"),
+            finding.get("blameCommitMessage"),
+            finding.get("introducedBy"),
+        )
         async with pool.connection() as conn:
-            await conn.execute(
-                "INSERT INTO hub.findings (instance_id, severity, cwe, cve, file,"
-                " line_start, line_end, evidence, remediation)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (
-                    instance_id,
-                    finding.get("severity") or "info",
-                    finding.get("cwe"),
-                    finding.get("cve"),
-                    finding.get("file"),
-                    finding.get("startLine"),
-                    finding.get("endLine"),
-                    _evidence(finding),
-                    finding.get("remediation"),
-                ),
-            )
+            try:
+                await conn.execute(
+                    "INSERT INTO hub.findings (instance_id, severity, cwe, cve, file,"
+                    " line_start, line_end, evidence, remediation, title, description, impact,"
+                    ' confidence, category, "references", blame_author, blame_email,'
+                    " blame_commit, blame_date, blame_commit_message, introduced_by)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
+                    " %s, %s, %s, %s, %s)",
+                    (*v1, *v2),
+                )
+            except UndefinedColumn:  # колонки Находки v2 — миграция 007 hub'а ещё не применена
+                await conn.rollback()
+                _warn_schema_v1("hub.findings v2 columns")
+                await conn.execute(
+                    "INSERT INTO hub.findings (instance_id, severity, cwe, cve, file,"
+                    " line_start, line_end, evidence, remediation)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    v1,
+                )
 
     async def add_activity(
         self,
@@ -216,6 +268,16 @@ class HubInstanceStore:
                 )
             ).fetchall()
         return [row["payload"] for row in rows]
+
+
+_warned_schema: set[str] = set()
+
+
+def _warn_schema_v1(what: str) -> None:
+    """Один warning на процесс: пишем по схеме v1, поля v2 теряются до миграции 007."""
+    if what not in _warned_schema:
+        _warned_schema.add(what)
+        log.warning("hub schema is v1, falling back (apply hub migration 007)", missing=what)
 
 
 def _evidence(finding: dict[str, Any]) -> str:

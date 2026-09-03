@@ -22,12 +22,21 @@ class RecordingStore:
     def __init__(self):
         self.findings: list[tuple[int, dict[str, Any]]] = []
         self.reports: list[tuple[int, int | None, str]] = []
+        self.structured: list[dict[str, Any] | None] = []
 
     async def add_finding(self, instance_id: int, finding: dict[str, Any]) -> None:
         self.findings.append((instance_id, finding))
 
-    async def add_report(self, instance_id: int, *, event_id: int | None, summary: str) -> int:
+    async def add_report(
+        self,
+        instance_id: int,
+        *,
+        event_id: int | None,
+        summary: str,
+        structured: dict[str, Any] | None = None,
+    ) -> int:
         self.reports.append((instance_id, event_id, summary))
+        self.structured.append(structured)
         return len(self.reports)
 
 
@@ -52,15 +61,19 @@ def test_report_finding_persists():
                 "end_line": 12,
                 "cwe": "CWE-89",
                 "confidence": "medium",
+                "category": "injection",
+                "references": ["https://cwe.mitre.org/data/definitions/89.html"],
             }
         )
         assert result == "recorded high finding: SQL-инъекция в login [app/db.py:10]"
         instance_id, finding = store.findings[0]
         assert instance_id == 3
         assert finding["severity"] == "high"
-        assert finding["startLine"] == 10 and finding["endLine"] == 12
-        assert finding["cwe"] == "CWE-89"
+        assert finding["lineStart"] == 10 and finding["lineEnd"] == 12
+        assert finding["cwe"] == "CWE-89" and finding["category"] == "injection"
         assert finding["confidence"] == "medium"
+        assert finding["references"] == ["https://cwe.mitre.org/data/definitions/89.html"]
+        assert finding["blameCommit"] is None  # без песочницы blame не определяется
 
     asyncio.run(run())
 
@@ -69,10 +82,12 @@ def test_report_finding_validates():
     async def run():
         store = RecordingStore()
         tool = _tools(store)["report_finding"]
-        bad_sev = await tool.ainvoke({"title": "x", "severity": "urgent", "description": "y"})
+        bad_sev = await tool.ainvoke({"title": "x", "severity": "urgent", "file": "a.py"})
         assert bad_sev.startswith("report_finding: bad severity")
-        empty = await tool.ainvoke({"title": " ", "severity": "low", "description": "y"})
-        assert empty == "report_finding: title and description are required"
+        empty = await tool.ainvoke({"title": " ", "severity": "low", "file": "a.py"})
+        assert empty == "report_finding: title is required"
+        no_file = await tool.ainvoke({"title": "x", "severity": "low", "description": "y"})
+        assert no_file.startswith("report_finding: file is required")
         assert store.findings == []
 
     asyncio.run(run())
@@ -82,8 +97,15 @@ def test_write_report_persists():
     async def run():
         store = RecordingStore()
         tool = _tools(store)["write_report"]
-        assert await tool.ainvoke({"summary": "  Итог разбора.  "}) == "report 1 saved"
-        assert store.reports == [(3, 7, "Итог разбора.")]
+        assert (
+            await tool.ainvoke({"summary": "  Итог разбора.  "})
+            == "report 1 saved (0 findings attached)"
+        )
+        instance_id, event_id, summary = store.reports[0]
+        assert (instance_id, event_id) == (3, 7)
+        assert "## Summary\nИтог разбора." in summary and "| severity |" not in summary
+        assert store.structured[0]["summary"] == "Итог разбора."
+        assert store.structured[0]["findingsBySeverity"]["high"] == 0
         assert (await tool.ainvoke({"summary": "  "})) == "write_report: summary is required"
 
     asyncio.run(run())

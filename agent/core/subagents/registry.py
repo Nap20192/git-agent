@@ -25,7 +25,12 @@ Final report contract (5 points):
 2. Cite receipt ids for every action claim (see report_contract below).
 3. Attach verifiable handles (absolute paths, exact commands) to findings.
 4. List what failed or remains uncertain.
-5. Be dense: facts over narration; the delegating agent pays for every token."""
+5. Be dense: facts over narration; the delegating agent pays for every token.
+
+Confirmed vulnerabilities go through `report_finding` with ALL fields you know: title, \
+description (source→sink trace), impact, confidence (high/medium/low), category, severity, \
+cwe/cve, file (required) + start_line/end_line, evidence, remediation, references (URLs). \
+Never guess or pass blame/author/commit — the system resolves it from file and lines."""
 
 
 @dataclass(frozen=True)

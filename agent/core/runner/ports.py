@@ -65,7 +65,16 @@ class InstanceStore(Protocol):
         """Экземпляр + Сборка + connections + Репозиторий одной выборкой."""
         ...
 
-    async def add_report(self, instance_id: int, *, event_id: int | None, summary: str) -> int: ...
+    async def add_report(
+        self,
+        instance_id: int,
+        *,
+        event_id: int | None,
+        summary: str,
+        structured: dict[str, Any] | None = None,
+    ) -> int:
+        """summary — markdown-рендер Отчёта (старый UI), structured — hub.reports.structured."""
+        ...
 
     async def add_finding(self, instance_id: int, finding: dict[str, Any]) -> None: ...
 

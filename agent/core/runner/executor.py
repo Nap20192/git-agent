@@ -137,6 +137,21 @@ def _scope_manual(event: Event) -> str:
     )
 
 
+def scope_range(event: Event, merge_base: str | None = None) -> tuple[str, str] | None:
+    """(before, after) диапазон изменений События для introducedBy Находок и Отчёта:
+    push/manual — before..commit (без before — commit^..commit), PR — merge-base..head,
+    full_scan и прочее — None."""
+    head = event.head_sha or event.commit_sha
+    if not head or event.action == "full_scan":
+        return None
+    if event.action in PR_ACTIONS:
+        base = merge_base or event.base_sha
+        return (base, head) if base else (f"{head}^", head)
+    if event.action in ("push", "manual"):
+        return (event.before_sha or f"{head}^", head)
+    return None
+
+
 def _event_prompt(ctx: dict[str, Any], event: Event, *, merge_base: str | None = None) -> str:
     """Задание хода по типу События: push/PR/manual — аудит КОНКРЕТНЫХ изменений,
     full_scan — полный аудит, прочее с коммитом — разбор в контексте треда."""
@@ -234,12 +249,23 @@ class EventExecutor:
         return sandbox
 
     def _graph(
-        self, ctx: dict[str, Any], sandbox: Sandbox, event_id: int | None
+        self,
+        ctx: dict[str, Any],
+        sandbox: Sandbox,
+        event: Event | None,
+        merge_base: str | None = None,
     ) -> tuple[Any, Any]:
         from core.lead import build_lead_profile
         from core.tools.security import build_hub_security_tools
 
-        tools = build_hub_security_tools(self._store, ctx["id"], event_id)
+        tools = build_hub_security_tools(
+            self._store,
+            ctx["id"],
+            event.event_id if event else None,
+            sandbox=sandbox,
+            scope_range=scope_range(event, merge_base) if event else None,
+            event_type=event.action if event else "chat",
+        )
         model = self._make_model(
             model=ctx["llm_model"],
             api_base=ctx["llm_api_base"],
@@ -307,7 +333,7 @@ class EventExecutor:
                 await advance_repo(sandbox, event.commit_sha)
                 log.info("repo advanced", duration_ms=_ms(started), commit=event.commit_sha)
             merge_base = await self._ensure_scope(sandbox, event)
-            graph, profile = self._graph(ctx, sandbox, event.event_id)
+            graph, profile = self._graph(ctx, sandbox, event, merge_base)
             config = self._run_config(ctx, profile, tracer, turn="event")
             async with self._repaired_thread(graph, config):
                 async for mode, chunk in graph.astream(
@@ -359,7 +385,7 @@ class EventExecutor:
         sandbox = await self._timed_connect(ctx)
         tracer = TurnTracer()
         try:
-            graph, profile = self._graph(ctx, sandbox, None)
+            graph, profile = self._graph(ctx, sandbox, None)  # чат: без диапазона События
             config = self._run_config(ctx, profile, tracer, turn="chat")
             async with self._repaired_thread(graph, config):
                 async for mode, chunk in graph.astream(
