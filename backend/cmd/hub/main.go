@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/vnkjd/git-agent/backend/pkg/dnsfix"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -41,6 +42,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	dnsfix.Install(os.Getenv("DNS_SERVER")) // dev: обход сломанного системного резолвера
 	logger := newLogger(cfg.LogLevel)
 	defer logger.Sync() //nolint:errcheck // stderr
 	zap.ReplaceGlobals(logger)

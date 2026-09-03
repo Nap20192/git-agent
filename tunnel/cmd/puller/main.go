@@ -5,9 +5,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -62,7 +64,22 @@ func replay(client *http.Client, hubURL string, rec record) error {
 	return nil
 }
 
+// installDNS — dev-обход сломанного системного резолвера (зеркало backend/pkg/dnsfix).
+func installDNS(server string) {
+	if server == "" {
+		return
+	}
+	if _, _, err := net.SplitHostPort(server); err != nil {
+		server = net.JoinHostPort(server, "53")
+	}
+	d := &net.Dialer{Timeout: 5 * time.Second}
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return d.DialContext(ctx, network, server)
+	}}
+}
+
 func main() {
+	installDNS(os.Getenv("DNS_SERVER"))
 	relayURL := strings.TrimSuffix(os.Getenv("RELAY_URL"), "/")
 	token := os.Getenv("RELAY_TOKEN")
 	if relayURL == "" || token == "" {

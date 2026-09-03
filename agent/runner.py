@@ -19,9 +19,12 @@ async def _lifespan(app: FastAPI):
 
 
 def create_runner_app() -> FastAPI:
+    from core.config import settings
     from infra.server.request_context import RequestContextMiddleware
     from infra.server.runner_api import install_api
+    from pkg.dnsfix import install as install_dns
 
+    install_dns(settings.dns_server)  # dev: обход сломанного системного резолвера
     app = FastAPI(title="git-agent runner", lifespan=_lifespan)
     app.add_middleware(RequestContextMiddleware)  # X-Trace-Id от hub → в лог-контекст
     install_api(app)
