@@ -133,10 +133,12 @@ class EventExecutor:
     async def process_event(self, ctx: dict[str, Any], event: Event) -> None:
         sandbox, reused = await self._provision(ctx)
         try:
-            if not reused or event.commit_sha:
-                from core.repo import prepare_repo
+            from core.repo import advance_repo, prepare_repo
 
+            if not reused:
                 await prepare_repo(sandbox, repo_url(ctx), checkout_ref=event.commit_sha)
+            elif event.commit_sha:  # reuse: без переклона, только продвинуть на коммит
+                await advance_repo(sandbox, event.commit_sha)
             graph, profile = self._graph(ctx, sandbox, event.event_id)
             config = {"configurable": {"thread_id": ctx["thread_id"]}, **profile.run_config}
             await graph.ainvoke(

@@ -45,8 +45,18 @@ class FakeService:
 
     async def chat(self, instance_id: int, message: str):
         self.chats.append((instance_id, message))
-        yield "updates", {"step": 1}
         yield "custom", {"note": "думаю"}
+        yield (
+            "updates",
+            {
+                "lead": {
+                    "messages": [
+                        {"type": "ai", "content": "", "tool_calls": [{"name": "sandbox_run"}]},
+                        {"type": "ai", "content": "готово: всё спокойно"},
+                    ]
+                }
+            },
+        )
 
 
 @pytest.fixture
@@ -97,13 +107,16 @@ def test_accept_event_mismatch_and_garbage(client, service):
     assert service.events == []
 
 
-def test_chat_sse_stream(client, service):
+def test_chat_sse_stream_is_chat_events(client, service):
+    """Кадры — ChatEvent {kind: token|activity|done} (контракт hub openapi)."""
     with client.stream("POST", "/instances/3/chat", json={"message": "что нового?"}) as response:
         assert response.headers["content-type"].startswith("text/event-stream")
         body = "".join(response.iter_text())
-    payloads = [json.loads(line[len("data: "):]) for line in body.splitlines() if line]
-    assert [p["type"] for p in payloads] == ["updates", "custom", "chat_done"]
-    assert payloads[1]["data"] == {"note": "думаю"}
+    frames = [json.loads(line[len("data: "):]) for line in body.splitlines() if line]
+    assert [f["kind"] for f in frames] == ["activity", "activity", "token", "done"]
+    assert frames[0]["text"] == "думаю"
+    assert frames[1]["text"] == "lead: sandbox_run"
+    assert frames[2]["text"] == "готово: всё спокойно"
     assert service.chats == [(3, "что нового?")]
 
 

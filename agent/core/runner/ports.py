@@ -58,14 +58,14 @@ class InstanceStore(Protocol):
 
 
 class HubClient(Protocol):
-    """HTTP-клиент backend'а (регистрация/heartbeat) и соседних раннеров (форвард).
+    """HTTP-клиент hub'а (регистрация/heartbeat) и соседних раннеров (форвард).
 
-    Backend ещё пишется: сетевые сбои — warn, не исключение наружу.
+    hub недоступен ⇒ warn+retry внутри адаптера, не исключение наружу.
     """
 
     async def register(self, *, name: str, address: str, slots: int) -> None: ...
 
-    async def heartbeat(self, *, name: str) -> None: ...
+    async def heartbeat(self, *, runner_id: int) -> None: ...
 
     async def forward_event(self, address: str, event: Event) -> bool:
         """POST {address}/instances/{id}/events; False при недоступности держателя."""

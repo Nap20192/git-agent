@@ -33,6 +33,17 @@ async def resolve_commit_sha(repo_url: str) -> str:
         return "unknown"
 
 
+async def advance_repo(sandbox: Sandbox, checkout_ref: str) -> None:
+    """Продвинуть УЖЕ склонированный репозиторий на ref без переклона (reuse песочницы)."""
+    repo_dir = shlex.quote(sandbox.repo_dir)
+    ref = shlex.quote(checkout_ref)
+    await sandbox.run(
+        f"git -C {repo_dir} fetch --depth 1 origin {ref}"
+        f" && git -C {repo_dir} checkout --detach {ref}",
+        timeout_seconds=CLONE_TIMEOUT_SECONDS,
+    )
+
+
 async def prepare_repo(sandbox: Sandbox, repo_url: str, checkout_ref: str | None = None) -> None:
     """Клон + опциональный пин коммита."""
     repo_dir = shlex.quote(sandbox.repo_dir)

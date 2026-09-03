@@ -37,12 +37,12 @@ class Settings(BaseSettings):
     # Раннер (консьюмер Событий; см. openspec/specs/runner)
     rabbit_url: str = "amqp://guest:guest@localhost:5673/"
     runner_name: str = "runner-1"
-    runner_address: str = "http://localhost:8081"
-    runner_port: int = 8081
+    runner_address: str = "http://localhost:8082"
+    runner_port: int = 8082  # 8081 занят hub'ом
     runner_slots: int = 2
     runner_idle_timeout_seconds: float = 900.0
     runner_token: str = ""  # X-Runner-Token для backend
-    backend_url: str = ""  # hub; пусто = регистрация/heartbeat выключены
+    hub_url: str = ""  # адрес hub; пусто = регистрация/heartbeat выключены
     hub_enc_key: str = ""  # base64 32 байта, AES-GCM для hub.*_enc
 
 

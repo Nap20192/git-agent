@@ -328,7 +328,7 @@ async def main() -> None:
     from infra.hub_client import HttpHubClient
 
     store = HubInstanceStore()
-    hub = HttpHubClient(backend_url=settings.backend_url, token=settings.runner_token)
+    hub = HttpHubClient(hub_url=settings.hub_url, token=settings.runner_token)
     service = RunnerService(
         store=store,
         hub=hub,

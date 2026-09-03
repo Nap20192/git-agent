@@ -56,6 +56,28 @@ async def accept_event(instance_id: int, request: Request) -> dict[str, Any]:
     return {"outcome": outcome}
 
 
+def chat_events(mode: str, data: Any):
+    """(mode, chunk) графа → кадры ChatEvent {kind: token|activity, text}
+    (контракт backend/docs/openapi.yaml: hub проксирует кадры как есть)."""
+    if mode == "updates" and isinstance(data, dict):
+        for node, update in data.items():
+            messages = update.get("messages") if isinstance(update, dict) else None
+            for msg in messages or []:
+                if not isinstance(msg, dict):
+                    continue
+                for call in msg.get("tool_calls") or []:
+                    yield {"kind": "activity", "text": f"{node}: {call.get('name', 'tool')}"}
+                content = msg.get("content")
+                if msg.get("type") == "ai" and not msg.get("tool_calls") and str(content).strip():
+                    yield {"kind": "token", "text": str(content)}
+        return
+    text = data.get("note") if isinstance(data, dict) else None
+    yield {
+        "kind": "activity",
+        "text": str(text) if text else json.dumps(data, ensure_ascii=False, default=str),
+    }
+
+
 @api.post("/instances/{instance_id}/chat")
 async def chat(instance_id: int, request: Request):
     body = await request.json()
@@ -66,9 +88,9 @@ async def chat(instance_id: int, request: Request):
 
     async def sse():
         async for mode, data in service.chat(instance_id, message):
-            payload = {"type": mode, "data": data}
-            yield f"data: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
-        yield 'data: {"type": "chat_done"}\n\n'
+            for frame in chat_events(mode, data):
+                yield f"data: {json.dumps(frame, ensure_ascii=False, default=str)}\n\n"
+        yield 'data: {"kind": "done"}\n\n'
 
     return StreamingResponse(
         sse(),

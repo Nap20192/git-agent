@@ -92,10 +92,10 @@ tasks:
       - uv run uvicorn main:app --port 8080
 
   runner:
-    desc: Раннер — консьюмер Событий RabbitMQ + HTTP API на :8081
+    desc: Раннер — консьюмер Событий RabbitMQ + HTTP API на :8082 (:8081 у hub)
     dir: agent
     cmds:
-      - uv run uvicorn runner:app --port 8081
+      - uv run uvicorn runner:app --port 8082
 
   demo:runner:
     desc: Интерактивное демо Раннера (реальные Rabbit+Postgres, без LLM)

@@ -180,7 +180,7 @@ class RunnerService:
         while True:
             try:
                 await self._store.heartbeat_runner(self.runner_id)
-                await self._hub.heartbeat(name=self.name)
+                await self._hub.heartbeat(runner_id=self.runner_id)
             except Exception:
                 log.warning("heartbeat failed", exc_info=True)
             await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
