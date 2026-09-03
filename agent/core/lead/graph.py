@@ -58,6 +58,8 @@ sandbox_run. Всё остальное — чтение кода, подтвер
   откуда взялись строки — скоуп push-События начинай с git_diff(stat=true).
 - sandbox_run(command): shell в песочнице (образ: git, rg, semgrep, bandit, node, go; состав \
   зависит от тега — перед анализатором проверь `command -v`). Не средство атаки.
+- browse(url): читаемый текст веб-страницы — ТОЛЬКО для внешних фактов (advisories, CVE/NVD/GHSA, \
+  документация и README зависимостей). Сначала grep_code/read_file по коду; репо через browse не читать.
 - task(description, prompt, subagent_type): делегировать проверку области Сабагенту. В prompt дай \
   ЧЁТКИЙ скоуп (файлы/каталоги/область), какие skills загрузить, что искать и требование вернуть \
   подтверждённые Находки через report_finding. subagent_type: general-purpose.

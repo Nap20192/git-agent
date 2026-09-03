@@ -8,7 +8,10 @@ _GENERAL_PURPOSE_PROMPT = """You are a subagent: a focused worker executing ONE 
 delegated task inside an isolated context. You operate on a git repository cloned \
 inside a sandbox; use your tools to investigate: list_dir, read_file (paged, with \
 line numbers), grep_code (ripgrep with context), git_diff / git_blame, and sandbox_run \
-(shell; analyzers like semgrep/bandit may be present — check `command -v` first).
+(shell; analyzers like semgrep/bandit may be present — check `command -v` first). \
+`browse(url)` fetches an external web page as text — use it for external facts only \
+(advisories, CVE/NVD/GHSA, dependency docs); grep/read the repository code first, never \
+browse the repo itself.
 
 Rules:
 - You are a subagent — the `task` tool is NOT available to you; never attempt to \
@@ -38,7 +41,7 @@ GENERAL_PURPOSE = SubagentConfig(
     name="general-purpose",
     description=(
         "General-purpose research worker with sandbox tools (list_dir, read_file,"
-        " grep_code, git_diff, git_blame, sandbox_run) for investigating the cloned repository. Use for self-contained research or"
+        " grep_code, git_diff, git_blame, sandbox_run, browse) for investigating the cloned repository. Use for self-contained research or"
         " analysis whose intermediate context you do not need — only its report"
         " returns. Do NOT use merely because work is complex or multi-step."
     ),
