@@ -1,16 +1,19 @@
-/** Theme toggle: dark (default) / light. Persisted to localStorage and applied
- *  as data-theme on <html>, where tokens.css scopes the palette. */
+/** Theme toggle: light (default) / dark. Persisted to localStorage 'ga-hub-theme'
+ *  and applied as data-theme on <html>, where vk-colors.css scopes the palette. */
 import { useEffect, useState } from "react";
 
 export type Theme = "dark" | "light";
-const KEY = "git-agent:theme";
+const KEY = "ga-hub-theme";
 
 function stored(): Theme {
-  const t = typeof localStorage !== "undefined" ? localStorage.getItem(KEY) : null;
-  return t === "light" ? "light" : "dark";
+  try {
+    return localStorage.getItem(KEY) === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
 }
 
-export function useTheme(): { theme: Theme; toggle: () => void } {
+export function useTheme(): { theme: Theme; label: string; toggle: () => void } {
   const [theme, setTheme] = useState<Theme>(stored);
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -20,5 +23,9 @@ export function useTheme(): { theme: Theme; toggle: () => void } {
       /* ignore */
     }
   }, [theme]);
-  return { theme, toggle: () => setTheme((t) => (t === "dark" ? "light" : "dark")) };
+  return {
+    theme,
+    label: `theme → ${theme === "dark" ? "light" : "dark"}`,
+    toggle: () => setTheme((t) => (t === "dark" ? "light" : "dark")),
+  };
 }

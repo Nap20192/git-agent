@@ -1,487 +1,342 @@
-/** Playground — live view of one agent Экземпляр, Railway-deploy style:
- *  status strip (runner, sandbox, slots, pulse), run graph «Лид → Сабагенты»
- *  fed by the activity SSE (ticket 012), Событие timeline (click an event to
- *  replay its ход on the graph), activity log, findings, chat. Entity lists
- *  still poll at 5s — only activity streams. */
-import { useEffect, useRef, useState } from "react";
+/** Playground — live view of one agent Экземпляр. Header (status, thread,
+ *  sandbox, runner) + actions (attach sandbox, stop turn / resume, raise,
+ *  run agent, full scan), then tabs: timeline (events + reports + activity
+ *  log, build/counts/sandbox cards), graph («Лид → Сабагенты» over the
+ *  activity SSE, click a timeline event to replay its ход), findings, chat,
+ *  subagents (folded from task_* frames), terminal. Entity lists poll at 5s;
+ *  only activity streams. Chat and terminal stay mounted across tabs. */
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import type { RepoEvent, Report } from "@/api/hub";
-import { activityLine, useInstanceActivity } from "./activity.ts";
-import { InstanceGraphPanel } from "./InstanceGraphPanel.tsx";
-import {
-  useBuilds,
-  useHubRepositories,
-  useInstance,
-  useInstanceFindings,
-  useInstanceReports,
-  useInstances,
-  useRepoEvents,
-  useRunners,
-} from "@/hooks";
-import { useHubApi } from "@/api/hub";
-import { Badge, Button, Panel, PanelHeader } from "@/components/primitives";
+import { useHubApi, type Finding, type RepoEvent, type Report } from "@/api/hub";
+import { useBuilds, useHubRepositories, useInstance, useInstanceFindings, useInstanceReports, useInstances, useLlmConnections, useRepoEvents, useRunners, useSandboxConnections, useSandboxInstancesHub } from "@/hooks";
+import { activityLine, duration, foldActivity, useInstanceActivity, type SubagentNode } from "./activity.ts";
 import { InstanceChatPanel } from "./InstanceChatPanel.tsx";
+import { InstanceGraphPanel, STATUS_COLOR, Status, SubagentDetail } from "./InstanceGraphPanel.tsx";
 import { InstanceTerminalPanel } from "./InstanceTerminalPanel.tsx";
-import { FindingRow } from "./RepoScreen.tsx";
-import styles from "./hub.module.css";
+import { Dot, Panel, ago, errMsg, sha, shortRef, useScreenCtx, useShell } from "./ui.tsx";
 
 const POLL_MS = 5000;
+const TABS = ["timeline", "graph", "findings", "chat", "subagents", "terminal"] as const;
+type Tab = (typeof TABS)[number];
+const FCOLS = "70px 100px 1.2fr 1.4fr 1.4fr";
+const SCOLS = "2ch 1fr 80px 70px 70px";
+const SEV_COLOR: Record<string, string> = { critical: "var(--error)", crit: "var(--error)", high: "var(--error)", medium: "var(--warning)", med: "var(--warning)", low: "var(--text-muted)" };
 
-interface ActivityLine {
+interface Line {
   at: Date;
   text: string;
 }
 
+/** Known limits keys (agent/core/lead/graph.py::_lead_features). */
+export function limitsText(limits?: Record<string, unknown>): string {
+  const n = (k: string) => (typeof limits?.[k] === "number" ? (limits[k] as number) : null);
+  const p: string[] = [];
+  const conc = n("maxSubagents"); if (conc != null) p.push(`${conc} subagents`);
+  const tot = n("maxTotalSubagents"); if (tot != null) p.push(`${tot} total`);
+  const st = n("subagentTimeout"); if (st != null) p.push(`${st}s timeout`);
+  const qt = n("queueTimeout"); if (qt != null) p.push(`${qt}s queue`);
+  const b = n("tokenBudget"); if (b != null) p.push(`${b.toLocaleString("en-US")} tokens`);
+  return p.length ? p.join(" · ") : "no limits";
+}
+
+export function FindingsTable({ rows, loading }: { rows: Finding[]; loading?: boolean }) {
+  const loc = (f: Finding) => (f.file ? `${f.file}${f.lineStart != null ? `:${f.lineStart}${f.lineEnd != null && f.lineEnd !== f.lineStart ? `-${f.lineEnd}` : ""}` : ""}` : "—");
+  return (
+    <div className="box">
+      <div className="thead" style={{ "--cols": FCOLS } as React.CSSProperties}>
+        <span>severity</span><span>cwe</span><span>location</span><span>evidence</span><span>remediation</span>
+      </div>
+      {rows.map((f) => (
+        <div key={f.id} className="trow top" style={{ "--cols": FCOLS } as React.CSSProperties}>
+          <span style={{ fontWeight: 700, color: SEV_COLOR[f.severity.toLowerCase()] ?? "var(--text)" }}>{f.severity}</span>
+          <span className="comment">{f.cwe ?? f.cve ?? "—"}</span>
+          <span style={{ textDecoration: "underline", wordBreak: "break-all" }}>{loc(f)}</span>
+          <span className="comment" style={{ fontStyle: "italic", wordBreak: "break-all" }}>{f.evidence ?? ""}</span>
+          <span className="pretty">{f.remediation ?? ""}</span>
+        </div>
+      ))}
+      {rows.length === 0 && <div className="empty">{loading ? "loading…" : "no findings filed by this instance."}</div>}
+    </div>
+  );
+}
+
 export function PlaygroundScreen() {
-  const { id: idParam } = useParams();
-  const id = Number(idParam);
+  const id = Number(useParams().id);
   const navigate = useNavigate();
   const api = useHubApi();
+  const { say, setLive } = useShell();
 
   const instQ = useInstance(id);
   const inst = instQ.data;
   const reposQ = useHubRepositories();
   const buildsQ = useBuilds();
+  const llmQ = useLlmConnections();
+  const sbxConnQ = useSandboxConnections();
   const runnersQ = useRunners();
   const instancesQ = useInstances();
+  const sbxQ = useSandboxInstancesHub();
   const eventsQ = useRepoEvents(inst?.repositoryId ?? null);
   const findingsQ = useInstanceFindings(id);
   const reportsQ = useInstanceReports(id);
 
-  const [activity, setActivity] = useState<ActivityLine[]>([]);
+  const [tab, setTab] = useState<Tab>("timeline");
+  const [local, setLocal] = useState<Line[]>([]);
   // null = follow the live/latest ход; a Событие id pins the graph to its replay
   const [graphEventId, setGraphEventId] = useState<number | null>(null);
   const { frames, done: turnDone } = useInstanceActivity(id, graphEventId);
-  const [triggering, setTriggering] = useState(false);
-  const [triggerError, setTriggerError] = useState<string | null>(null);
-  const [stopping, setStopping] = useState(false);
-  const [resuming, setResuming] = useState(false);
-  const [sandboxBusy, setSandboxBusy] = useState(false);
-  const [sandboxError, setSandboxError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [attach, setAttach] = useState("");
+  const [saSel, setSaSel] = useState<string | null>(null);
 
-  // Poll everything the screen shows. reload identities change every render,
-  // so the interval reads them through a ref instead of re-arming.
+  const repo = (reposQ.data ?? []).find((r) => r.id === inst?.repositoryId);
+  const build = (buildsQ.data ?? []).find((b) => b.id === inst?.buildId);
+  useScreenCtx(repo && inst ? `${repo.owner}/${repo.name} · #${inst.id}` : null);
+  useEffect(() => {
+    setLive(graphEventId == null && frames.length > 0 && !turnDone);
+    return () => setLive(false);
+  }, [graphEventId, frames.length, turnDone, setLive]);
+
+  // Poll everything the screen shows; reload identities change per render, so read through a ref.
   const reloadRef = useRef(() => {});
   reloadRef.current = () => {
-    instQ.reload();
-    eventsQ.reload();
-    findingsQ.reload();
-    reportsQ.reload();
-    runnersQ.reload();
-    instancesQ.reload();
+    instQ.reload(); eventsQ.reload(); findingsQ.reload(); reportsQ.reload(); runnersQ.reload(); instancesQ.reload(); sbxQ.reload();
   };
   useEffect(() => {
     const t = setInterval(() => reloadRef.current(), POLL_MS);
     return () => clearInterval(t);
   }, []);
 
+  const graph = useMemo(() => foldActivity(frames), [frames]);
+
   if (instQ.error || (inst == null && !instQ.loading)) {
-    return (
-      <div className={styles.gate}>
-        <span style={{ color: "var(--muted)", fontSize: 13 }}>
-          {instQ.error ? `Failed to load Экземпляр #${id}: ${instQ.error.message}` : `Экземпляр #${id} not found.`}
-        </span>
-      </div>
-    );
+    return <div className="gate">{instQ.error ? `failed to load instance #${id}: ${instQ.error.message}` : `instance #${id} not found.`}</div>;
   }
-  if (inst == null) {
-    return (
-      <div className={styles.gate}>
-        <span style={{ color: "var(--muted)", fontSize: 13 }}>loading…</span>
-      </div>
-    );
-  }
+  if (inst == null) return <div className="gate">loading…</div>;
 
-  const repo = (reposQ.data ?? []).find((r) => r.id === inst.repositoryId);
-  const build = (buildsQ.data ?? []).find((b) => b.id === inst.buildId);
   const runner = inst.runnerId != null ? (runnersQ.data ?? []).find((r) => r.id === inst.runnerId) : undefined;
-  // Busy slots = running instances placed on this runner (derived; the wire has no busy counter).
-  const busySlots = runner
-    ? (instancesQ.data ?? []).filter((i) => i.runnerId === runner.id && i.status === "running").length
-    : 0;
-
   const events = eventsQ.data ?? [];
   const reports = reportsQ.data ?? [];
-  // activity log = локальные действия экрана + строки activity-стрима хода
-  const streamLines = frames.flatMap((f) => {
-    const text = activityLine(f);
-    return text ? [{ at: f.ts ? new Date(f.ts) : new Date(), text }] : [];
-  });
-  const log = [...activity, ...streamLines].sort((a, b) => a.at.getTime() - b.at.getTime());
-  const findings = [...(findingsQ.data ?? [])].reverse();
-  const reportFor = (e: RepoEvent): Report | undefined => reports.find((r) => r.eventId === e.id);
+  const findings = findingsQ.data ?? [];
   const running = inst.status === "running";
-  // честные состояния кнопок: остановить можно только исполняющийся live-ход,
-  // продолжить — только когда есть Событие без Отчёта
+  const reportFor = (e: RepoEvent): Report | undefined => reports.find((r) => r.eventId === e.id);
+  // honest button states: stop only an executing live turn; resume only with an unreported Событие
   const turnActive = graphEventId == null && frames.length > 0 && !turnDone;
   const hasUnfinished = events.some((e) => !reportFor(e));
-
-  // Песочницу создаёт юзер: hub зовёт OpenSandbox (no-TTL) по подключению
-  // Сборки и привязывает Экземпляр; раннер только подключается по externalId.
   const sandboxAlive = inst.sandboxInstanceId != null && inst.sandboxStatus === "alive";
-  const createSandbox = async () => {
-    const connId = build?.sandboxConnectionId;
-    if (connId == null) {
-      setSandboxError("Сборка has no sandbox connection — set one on the Builds screen.");
-      return;
-    }
-    setSandboxBusy(true);
-    setSandboxError(null);
+  const aliveSandboxes = (sbxQ.data ?? []).filter((s) => s.status === "alive");
+  const log = (text: string) => setLocal((a) => [...a, { at: new Date(), text }]);
+
+  const act = async (key: string, fn: () => Promise<string | void>) => {
+    setBusy(key);
     try {
+      const m = await fn();
+      if (m) { say(m); log(m); }
+      reloadRef.current();
+    } catch (e) {
+      const m = errMsg(e, `${key} failed`);
+      say(m);
+      log(`error: ${m}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const runAgent = (mode?: "full") => {
+    if (mode === "full" && !window.confirm("Full scan is a long and expensive run — start it?")) return;
+    act("trigger", async () => {
+      const res = await api.triggerRepository(inst.repositoryId, mode ? { mode } : undefined);
+      setGraphEventId(null);
+      return `${mode === "full" ? "full scan" : "manual trigger"} → event #${res.event.id} @ ${sha(res.event.commitSha)}`;
+    });
+  };
+  // «Остановить ход»: the runner cancels the executing turn; the Событие stays unprocessed → «Продолжить» resumes from the checkpoint.
+  const stopTurn = () => {
+    if (!window.confirm("Stop the executing turn? The event stays unfinished — it can be resumed from the checkpoint.")) return;
+    act("stop", async () => { await api.stopInstance(inst.id); return "turn stopped — instance down, event can be resumed"; });
+  };
+  // «Продолжить»: republish unfinished События + fast raise (queued = waiting for a runner slot).
+  const resumeTurn = () =>
+    act("resume", async () => {
+      const { eventIds } = await api.resumeInstance(inst.id);
+      if (eventIds.length === 0) return "nothing to resume — no unfinished events";
+      const { status } = await api.raiseInstance(inst.id);
+      setGraphEventId(null);
+      return status === "queued" ? `resume: event #${eventIds.join(", #")} re-queued; instance waits for a runner slot` : `resume: event #${eventIds.join(", #")} continues from the checkpoint`;
+    });
+  const raise = () => act("raise", async () => { const { status } = await api.raiseInstance(inst.id); return status === "queued" ? "raise queued — runner slots busy" : `instance #${inst.id} raised`; });
+  const attachSandbox = () => {
+    const sid = Number(attach);
+    if (!sid) return say("pick a sandbox first");
+    act("attach", async () => { await api.setInstanceSandbox(inst.id, sid); setAttach(""); return `sandbox attached to instance #${inst.id}`; });
+  };
+  const createSandbox = () => {
+    const connId = build?.sandboxConnectionId;
+    if (connId == null) return say("build has no sandbox connection — set one on the builds page.");
+    act("sandbox", async () => {
       const si = await api.createSandboxInstance({ sandboxConnectionId: connId });
       await api.setInstanceSandbox(inst.id, si.id);
-      setActivity((a) => [...a, { at: new Date(), text: `sandbox created → ${si.externalId}` }]);
-      instQ.reload();
-    } catch (err) {
-      setSandboxError(err instanceof Error ? err.message : "sandbox create failed");
-    } finally {
-      setSandboxBusy(false);
-    }
+      return `sandbox created → ${si.externalId}`;
+    });
   };
-  const killSandbox = async () => {
+  const killSandbox = () => {
     if (inst.sandboxInstanceId == null) return;
-    setSandboxBusy(true);
-    setSandboxError(null);
-    try {
-      await api.killSandboxInstance(inst.sandboxInstanceId);
-      setActivity((a) => [...a, { at: new Date(), text: `sandbox killed → ${inst.sandboxExternalId ?? `#${inst.sandboxInstanceId}`}` }]);
-      instQ.reload();
-    } catch (err) {
-      setSandboxError(err instanceof Error ? err.message : "sandbox kill failed");
-    } finally {
-      setSandboxBusy(false);
-    }
+    act("sandbox", async () => { await api.killSandboxInstance(inst.sandboxInstanceId!); return `sandbox killed → ${inst.sandboxExternalId ?? `#${inst.sandboxInstanceId}`}`; });
   };
 
-  const runAgent = async (mode?: "full") => {
-    if (mode === "full" && !window.confirm("Full scan is a long and expensive run — start it?")) return;
-    setTriggering(true);
-    setTriggerError(null);
-    try {
-      const res = await api.triggerRepository(inst.repositoryId, mode ? { mode } : undefined);
-      setActivity((a) => [
-        ...a,
-        { at: new Date(), text: `${mode === "full" ? "full scan" : "manual trigger"} → Событие #${res.event.id} @ ${res.event.commitSha?.slice(0, 8) ?? "HEAD"}` },
-      ]);
-      reloadRef.current();
-    } catch (err) {
-      setTriggerError(err instanceof Error ? err.message : "trigger failed");
-    } finally {
-      setTriggering(false);
-    }
-  };
+  // timeline: events (●, click → replay on graph) + reports (→) + activity lines (⚙), newest first
+  const timeline = [
+    ...events.map((e) => ({ t: new Date(e.receivedAt), glyph: "●", color: graphEventId === e.id ? "var(--accent)" : "var(--text-muted)", title: e.action, meta: `${shortRef(e.ref)} @ ${sha(e.commitSha)}${reportFor(e) ? "" : running ? " · no report yet" : " · unfinished"}`, body: "", eventId: e.id })),
+    ...reports.map((r) => ({ t: new Date(r.createdAt), glyph: "→", color: "var(--accent)", title: "report", meta: r.eventId != null ? `for event #${r.eventId}` : "", body: r.summary, eventId: null })),
+    ...[...local, ...frames.flatMap((f) => { const text = activityLine(f); return text ? [{ at: f.ts ? new Date(f.ts) : new Date(), text }] : []; })].map((l) => ({ t: l.at, glyph: "⚙", color: "var(--text-comment)", title: "", meta: l.text, body: "", eventId: null })),
+  ].sort((a, b) => b.t.getTime() - a.t.getTime());
 
-  // «Остановить ход»: раннер отменяет исполняющийся ход, Событие остаётся
-  // незавершённым (processed_at NULL) — «Продолжить» доисполнит с чекпоинта.
-  const stopTurn = async () => {
-    if (!window.confirm("Остановить исполняющийся ход? Событие останется незавершённым — его можно будет продолжить с чекпоинта.")) return;
-    setStopping(true);
-    setTriggerError(null);
-    try {
-      await api.stopInstance(inst.id);
-      setActivity((a) => [...a, { at: new Date(), text: "ход остановлен — Экземпляр опущен, Событие можно продолжить" }]);
-      reloadRef.current();
-    } catch (err) {
-      setTriggerError(err instanceof Error ? err.message : "stop failed");
-    } finally {
-      setStopping(false);
-    }
-  };
-
-  // «Продолжить»: пере-публикация незавершённых Событий + быстрый raise
-  // (202 queued = Экземпляр в очереди за слотом раннера).
-  const resumeTurn = async () => {
-    setResuming(true);
-    setTriggerError(null);
-    try {
-      const { eventIds } = await api.resumeInstance(inst.id);
-      if (eventIds.length === 0) {
-        setActivity((a) => [...a, { at: new Date(), text: "продолжать нечего — незавершённых Событий нет" }]);
-        return;
-      }
-      const { status } = await api.raiseInstance(inst.id);
-      setActivity((a) => [
-        ...a,
-        {
-          at: new Date(),
-          text:
-            status === "queued"
-              ? `Продолжить: Событие #${eventIds.join(", #")} снова в очереди; Экземпляр в очереди за слотом раннера`
-              : `Продолжить: Событие #${eventIds.join(", #")} доисполняется с чекпоинта`,
-        },
-      ]);
-      setGraphEventId(null); // живой граф
-      reloadRef.current();
-    } catch (err) {
-      setTriggerError(err instanceof Error ? err.message : "resume failed");
-    } finally {
-      setResuming(false);
-    }
-  };
+  const saList = graph.tasks;
+  const saRunning = saList.filter((x) => x.status === "working").length;
+  const saCur: SubagentNode | undefined = saList.find((x) => x.taskId === saSel) ?? saList.find((x) => x.status === "working") ?? saList[saList.length - 1];
+  const tabLabel = (t: Tab) => (t === "findings" && findings.length ? `findings ${findings.length}` : t === "subagents" && saRunning ? `subagents ● ${saRunning}` : t);
 
   return (
-    <div className={styles.screen}>
-      <div className={styles.inner}>
-        <span className={styles.backLink} onClick={() => navigate(repo ? `/repos/${repo.id}` : "/repos")}>
-          ← {repo ? `${repo.owner}/${repo.name}` : "repositories"}
-        </span>
-        <div className={styles.head}>
-          <h1 className={styles.title}>
-            <span className={styles.cardOwner}>playground/</span>
-            {build?.name ?? `Экземпляр #${inst.id}`}
+    <div className="screen">
+      <div className="head">
+        <div>
+          <div className="crumbs">
+            <a href="/repos" onClick={(e) => { e.preventDefault(); navigate("/repos"); }}>repositories</a> →{" "}
+            <a href={repo ? `/repos/${repo.id}` : "/repos"} onClick={(e) => { e.preventDefault(); navigate(repo ? `/repos/${repo.id}` : "/repos"); }}>{repo ? `${repo.owner}/${repo.name}` : "…"}</a> → playground
+          </div>
+          <h1 style={{ marginTop: 4 }}>
+            <Dot on={running} pulse={running} />{build?.name ?? "instance"} <span className="muted" style={{ fontWeight: 400 }}>#{inst.id}</span>
           </h1>
-          {repo && <Badge tone={repo.provider === "github" ? "text" : "burnt"}>{repo.provider}</Badge>}
-          <div style={{ flex: 1 }} />
-          {running ? (
-            <Button
-              disabled={stopping || !turnActive}
-              style={{ color: "var(--crit)", borderColor: "var(--crit)" }}
-              title={turnActive ? "отменить исполняющийся ход; Событие останется незавершённым" : "нет исполняющегося хода"}
-              onClick={stopTurn}
-            >
-              {stopping ? "Останавливаю…" : "■ Остановить ход"}
-            </Button>
-          ) : (
-            <Button
-              variant="primary"
-              disabled={resuming || !hasUnfinished}
-              title={hasUnfinished ? "пере-опубликовать незавершённые События; ход доисполнится с чекпоинта" : "незавершённых Событий нет"}
-              onClick={resumeTurn}
-            >
-              {resuming ? "Продолжаю…" : "⟳ Продолжить"}
-            </Button>
+          <div className="sub comment">
+            {inst.status} · thread {inst.threadId ?? "—"} · sandbox {inst.sandboxExternalId ? `${inst.sandboxExternalId} (${inst.sandboxStatus})` : "none"} · runner {runner ? `${runner.name} ${runner.address}` : "—"} · updated {ago(inst.updatedAt)}
+          </div>
+        </div>
+        <div className="row" style={{ justifyContent: "flex-end" }}>
+          {!sandboxAlive && aliveSandboxes.length > 0 && (
+            <>
+              <select className="select" value={attach} onChange={(e) => setAttach(e.target.value)}>
+                <option value="">attach sandbox…</option>
+                {aliveSandboxes.map((s) => (<option key={s.id} value={s.id}>{s.externalId}</option>))}
+              </select>
+              <button className="btn md" disabled={busy != null} onClick={attachSandbox}>attach</button>
+            </>
           )}
-          <Button variant="primary" disabled={triggering} onClick={() => runAgent()}>
-            {triggering ? "Triggering…" : "▶ Run agent"}
-          </Button>
-          <Button variant="ghost" disabled={triggering} onClick={() => runAgent("full")}>
-            Full scan
-          </Button>
+          {running ? (
+            <button className="btn md danger" disabled={busy != null || !turnActive} title={turnActive ? "cancel the executing turn; the event stays unfinished" : "no executing turn"} onClick={stopTurn}>
+              {busy === "stop" ? "stopping…" : "■ stop turn"}
+            </button>
+          ) : (
+            <>
+              <button className="btn md" disabled={busy != null || !hasUnfinished} title={hasUnfinished ? "republish unfinished events; the turn continues from the checkpoint" : "no unfinished events"} onClick={resumeTurn}>
+                {busy === "resume" ? "resuming…" : "⟳ resume"}
+              </button>
+              <button className="btn md" disabled={busy != null} onClick={raise}>{busy === "raise" ? "raising…" : "raise instance"}</button>
+            </>
+          )}
+          <button className="btn primary" disabled={busy != null} onClick={() => runAgent()}>{busy === "trigger" ? "triggering…" : "❯ run agent"}</button>
+          <button className="btn md" disabled={busy != null} onClick={() => runAgent("full")}>full scan</button>
         </div>
-        {triggerError && <p className={styles.error}>{triggerError}</p>}
-        <p className={styles.blurb}>
-          Live view of this agent: what arrives, what it does, what it finds. Everything refreshes on its own.
-        </p>
+      </div>
 
-        <div className={styles.statusStrip}>
-          <div className={styles.statusItem}>
-            <span className={styles.statusLabel}>agent</span>
-            <span className={styles.statusValue}>
-              <span className={`${styles.presenceDot} ${running ? styles.awake : styles.asleep}`} />
-              {running ? "running" : "down"}
-            </span>
-          </div>
-          <div className={styles.statusItem}>
-            <span className={styles.statusLabel}>runner</span>
-            <span className={styles.statusValue}>
-              {runner ? (
-                <>
-                  {runner.name} <span className={styles.mono}>{runner.address}</span>
-                </>
-              ) : (
-                "—"
-              )}
-            </span>
-          </div>
-          <div className={styles.statusItem}>
-            <span className={styles.statusLabel}>slots</span>
-            <span className={styles.statusValue}>{runner ? `${busySlots} / ${runner.slots}` : "—"}</span>
-          </div>
-          <div className={styles.statusItem}>
-            <span className={styles.statusLabel}>sandbox</span>
-            <span className={styles.statusValue}>
-              {inst.sandboxInstanceId != null ? (
-                <>
-                  <span className={`${styles.presenceDot} ${sandboxAlive ? styles.awake : styles.asleep}`} />
-                  <span className={styles.mono}>{inst.sandboxExternalId ?? `#${inst.sandboxInstanceId}`}</span>
-                </>
-              ) : (
-                "none"
-              )}
-            </span>
-          </div>
-          <div className={styles.statusItem}>
-            <span className={styles.statusLabel}>updated</span>
-            <span className={styles.statusValue}>
-              {inst.updatedAt ? new Date(inst.updatedAt).toLocaleTimeString() : "—"}
-            </span>
-          </div>
-        </div>
+      <div className="tabs">
+        {TABS.map((t) => (
+          <button key={t} className={`tab${tab === t ? " active" : ""}`} onClick={() => setTab(t)}>{tabLabel(t)}</button>
+        ))}
+      </div>
 
-        <InstanceGraphPanel
-          frames={frames}
-          done={turnDone}
-          live={graphEventId == null}
-          turnLabel={graphEventId != null ? `Событие #${graphEventId}` : "live"}
-          onBackToLive={() => setGraphEventId(null)}
-        />
-
-        <div className={styles.repoGrid}>
-          <div className={styles.rail}>
-            <Panel>
-              <PanelHeader
-                icon="↯"
-                title="TIMELINE — СОБЫТИЯ"
-                right={<span className={styles.cell}>{events.length}</span>}
-              />
-              <div className={styles.timeline}>
-                {events.length === 0 && (
-                  <div className={styles.journalEmpty}>
-                    {eventsQ.loading && eventsQ.data === undefined
-                      ? "loading…"
-                      : "Nothing yet. Push to the repository and the webhook delivers the first Событие here."}
-                  </div>
-                )}
-                {events.map((e) => {
-                  const report = reportFor(e);
-                  return (
-                    <div
-                      key={e.id}
-                      className={`${styles.tlRow} ${styles.tlClickable} ${graphEventId === e.id ? styles.tlSelected : ""}`}
-                      title="показать ход этого События на графе"
-                      onClick={() => setGraphEventId(graphEventId === e.id ? null : e.id)}
-                    >
-                      <span className={`${styles.tlDot} ${report ? styles.tlDone : running ? styles.tlPending : ""}`} />
-                      <div className={styles.tlBody}>
-                        <div className={styles.tlHead}>
-                          <span className={styles.tlAction}>
-                            {e.provider} · {e.action}
-                          </span>
-                          {e.commitSha && <span className={styles.tlMeta}>{e.commitSha.slice(0, 8)}</span>}
-                          {e.ref && <span className={styles.tlMeta}>{e.ref}</span>}
-                          <span className={styles.tlTime}>{new Date(e.receivedAt).toLocaleString()}</span>
-                        </div>
-                        <div className={styles.tlReport}>
-                          {report
-                            ? `✓ processed — ${report.summary}`
-                            : running
-                              ? "no report yet — processing or queued"
-                              : "no report — agent is down"}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+      {tab === "timeline" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 16, flex: 1, minHeight: 0 }}>
+          <div className="box" style={{ overflow: "auto" }}>
+            {timeline.map((it, i) => (
+              <div
+                key={i}
+                style={{ display: "grid", gridTemplateColumns: "120px 3ch 1fr", padding: "8px 12px", borderBottom: "1px solid var(--border)", alignItems: "baseline", cursor: it.eventId != null ? "pointer" : undefined, background: it.eventId != null && it.eventId === graphEventId ? "var(--bg-cursorline)" : undefined }}
+                title={it.eventId != null ? "show this event's turn on the graph" : undefined}
+                onClick={it.eventId != null ? () => { setGraphEventId(graphEventId === it.eventId ? null : it.eventId); setTab("graph"); } : undefined}
+              >
+                <span className="small muted">{ago(it.t.toISOString())}</span>
+                <span style={{ color: it.color }}>{it.glyph}</span>
+                <div style={{ minWidth: 0 }}>
+                  {it.title && <span style={{ fontWeight: 700 }}>{it.title} </span>}
+                  <span className="comment">{it.meta}</span>
+                  {it.body && <div className="pretty" style={{ marginTop: 2 }}>{it.body}</div>}
+                </div>
+              </div>
+            ))}
+            {timeline.length === 0 && <div className="empty">{eventsQ.loading && eventsQ.data === undefined ? "loading…" : "no events yet — trigger a run or push to the repo."}</div>}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            <Panel label="build" className="elev pad">
+              <div><b>{build?.name ?? "—"}</b>{build?.isDefault && <span className="muted"> · default</span>}</div>
+              <div className="small comment pretty" style={{ marginTop: 4 }}>{build?.prompt || "no prompt — runs the reviewer default"}</div>
+              <div className="small muted" style={{ marginTop: 6 }}>
+                llm {(llmQ.data ?? []).find((c) => c.id === build?.llmConnectionId)?.name ?? "—"}<br />
+                sandbox {(sbxConnQ.data ?? []).find((c) => c.id === build?.sandboxConnectionId)?.name ?? "—"}<br />
+                memory {build?.memoryPreset ?? "—"} · {limitsText(build?.limits)}
               </div>
             </Panel>
-
-            <Panel>
-              <PanelHeader
-                icon="⚙"
-                title="ACTIVITY"
-                right={<span className={styles.cell}>{log.length}</span>}
-              />
-              <div className={styles.activityLog}>
-                {log.length === 0 && (
-                  <div className={styles.panelEmpty}>
-                    No activity yet for this ход. Trigger the agent (or click a Событие in the timeline) and the
-                    activity stream lands here and on the graph above.
-                  </div>
-                )}
-                {log.map((a, i) => (
-                  <div key={i} className={styles.activityRow}>
-                    <span className={styles.activityTime}>{a.at.toLocaleTimeString()}</span>
-                    <span className={styles.activityText}>{a.text}</span>
-                  </div>
-                ))}
-              </div>
+            <Panel label="counts" className="elev pad">
+              <div className="kv"><span>reports</span><span>{reports.length}</span></div>
+              <div className="kv"><span>findings</span><span>{findings.length}</span></div>
+              <div className="kv"><span>subagents</span><span className="comment">{saList.length} spawned · {saRunning} running</span></div>
             </Panel>
-
-            <Panel>
-              <PanelHeader
-                icon="⚠"
-                title="FINDINGS"
-                right={<span className={styles.cell}>{findings.length}</span>}
-              />
-              {findings.length === 0 && (
-                <div className={styles.panelEmpty}>
-                  {findingsQ.loading && findingsQ.data === undefined ? "loading…" : "No findings — clean so far."}
-                </div>
-              )}
-              {findings.map((f) => (
-                <FindingRow key={f.id} finding={f} />
-              ))}
-            </Panel>
-          </div>
-
-          <div className={styles.rail}>
-            <Panel>
-              <PanelHeader
-                icon="▣"
-                title="ПЕСОЧНИЦА"
-                right={
-                  inst.sandboxInstanceId != null ? (
-                    <Badge tone={sandboxAlive ? "text" : "burnt"}>{inst.sandboxStatus ?? "?"}</Badge>
-                  ) : undefined
-                }
-              />
-              {instQ.loading && inst.sandboxInstanceId == null ? (
-                <div className={styles.panelEmpty}>loading…</div>
-              ) : sandboxAlive ? (
-                <div className={styles.panelBody}>
-                  <p className={styles.panelNote}>
-                    <span className={styles.mono}>{inst.sandboxExternalId}</span> — alive, no-TTL. The
-                    runner only connects to it; killing it stops Событие processing until a new one is
-                    created.
-                  </p>
-                  <Button disabled={sandboxBusy} onClick={killSandbox}>
-                    {sandboxBusy ? "Killing…" : "✕ Убить песочницу"}
-                  </Button>
-                </div>
+            <Panel label="sandbox" dim={inst.sandboxInstanceId != null ? inst.sandboxStatus ?? "?" : "none"} className="elev pad">
+              {sandboxAlive ? (
+                <>
+                  <div className="small comment pretty"><b>{inst.sandboxExternalId}</b> — alive, no ttl. the runner only connects to it; killing it stops event processing until a new one is created.</div>
+                  <button className="btn danger" style={{ marginTop: 8 }} disabled={busy != null} onClick={killSandbox}>{busy === "sandbox" ? "killing…" : "✕ kill sandbox"}</button>
+                </>
               ) : (
-                <div className={styles.panelBody}>
-                  <p className={styles.panelNote}>
-                    {inst.sandboxInstanceId != null
-                      ? `Previous sandbox ${inst.sandboxExternalId ?? ""} is dead. Событиям нужна живая песочница — create a new one.`
-                      : "No sandbox yet. The agent cannot process События until you create one (the runner never creates sandboxes itself)."}
-                  </p>
-                  <Button variant="primary" disabled={sandboxBusy} onClick={createSandbox}>
-                    {sandboxBusy
-                      ? "Creating…"
-                      : `+ Создать песочницу${build ? ` (connection #${build.sandboxConnectionId ?? "—"})` : ""}`}
-                  </Button>
-                </div>
-              )}
-              {sandboxError && <p className={styles.error}>{sandboxError}</p>}
-            </Panel>
-
-            <InstanceChatPanel
-              instanceId={inst.id}
-              agentLabel={build?.name}
-              onStatusChange={() => {
-                instQ.reload();
-                instancesQ.reload();
-              }}
-              onActivity={(text) => setActivity((a) => [...a, { at: new Date(), text }])}
-            />
-
-            <InstanceTerminalPanel
-              instanceId={inst.id}
-              running={running}
-              hasSandbox={inst.sandboxInstanceId != null}
-            />
-
-            <Panel>
-              <PanelHeader icon="≡" title="REPORTS" right={<span className={styles.cell}>{reports.length}</span>} />
-              {reports.length === 0 && (
-                <div className={styles.panelEmpty}>
-                  {reportsQ.loading && reportsQ.data === undefined
-                    ? "loading…"
-                    : "No reports yet — the agent writes one after working through a Событие."}
-                </div>
-              )}
-              {reports.map((r) => (
-                <div key={r.id} className={styles.reportItem}>
-                  <div className={styles.reportMeta}>
-                    <span>{new Date(r.createdAt).toLocaleString()}</span>
-                    {r.eventId != null && <span>Событие #{r.eventId}</span>}
+                <>
+                  <div className="small comment pretty">
+                    {inst.sandboxInstanceId != null ? `previous sandbox ${inst.sandboxExternalId ?? ""} is dead. events need a live sandbox — create a new one.` : "no sandbox yet. the agent cannot process events until you create one (the runner never creates sandboxes itself)."}
                   </div>
-                  {r.summary}
-                </div>
-              ))}
+                  <button className="btn primary" style={{ marginTop: 8 }} disabled={busy != null} onClick={createSandbox}>{busy === "sandbox" ? "creating…" : `+ create sandbox${build?.sandboxConnectionId != null ? ` · connection #${build.sandboxConnectionId}` : ""}`}</button>
+                </>
+              )}
             </Panel>
           </div>
         </div>
+      )}
+
+      {tab === "graph" && (
+        <InstanceGraphPanel frames={frames} done={turnDone} live={graphEventId == null} turnLabel={graphEventId != null ? `event #${graphEventId}` : "live"} onBackToLive={() => setGraphEventId(null)} />
+      )}
+
+      {tab === "findings" && <FindingsTable rows={[...findings].reverse()} loading={findingsQ.loading && findingsQ.data === undefined} />}
+
+      <div className="box" hidden={tab !== "chat"} style={{ display: tab === "chat" ? "flex" : undefined, flexDirection: "column", flex: 1, minHeight: 420 }}>
+        <InstanceChatPanel instanceId={inst.id} empty={`thread ${inst.threadId ?? "—"} · nothing said yet.`} onStatusChange={() => { instQ.reload(); instancesQ.reload(); }} onActivity={log} />
+      </div>
+
+      {tab === "subagents" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 16, flex: 1, minHeight: 0 }}>
+          <div className="box" style={{ display: "flex", flexDirection: "column" }}>
+            <div className="thead" style={{ "--cols": SCOLS } as React.CSSProperties}>
+              <span></span><span>task</span><span>status</span><span>time</span><span>findings</span>
+            </div>
+            {saList.map((a) => (
+              <div key={a.taskId} className={`trow click${a.taskId === saCur?.taskId ? " sel" : ""}`} style={{ "--cols": SCOLS, padding: "8px 12px" } as React.CSSProperties} onClick={() => setSaSel(a.taskId)}>
+                <Status s={a.status} />
+                <span className="comment ellip">{a.description ?? a.taskId}</span>
+                <span style={{ color: STATUS_COLOR[a.status] }}>{a.status}</span>
+                <span className="small muted">{duration(a.startedAt, a.finishedAt) ?? "—"}</span>
+                <span className="small muted">{a.findingsCount ?? "—"}</span>
+              </div>
+            ))}
+            {saList.length === 0 && <div className="empty">no subagents in this turn — trigger a run; the lead fans out per build limits.</div>}
+            <div className="small muted" style={{ marginTop: "auto", padding: "6px 12px", borderTop: "1px solid var(--border)" }}>
+              {saList.length} spawned · {saRunning} running · {saList.filter((x) => x.status === "done").length} done · {saList.filter((x) => x.status === "failed" || x.status === "timeout").length} failed · {limitsText(build?.limits)}
+            </div>
+          </div>
+          <Panel label={saCur ? saCur.taskId.slice(-6) : "subagent"} dim={saCur ? saCur.status : undefined} className="elev col">
+            <div style={{ padding: "20px 12px 12px", display: "flex", flexDirection: "column", gap: 8, overflow: "auto" }}>
+              {saCur ? <SubagentDetail t={saCur} /> : <span className="small muted">select a subagent to read its log.</span>}
+            </div>
+          </Panel>
+        </div>
+      )}
+
+      <div hidden={tab !== "terminal"} style={{ display: tab === "terminal" ? "flex" : undefined, flexDirection: "column", flex: 1, minHeight: 0 }}>
+        <InstanceTerminalPanel instanceId={inst.id} running={running} hasSandbox={sandboxAlive} sandboxLabel={inst.sandboxExternalId ?? "none"} />
       </div>
     </div>
   );

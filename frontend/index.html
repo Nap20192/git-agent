@@ -1,14 +1,13 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>vulnhunt</title>
+    <title>git-agent hub</title>
     <script>
-      // apply stored theme before first paint (no dark→light flash)
+      // apply stored theme before first paint (no light→dark flash)
       try {
-        var t = localStorage.getItem("git-agent:theme");
-        if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+        if (localStorage.getItem("ga-hub-theme") === "dark") document.documentElement.setAttribute("data-theme", "dark");
       } catch (e) {}
     </script>
   </head>

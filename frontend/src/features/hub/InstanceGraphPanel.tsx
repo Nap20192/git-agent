@@ -1,37 +1,31 @@
 /** Run graph of one ход (ticket 012): star «Лид → Сабагенты» fed by the
- *  activity SSE. Node = status (color/pulse), short task description,
- *  duration, Находки counter; click → drawer with the self-report. */
+ *  activity SSE. Node = status glyph, task description, duration, Находки
+ *  counter; click → drawer with the self-report. Renders as the graph tab. */
 import { useEffect, useMemo, useState } from "react";
-import type { ActivityEvent } from "@/api/hub";
-import { Badge, Drawer, Panel, PanelHeader, StatusDot } from "@/components/primitives";
-import { toneVar } from "@/lib/tone.ts";
-import { duration, foldActivity, statusTone, type SubagentNode } from "./activity.ts";
-import styles from "./hub.module.css";
+import type { ActivityEvent, ActivityStatus } from "@/api/hub";
+import { duration, foldActivity, type SubagentNode } from "./activity.ts";
+import { Drawer } from "./ui.tsx";
 
 const LEAD = { x: 22, y: 50 };
+const taskXY = (i: number, n: number) => (n <= 1 ? { x: 72, y: 50 } : { x: 72, y: Math.max(10, Math.min(90, 50 + (i - (n - 1) / 2) * (80 / Math.max(1, n - 1)))) });
 
-function taskXY(i: number, n: number): { x: number; y: number } {
-  if (n <= 1) return { x: 72, y: 50 };
-  return { x: 72, y: Math.max(10, Math.min(90, 50 + (i - (n - 1) / 2) * (80 / Math.max(1, n - 1)))) };
+export const STATUS_GLYPH: Record<ActivityStatus, string> = { queued: "○", working: "●", done: "✓", failed: "✗", timeout: "✗" };
+export const STATUS_COLOR: Record<ActivityStatus, string> = {
+  queued: "var(--text-comment)",
+  working: "var(--accent)",
+  done: "var(--text-muted)",
+  failed: "var(--error)",
+  timeout: "var(--warning)",
+};
+export function Status({ s }: { s: ActivityStatus }) {
+  return (
+    <span style={{ color: STATUS_COLOR[s] }} className={s === "working" ? "pulse" : ""}>
+      {STATUS_GLYPH[s]}
+    </span>
+  );
 }
 
-export function InstanceGraphPanel({
-  frames,
-  done,
-  live,
-  turnLabel,
-  onBackToLive,
-}: {
-  frames: ActivityEvent[];
-  /** Stream ended (replay finished or the ход closed). */
-  done: boolean;
-  /** Following the live/latest turn (no eventId pinned). */
-  live: boolean;
-  /** "live" or "Событие #N" — shown in the header. */
-  turnLabel: string;
-  onBackToLive?: () => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
+export function InstanceGraphPanel({ frames, done, live, turnLabel, onBackToLive }: { frames: ActivityEvent[]; done: boolean; live: boolean; turnLabel: string; onBackToLive?: () => void }) {
   const [selected, setSelected] = useState<SubagentNode | null>(null);
   const graph = useMemo(() => foldActivity(frames), [frames]);
   const running = graph.started && !graph.finished && !done;
@@ -44,152 +38,80 @@ export function InstanceGraphPanel({
     return () => window.clearInterval(t);
   }, [running]);
 
-  useEffect(() => {
-    if (!expanded) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setExpanded(false);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [expanded]);
+  const leadStatus: ActivityStatus = graph.failed ? "failed" : graph.finished ? "done" : graph.started ? "working" : "queued";
 
-  const leadStatus = graph.failed
-    ? ("failed" as const)
-    : graph.finished
-      ? ("done" as const)
-      : graph.started
-        ? ("working" as const)
-        : ("queued" as const);
-
-  const canvas = (
-    <div className={styles.graphCanvas}>
+  return (
+    <div className="graph">
+      <div className="graph-head">
+        {live ? (
+          <span>{running ? <span className="accent pulse">● live</span> : "last turn"}</span>
+        ) : (
+          <>
+            <span className="accent">{turnLabel}</span>
+            {onBackToLive && <button className="btn xs" onClick={onBackToLive}>→ live</button>}
+          </>
+        )}
+      </div>
       {!graph.started && frames.length === 0 && (
-        <div className={styles.graphEmpty}>
-          {done ? "Нет активности этого хода — Экземпляр ещё не работал." : "connecting…"}
+        <div className="empty" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {done ? "no activity for this turn — the instance has not worked yet." : "connecting…"}
         </div>
       )}
-      <svg className={styles.graphEdges} viewBox="0 0 100 100" preserveAspectRatio="none">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none">
         {graph.tasks.map((t, i) => {
           const p = taskXY(i, graph.tasks.length);
-          const activeEdge = t.status === "working" || t.status === "queued";
+          const active = t.status === "working" || t.status === "queued";
           return (
             <line
               key={t.taskId}
-              x1={LEAD.x}
-              y1={LEAD.y}
-              x2={p.x}
-              y2={p.y}
-              stroke={activeEdge ? "var(--amber)" : "var(--border)"}
-              strokeWidth={activeEdge ? 1.4 : 1}
-              strokeDasharray={activeEdge ? "4 4" : "0"}
+              x1={LEAD.x} y1={LEAD.y} x2={p.x} y2={p.y}
+              stroke={active ? "var(--accent)" : "var(--border)"}
+              strokeWidth={active ? 1.4 : 1}
+              strokeDasharray={active ? "4 4" : "0"}
               vectorEffect="non-scaling-stroke"
-              style={activeEdge ? { animation: "vk-dash .6s linear infinite" } : undefined}
+              style={active ? { animation: "vk-dash .6s linear infinite" } : undefined}
             />
           );
         })}
       </svg>
-
       {(graph.started || frames.length > 0) && (
-        <div className={`${styles.graphNode} ${styles.graphLead}`} style={{ left: `${LEAD.x}%`, top: `${LEAD.y}%` }}>
-          <div className={styles.graphNodeHead}>
-            <StatusDot tone={statusTone(leadStatus)} pulse={leadStatus === "working"} />
-            <span className={styles.graphNodeLabel}>Лид</span>
-            {graph.leadFindings > 0 && <span className={styles.graphCount}>⚠ {graph.leadFindings}</span>}
-          </div>
-          <div className={styles.graphNodeMeta}>
-            <span style={{ color: toneVar(statusTone(leadStatus)) }}>{leadStatus}</span>
-            <span>{duration(graph.startedAt, graph.finishedAt) ?? "—"}</span>
-          </div>
-          {graph.error && <div className={styles.graphNodeError}>{graph.error}</div>}
+        <div className="gnode lead" style={{ left: `${LEAD.x}%`, top: `${LEAD.y}%` }}>
+          <div className="name"><Status s={leadStatus} /> lead{graph.leadFindings > 0 && <span className="muted"> · {graph.leadFindings} findings</span>}</div>
+          <div className="meta"><span style={{ color: STATUS_COLOR[leadStatus] }}>{leadStatus}</span><span>{duration(graph.startedAt, graph.finishedAt) ?? "—"}</span></div>
+          {graph.error && <div className="err small">{graph.error}</div>}
         </div>
       )}
-
       {graph.tasks.map((t, i) => {
         const p = taskXY(i, graph.tasks.length);
         return (
-          <div
-            key={t.taskId}
-            className={`${styles.graphNode} ${styles.graphTask}`}
-            style={{ left: `${p.x}%`, top: `${p.y}%` }}
-            onClick={() => setSelected(t)}
-            title={t.description}
-          >
-            <div className={styles.graphNodeHead}>
-              <StatusDot tone={statusTone(t.status)} pulse={t.status === "working"} />
-              <span className={styles.graphNodeLabel}>{t.description || `subagent ${t.taskId.slice(-6)}`}</span>
-              {t.findingsCount != null && t.findingsCount > 0 && (
-                <span className={styles.graphCount}>⚠ {t.findingsCount}</span>
-              )}
-            </div>
-            <div className={styles.graphNodeMeta}>
-              <span style={{ color: toneVar(statusTone(t.status)) }}>{t.status}</span>
+          <div key={t.taskId} className="gnode task" style={{ left: `${p.x}%`, top: `${p.y}%` }} onClick={() => setSelected(t)} title={t.description}>
+            <div className="name"><Status s={t.status} /> {t.description || `subagent ${t.taskId.slice(-6)}`}</div>
+            <div className="meta">
+              <span style={{ color: STATUS_COLOR[t.status] }}>{t.status}{t.findingsCount ? ` · ${t.findingsCount} findings` : ""}</span>
               <span>{duration(t.startedAt, t.finishedAt) ?? "—"}</span>
             </div>
           </div>
         );
       })}
+      <Drawer open={selected != null} title={`subagent · ${selected?.taskId.slice(-6) ?? ""}`} onClose={() => setSelected(null)}>
+        {selected && <SubagentDetail t={selected} />}
+      </Drawer>
     </div>
   );
+}
 
-  const header = (
-    <PanelHeader
-      icon="✧"
-      title="GRAPH — ХОД"
-      right={
-        <span className={styles.graphHeadRight}>
-          {live ? (
-            <Badge tone={running ? "amber" : "muted"}>{running ? "live" : "последний ход"}</Badge>
-          ) : (
-            <>
-              <Badge tone="blue">{turnLabel}</Badge>
-              {onBackToLive && (
-                <button type="button" className={styles.graphHeadBtn} onClick={onBackToLive}>
-                  → live
-                </button>
-              )}
-            </>
-          )}
-          <button
-            type="button"
-            className={styles.graphHeadBtn}
-            onClick={() => setExpanded((e) => !e)}
-            title={expanded ? "collapse" : "развернуть на весь экран"}
-          >
-            {expanded ? "✕" : "⛶"}
-          </button>
-        </span>
-      }
-    />
-  );
-
+export function SubagentDetail({ t }: { t: SubagentNode }) {
   return (
     <>
-      <Panel className={expanded ? styles.graphFullscreen : undefined}>
-        {header}
-        {canvas}
-      </Panel>
-      <Drawer
-        open={selected != null}
-        title={selected ? `Сабагент — ${selected.description ?? selected.taskId}` : ""}
-        onClose={() => setSelected(null)}
-      >
-        {selected && (
-          <div className={styles.graphDrawer}>
-            <div className={styles.graphDrawerRow}>
-              <StatusDot tone={statusTone(selected.status)} pulse={selected.status === "working"} />
-              <span style={{ color: toneVar(statusTone(selected.status)) }}>{selected.status}</span>
-              <span className={styles.graphDrawerMeta}>{duration(selected.startedAt, selected.finishedAt) ?? ""}</span>
-              {selected.findingsCount != null && (
-                <span className={styles.graphDrawerMeta}>Находок: {selected.findingsCount}</span>
-              )}
-            </div>
-            {selected.error && <p className={styles.error}>{selected.error}</p>}
-            <div className={styles.graphReport}>
-              {selected.report ?? (selected.status === "working" || selected.status === "queued"
-                ? "Сабагент ещё работает — самоотчёт появится по завершении."
-                : "Самоотчёт не получен.")}
-            </div>
-          </div>
-        )}
-      </Drawer>
+      <div className="pretty">{t.description ?? t.taskId}</div>
+      <div className="small muted">
+        <Status s={t.status} /> <span style={{ color: STATUS_COLOR[t.status] }}>{t.status}</span> · {duration(t.startedAt, t.finishedAt) ?? "—"}
+        {t.findingsCount != null && ` · ${t.findingsCount} findings`}
+      </div>
+      {t.error && <div className="err small">{t.error}</div>}
+      <div className="small comment" style={{ whiteSpace: "pre-wrap" }}>
+        {t.report ?? (t.status === "working" || t.status === "queued" ? "still working — the self-report lands when it finishes." : "no self-report received.")}
+      </div>
     </>
   );
 }

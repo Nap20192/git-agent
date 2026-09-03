@@ -2,7 +2,6 @@
  *  run graph «Лид → Сабагенты» and the activity log. */
 import { useEffect, useState } from "react";
 import { useHubApi, type ActivityEvent, type ActivityStatus } from "@/api/hub";
-import type { Tone } from "@/lib/tone.ts";
 
 const LIVE_RECONNECT_MS = 4000;
 
@@ -146,21 +145,6 @@ export function foldActivity(frames: ActivityEvent[]): TurnGraph {
     }
   }
   return graph;
-}
-
-export function statusTone(status: ActivityStatus): Tone {
-  switch (status) {
-    case "queued":
-      return "dim";
-    case "working":
-      return "amber";
-    case "done":
-      return "low";
-    case "timeout":
-      return "burnt";
-    default:
-      return "crit";
-  }
 }
 
 /** Human line for the activity log; null = frame carries nothing worth a line. */

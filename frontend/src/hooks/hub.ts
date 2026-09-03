@@ -64,3 +64,7 @@ export function useRunners() {
   const api = useHubApi();
   return useAsync(() => api.listRunners(), []);
 }
+export function useSandboxInstancesHub() {
+  const api = useHubApi();
+  return useAsync(() => api.listSandboxInstances(), []);
+}

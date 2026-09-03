@@ -1,0 +1,6 @@
+/* Repo fonts: kitty uses "GoMono Nerd Font" (kitty.conf), wezterm uses "Fira Code"
+   (wezterm.lua). Fira Code is available as a webfont; Go Mono / Nerd Font patched
+   binaries are not redistributed here, so glyph coverage comes from the Nerd Fonts
+   symbols-only face. */
+@import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@300..700&display=swap");
+@font-face{font-family:"Symbols Nerd Font Mono";font-style:normal;font-weight:400;font-display:swap;src:url("https://cdn.jsdelivr.net/gh/ryanoasis/nerd-fonts@v3.2.1/patched-fonts/NerdFontsSymbolsOnly/SymbolsNerdFontMono-Regular.ttf") format("truetype")}

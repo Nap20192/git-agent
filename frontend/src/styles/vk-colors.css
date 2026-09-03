@@ -1,0 +1,101 @@
+/* vnkjd monochrome — base values are verbatim from the dotfiles repo.
+   Light is the default scope; dark lives under [data-theme="dark"] / .vk-dark. */
+:root{
+  /* --- brand base --- */
+  --vk-black:#000000;
+  --vk-near-black:#080706;         /* kitty dark bg (drift) */
+  --vk-cream:#fff7df;              /* ghostty + DMS light bg */
+  --vk-cream-kitty:#fffaf0;        /* kitty light bg (drift) */
+  --vk-amber:#ffaf00;              /* terminal accent: cursor, selection, links */
+  --vk-burnt:#cc5200;              /* DMS primaryContainer + niri recent-windows */
+  --vk-burnt-tint:#ff6600;         /* DMS surfaceTint */
+  --vk-blue-search:#00afff;        /* nvim Search / lualine command mode */
+
+  /* --- light neutrals (nvim light palette) --- */
+  --vk-l-fg:#000000;
+  --vk-l-elevated:#f3eadb;
+  --vk-l-subtle:#e4d9c0;
+  --vk-l-muted:#626262;
+  --vk-l-comment:#3f3f3f;
+  --vk-l-noise:#9b907f;
+  --vk-l-cursorline:#ffe8a3;
+  --vk-l-outline:#aaaaaa;          /* DMS light outline */
+
+  /* --- dark neutrals (nvim dark palette + tmux status) --- */
+  --vk-d-fg:#dadada;
+  --vk-d-elevated:#1c1c1c;
+  --vk-d-subtle:#303030;
+  --vk-d-muted:#707070;
+  --vk-d-comment:#9a9a9a;
+  --vk-d-noise:#191919;            /* tmux status bg, yazi flavor bg */
+  --vk-d-cursorline:#2a1f00;
+  --vk-d-outline:#555555;          /* DMS dark outline */
+
+  /* --- semantic (light) --- */
+  --bg:var(--vk-cream);
+  --bg-elevated:var(--vk-l-elevated);
+  --bg-subtle:var(--vk-l-subtle);
+  --bg-noise:var(--vk-l-noise);
+  --bg-cursorline:var(--vk-l-cursorline);
+  --text:var(--vk-l-fg);
+  --text-muted:var(--vk-l-muted);
+  --text-comment:var(--vk-l-comment);
+  --text-inverse:var(--vk-cream-kitty);
+  --accent:var(--vk-amber);
+  --accent-text:#000000;
+  --accent-ui:var(--vk-burnt);      /* GUI layer: bar chips, window highlight */
+  --accent-ui-text:var(--vk-cream-kitty);
+  --border:var(--vk-l-outline);
+  --border-active:var(--vk-amber);
+  --focus-ring:var(--vk-cream);     /* niri focus-ring */
+  --cursor:var(--vk-amber);
+  --cursor-text:#000000;
+  --selection-bg:var(--vk-amber);
+  --selection-fg:#000000;
+  --search:var(--vk-blue-search);
+  --error:#ff005f;
+  --error-ui:#dd0000;               /* DMS error */
+  --warning:#ffcc00;
+  --success:#5f7a4f;
+  --info:var(--vk-l-muted);
+  --hint:#2d716c;                   /* nvim lsp hint (light) */
+  --diff-add:#8dda9e;
+  --diff-add-text:#5f7a4f;
+  --diff-remove:#da8d8d;
+  --diff-remove-text:#cf745d;
+  --diff-change:#e4d9c0;
+}
+[data-theme="dark"],.vk-dark{
+  --bg:var(--vk-black);
+  --bg-elevated:var(--vk-d-elevated);
+  --bg-subtle:var(--vk-d-subtle);
+  --bg-noise:var(--vk-d-noise);
+  --bg-cursorline:var(--vk-d-cursorline);
+  --text:var(--vk-d-fg);
+  --text-muted:var(--vk-d-muted);
+  --text-comment:var(--vk-d-comment);
+  --text-inverse:#000000;
+  --accent:var(--vk-amber);
+  --accent-text:#000000;
+  --accent-ui:var(--vk-burnt);
+  --accent-ui-text:var(--vk-cream-kitty);
+  --border:var(--vk-d-outline);
+  --border-active:var(--vk-amber);
+  --focus-ring:var(--vk-cream);
+  --cursor:var(--vk-amber);
+  --cursor-text:#000000;
+  --selection-bg:var(--vk-amber);
+  --selection-fg:#18130d;
+  --search:var(--vk-blue-search);
+  --error:#ff005f;
+  --error-ui:#dd0000;
+  --warning:#ffcc00;
+  --success:#93ad6d;
+  --info:var(--vk-d-muted);
+  --hint:#78bdb7;
+  --diff-add:#416241;
+  --diff-add-text:#93ad6d;
+  --diff-remove:#722529;
+  --diff-remove-text:#d77a61;
+  --diff-change:#2a2a2a;
+}

@@ -1,442 +1,195 @@
-/** Repository page — the agents' home. N Сборок watch a repo via подписки
- *  (ticket 011: actions + ref mask; no subscriptions → the default Сборка
- *  covers everything), and each matched Сборка gets its own Экземпляр. The
- *  watchers panel doubles as the agent switcher: the selected watcher's agent
- *  backs the chat, reports, and findings. */
+/** Repository page. Watchers = the repo's Экземпляры (one per subscribed
+ *  Сборка; no subscriptions → the default Сборка covers everything) with
+ *  playground/stop/unsubscribe, a subscribe form (build + actions + ref mask),
+ *  the Событие journal and a chat with the active watcher. */
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useHubApi, type AgentBuild, type AgentInstance, type Finding, type Subscription } from "@/api/hub";
-import {
-  useBuilds,
-  useHubRepositories,
-  useInstanceFindings,
-  useInstanceReports,
-  useInstances,
-  useRepoEvents,
-  useSubscriptions,
-} from "@/hooks";
-import { Badge, Button, Panel, PanelHeader } from "@/components/primitives";
-import type { Tone } from "@/lib/tone.ts";
+import { useHubApi, type Subscription } from "@/api/hub";
+import { useBuilds, useHubRepositories, useInstances, useRepoEvents, useSubscriptions } from "@/hooks";
 import { InstanceChatPanel } from "./InstanceChatPanel.tsx";
-import { AgentPresence } from "./RepositoriesScreen.tsx";
-import styles from "./hub.module.css";
+import { Dot, Panel, ago, errMsg, sha, shortRef, useScreenCtx, useShell } from "./ui.tsx";
 
-const SEVERITY_TONES: Record<string, Tone> = {
-  critical: "crit",
-  crit: "crit",
-  high: "high",
-  med: "med",
-  medium: "med",
-  low: "low",
-};
-const severityTone = (s: string): Tone => SEVERITY_TONES[s.toLowerCase()] ?? "info";
+const JCOLS = "150px 1fr 110px 1fr";
 
-/** "push, pull_request @ release/*" | "everything @ any ref" */
-function filterLabel(s: Subscription): string {
-  const actions = s.actions.length ? s.actions.join(", ") : "everything";
-  return `${actions} @ ${s.refMask ?? "any ref"}`;
-}
+const subText = (sub?: Subscription) =>
+  sub ? `subscribed: ${sub.actions.length ? sub.actions.join(", ") : "all actions"} · ${sub.refMask ?? "any ref"}` : "served by default build · no subscription";
 
 export function RepoScreen() {
-  const { id: idParam } = useParams();
-  const id = Number(idParam);
+  const id = Number(useParams().id);
   const navigate = useNavigate();
   const api = useHubApi();
-
+  const { say } = useShell();
   const reposQ = useHubRepositories();
   const buildsQ = useBuilds();
   const instancesQ = useInstances();
   const eventsQ = useRepoEvents(id);
   const subsQ = useSubscriptions(id);
   const [busy, setBusy] = useState(false);
-  const [selectedBuildId, setSelectedBuildId] = useState<number | null>(null);
+  const [f, setF] = useState({ build: "", actions: "", ref: "" });
 
   const repo = (reposQ.data ?? []).find((r) => r.id === id);
+  useScreenCtx(repo ? `${repo.owner}/${repo.name}` : null);
   const builds = buildsQ.data ?? [];
   const events = eventsQ.data ?? [];
   const subs = subsQ.data ?? [];
-  const repoInstances = (instancesQ.data ?? []).filter((i) => i.repositoryId === id);
-  const buildName = (bid: number) => builds.find((b) => b.id === bid)?.name ?? `Сборка #${bid}`;
-  const instanceFor = (bid: number) => repoInstances.find((i) => i.buildId === bid);
+  const mine = (instancesQ.data ?? []).filter((i) => i.repositoryId === id);
+  const buildName = (bid: number) => builds.find((b) => b.id === bid)?.name ?? `build #${bid}`;
+  const subFor = (bid: number) => subs.find((s) => s.buildId === bid);
+  // chat target: the running watcher, else any
+  const chatInst = mine.find((i) => i.status === "running") ?? mine[0];
+  // subscriptions whose Сборка has no Экземпляр yet (raised on the first Событие)
+  const pending = subs.filter((s) => !mine.some((i) => i.buildId === s.buildId));
 
-  // Active agent: the picked watcher's instance, else the awake one, else any.
-  const autoInstance = repoInstances.find((i) => i.status === "running") ?? repoInstances[0];
-  const activeInstance = selectedBuildId != null ? instanceFor(selectedBuildId) : autoInstance;
-  const activeBuildId = selectedBuildId ?? activeInstance?.buildId ?? null;
+  if (!repo) return <div className="gate">{reposQ.loading ? "loading…" : "this repository isn't connected."}</div>;
 
-  if (!repo) {
-    return (
-      <div className={styles.gate}>
-        <span style={{ color: "var(--muted)", fontSize: 13 }}>
-          {reposQ.loading ? "loading…" : "This repository isn't connected. Pick one from the repositories page."}
-        </span>
-      </div>
-    );
-  }
-
-  // Manual run — same path as a webhook push; jump straight to the raised
-  // agent's Playground (prefer the selected watcher's Экземпляр).
-  // mode "full" = full security audit of the whole repo, confirmed first.
-  const runAgent = async (mode?: "full") => {
+  const run = async (mode?: "full") => {
     if (mode === "full" && !window.confirm("Full scan is a long and expensive run — start it?")) return;
     setBusy(true);
     try {
-      const res = await api.triggerRepository(repo!.id, mode ? { mode } : undefined);
-      const target =
-        res.instances.find((i) => i.buildId === activeBuildId) ?? res.instances[0];
+      const res = await api.triggerRepository(repo.id, mode ? { mode } : undefined);
+      say(`${mode === "full" ? "full scan" : "manual run"} @ ${sha(res.event.commitSha)} → ${res.instances.length} instance(s) raised`);
+      const target = res.instances.find((i) => i.id === chatInst?.id) ?? res.instances[0];
       if (target) navigate(`/instances/${target.id}`);
       else {
         eventsQ.reload();
         instancesQ.reload();
       }
+    } catch (e) {
+      say(errMsg(e, "trigger failed"));
     } finally {
       setBusy(false);
     }
   };
-
-  const putToSleep = async () => {
-    if (!activeInstance) return;
+  const act = async (fn: () => Promise<void>, ok: string) => {
     setBusy(true);
     try {
-      await api.stopInstance(activeInstance.id);
-      instancesQ.reload();
+      await fn();
+      say(ok);
+    } catch (e) {
+      say(errMsg(e, "failed"));
     } finally {
       setBusy(false);
     }
   };
-
-  const disconnect = async () => {
-    setBusy(true);
-    try {
-      await api.disconnectRepository(repo.id);
-      navigate("/repos");
-    } finally {
-      setBusy(false);
-    }
+  const stop = (instId: number) => act(async () => { await api.stopInstance(instId); instancesQ.reload(); }, `instance #${instId} stopped`);
+  const unsub = (s: Subscription) => act(async () => { await api.deleteSubscription(s.id); subsQ.reload(); }, `unsubscribed ${buildName(s.buildId)}`);
+  const disconnect = () => {
+    if (!window.confirm(`Disconnect ${repo.owner}/${repo.name}? The webhook is removed; agents' knowledge stays in their checkpoints.`)) return;
+    act(async () => { await api.disconnectRepository(repo.id); navigate("/repos"); }, `disconnected ${repo.name} · webhook removed`);
   };
-
-  return (
-    <div className={styles.screen}>
-      <div className={styles.inner}>
-        <span className={styles.backLink} onClick={() => navigate("/repos")}>
-          ← repositories
-        </span>
-        <div className={styles.head}>
-          <h1 className={styles.title}>
-            <span className={styles.cardOwner}>{repo.owner}/</span>
-            {repo.name}
-          </h1>
-          <Badge tone={repo.provider === "github" ? "text" : "burnt"}>{repo.provider}</Badge>
-          <AgentPresence instance={activeInstance} />
-          <div style={{ flex: 1 }} />
-          <Button variant="primary" disabled={busy} onClick={() => runAgent()}>
-            {busy ? "…" : "▶ Run agent"}
-          </Button>
-          <Button variant="ghost" disabled={busy} onClick={() => runAgent("full")}>
-            Full scan
-          </Button>
-          {activeInstance && (
-            <Button variant="ghost" onClick={() => navigate(`/instances/${activeInstance.id}`)}>
-              Playground →
-            </Button>
-          )}
-          {activeInstance?.status === "running" && (
-            <Button variant="ghost" disabled={busy} onClick={putToSleep}>
-              Put to sleep
-            </Button>
-          )}
-        </div>
-        <p className={styles.blurb}>
-          Watchers are Сборки subscribed to this repository's События — each keeps its own agent and thread of
-          knowledge. Pick a watcher to read its reports or talk to its agent.
-        </p>
-
-        <div className={styles.repoGrid}>
-          <InstanceChatPanel
-            instanceId={activeInstance?.id ?? null}
-            agentLabel={activeInstance ? buildName(activeInstance.buildId) : undefined}
-            onStatusChange={instancesQ.reload}
-          />
-
-          <div className={styles.rail}>
-            <WatchersPanel
-              repositoryId={repo.id}
-              subs={subs}
-              builds={builds}
-              loading={subsQ.loading}
-              activeBuildId={activeBuildId}
-              instanceFor={instanceFor}
-              buildName={buildName}
-              onSelect={setSelectedBuildId}
-              reload={() => {
-                subsQ.reload();
-                instancesQ.reload();
-              }}
-            />
-
-            <Panel>
-              <PanelHeader
-                icon="↯"
-                title="JOURNAL — СОБЫТИЯ"
-                right={<span className={styles.cell}>{events.length}</span>}
-              />
-              <div className={styles.journal}>
-                {events.length === 0 && (
-                  <div className={styles.journalEmpty}>
-                    {eventsQ.loading ? "loading…" : "Nothing yet. Push to the repository and the webhook delivers the first Событие here."}
-                  </div>
-                )}
-                {events.map((e) => (
-                  <div key={e.id} className={styles.eventRow}>
-                    <span className={styles.eventAction}>{e.action}</span>
-                    <span className={styles.eventSha}>{e.commitSha?.slice(0, 8) ?? ""}</span>
-                    <span className={styles.eventRef}>{e.ref ?? ""}</span>
-                    <span className={styles.eventTime}>{new Date(e.receivedAt).toLocaleString()}</span>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-
-            {activeInstance && <InstancePanels instance={activeInstance} />}
-
-            <Panel soft>
-              <PanelHeader icon="✳" title="SETTINGS" />
-              <div style={{ padding: "12px 14px" }}>
-                <div className={styles.actions} style={{ marginTop: 0 }}>
-                  <Button variant="ghost" disabled={busy} onClick={disconnect}>
-                    Disconnect repository
-                  </Button>
-                </div>
-                <p className={styles.hint}>
-                  Disconnecting removes the webhook from the provider. The agents' knowledge stays in their checkpoints.
-                </p>
-              </div>
-            </Panel>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── watchers (подписки) — list + add-from-builds form ──────────────── */
-
-function WatchersPanel({
-  repositoryId,
-  subs,
-  builds,
-  loading,
-  activeBuildId,
-  instanceFor,
-  buildName,
-  onSelect,
-  reload,
-}: {
-  repositoryId: number;
-  subs: Subscription[];
-  builds: AgentBuild[];
-  loading: boolean;
-  activeBuildId: number | null;
-  instanceFor: (buildId: number) => AgentInstance | undefined;
-  buildName: (buildId: number) => string;
-  onSelect: (buildId: number) => void;
-  reload: () => void;
-}) {
-  const api = useHubApi();
-  const [adding, setAdding] = useState(false);
-  const [buildId, setBuildId] = useState("");
-  const [actions, setActions] = useState("");
-  const [refMask, setRefMask] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const defaultBuild = builds.find((b) => b.isDefault);
-
-  const submit = async () => {
-    if (!buildId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.createSubscription(repositoryId, {
-        buildId: Number(buildId),
-        actions: actions
-          .split(",")
-          .map((a) => a.trim())
-          .filter(Boolean),
-        refMask: refMask.trim() || null,
+  const addSub = () => {
+    const buildId = Number(f.build || builds[0]?.id);
+    if (!buildId) return say("no build to subscribe");
+    act(async () => {
+      await api.createSubscription(repo.id, {
+        buildId,
+        actions: f.actions.split(",").map((x) => x.trim()).filter(Boolean),
+        refMask: f.ref.trim() || null,
       });
-      reload();
-      setBuildId("");
-      setActions("");
-      setRefMask("");
-      setAdding(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to add watcher");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const unsubscribe = async (sub: Subscription) => {
-    setBusy(true);
-    try {
-      await api.deleteSubscription(sub.id);
-      reload();
-    } finally {
-      setBusy(false);
-    }
+      setF({ build: "", actions: "", ref: "" });
+      subsQ.reload();
+      instancesQ.reload();
+    }, `subscribed ${buildName(buildId)} · same build again updates its filter`);
   };
 
   return (
-    <Panel>
-      <PanelHeader
-        icon="◉"
-        title="WATCHERS — ПОДПИСКИ"
-        right={
-          <Button variant="ghost" onClick={() => setAdding((v) => !v)}>
-            {adding ? "Close" : "Add watcher"}
-          </Button>
-        }
-      />
-
-      {subs.length === 0 && !adding && (
-        <div className={styles.panelEmpty}>
-          {loading
-            ? "loading…"
-            : `No watchers — the default Сборка${defaultBuild ? ` (${defaultBuild.name})` : ""} handles every Событие. Add one to narrow or split the coverage.`}
+    <div className="screen">
+      <div className="head">
+        <div>
+          <div className="crumbs">
+            <a href="/repos" onClick={(e) => { e.preventDefault(); navigate("/repos"); }}>repositories</a> → {repo.provider}
+          </div>
+          <h1 style={{ marginTop: 4 }}>
+            <span className="muted" style={{ fontWeight: 400 }}>{repo.owner}/</span>{repo.name}
+          </h1>
+          <div className="sub comment">{repo.defaultBranch ?? "main"} · connected {ago(repo.connectedAt)} · webhook installed</div>
         </div>
-      )}
-
-      {subs.map((s) => {
-        const inst = instanceFor(s.buildId);
-        const active = s.buildId === activeBuildId;
-        return (
-          <div
-            key={s.id}
-            className={`${styles.watcherRow} ${active ? styles.watcherSel : ""}`}
-            onClick={() => onSelect(s.buildId)}
-          >
-            <AgentPresence instance={inst} withLabel={false} />
-            <span className={styles.watcherName}>{buildName(s.buildId)}</span>
-            <span className={styles.watcherFilter}>{filterLabel(s)}</span>
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={(e) => {
-                e.stopPropagation();
-                unsubscribe(s);
-              }}
-            >
-              ✕
-            </Button>
-          </div>
-        );
-      })}
-
-      {adding && (
-        <div className={styles.watcherForm}>
-          <label className={styles.label}>Сборка</label>
-          <select className={styles.select} value={buildId} onChange={(e) => setBuildId(e.target.value)}>
-            <option value="">— pick a build —</option>
-            {builds.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name}
-                {b.isDefault ? " (default)" : ""}
-              </option>
-            ))}
-          </select>
-
-          <label className={styles.label}>
-            Actions <span className={styles.note}>— comma-separated, empty = everything</span>
-          </label>
-          <input
-            className={styles.select}
-            value={actions}
-            onChange={(e) => setActions(e.target.value)}
-            placeholder="push, pull_request"
-          />
-
-          <label className={styles.label}>
-            Ref mask <span className={styles.note}>— glob over the branch/tag, empty = any</span>
-          </label>
-          <input
-            className={styles.select}
-            value={refMask}
-            onChange={(e) => setRefMask(e.target.value)}
-            placeholder="release/*"
-          />
-
-          {error && <p className={styles.error}>{error}</p>}
-          <div className={styles.actions}>
-            <Button variant="primary" disabled={busy || !buildId} onClick={submit}>
-              Add watcher
-            </Button>
-          </div>
-          <p className={styles.hint}>Adding the same Сборка again updates its filter.</p>
+        <div className="row">
+          <button className="btn primary" disabled={busy} onClick={() => run()}>❯ trigger run @ {repo.defaultBranch ?? "main"}</button>
+          <button className="btn md" disabled={busy} onClick={() => run("full")}>full scan</button>
+          <button className="btn md danger" disabled={busy} onClick={disconnect}>disconnect</button>
         </div>
-      )}
-    </Panel>
-  );
-}
-
-/** Reports + findings of the active agent (hooks need its id). */
-function InstancePanels({ instance }: { instance: AgentInstance }) {
-  const reportsQ = useInstanceReports(instance.id);
-  const findingsQ = useInstanceFindings(instance.id);
-  const reports = reportsQ.data ?? [];
-  const findings = findingsQ.data ?? [];
-
-  return (
-    <>
-      <Panel>
-        <PanelHeader icon="≡" title="REPORTS" right={<span className={styles.cell}>{reports.length}</span>} />
-        {reports.length === 0 && (
-          <div className={styles.panelEmpty}>
-            {reportsQ.loading ? "loading…" : "No reports yet — the agent writes one after working through a Событие."}
-          </div>
-        )}
-        {reports.map((r) => (
-          <div key={r.id} className={styles.reportItem}>
-            <div className={styles.reportMeta}>
-              <span>{new Date(r.createdAt).toLocaleString()}</span>
-              {r.eventId != null && <span>Событие #{r.eventId}</span>}
-            </div>
-            {r.summary}
-          </div>
-        ))}
-      </Panel>
-
-      <Panel>
-        <PanelHeader icon="⚠" title="FINDINGS" right={<span className={styles.cell}>{findings.length}</span>} />
-        {findings.length === 0 && (
-          <div className={styles.panelEmpty}>{findingsQ.loading ? "loading…" : "No findings — clean so far."}</div>
-        )}
-        {findings.map((f) => (
-          <FindingRow key={f.id} finding={f} />
-        ))}
-      </Panel>
-    </>
-  );
-}
-
-export function FindingRow({ finding: f }: { finding: Finding }) {
-  return (
-    <div className={styles.findingItem}>
-      <div className={styles.findingHead}>
-        <Badge tone={severityTone(f.severity)} uppercase>
-          {f.severity}
-        </Badge>
-        {f.cwe && <span className={styles.cell}>{f.cwe}</span>}
-        {f.cve && <span className={styles.cell}>{f.cve}</span>}
-        {f.file && (
-          <span className={styles.findingFile}>
-            {f.file}
-            {f.lineStart != null && `:${f.lineStart}${f.lineEnd != null && f.lineEnd !== f.lineStart ? `–${f.lineEnd}` : ""}`}
-          </span>
-        )}
       </div>
-      {f.evidence && <div className={styles.findingEvidence}>{f.evidence}</div>}
-      {f.remediation && <div style={{ color: "var(--muted)" }}>{f.remediation}</div>}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16, flex: 1, minHeight: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
+          <Panel label="watchers" dim={mine.length + pending.length}>
+            {mine.map((w) => {
+              const running = w.status === "running";
+              const sub = subFor(w.buildId);
+              return (
+                <div key={w.id} className="lrow" style={{ padding: 12 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div>
+                      <Dot on={running} pulse={running} />
+                      <b>{buildName(w.buildId)}</b> <span className="muted">#{w.id} · {w.status}</span>
+                    </div>
+                    <div className="small comment" style={{ marginTop: 2 }}>
+                      sandbox {w.sandboxExternalId ?? "none"}{w.sandboxStatus ? ` (${w.sandboxStatus})` : ""} · runner {w.runnerId ?? "—"} · updated {ago(w.updatedAt)}
+                    </div>
+                    <div className="small muted" style={{ marginTop: 2 }}>{subText(sub)}</div>
+                  </div>
+                  <div className="row" style={{ flexWrap: "nowrap" }}>
+                    <button className="btn" onClick={() => navigate(`/instances/${w.id}`)}>playground →</button>
+                    {running && <button className="btn" disabled={busy} onClick={() => stop(w.id)}>stop</button>}
+                    {sub && <button className="btn danger" disabled={busy} onClick={() => unsub(sub)}>unsubscribe</button>}
+                  </div>
+                </div>
+              );
+            })}
+            {pending.map((s) => (
+              <div key={`s${s.id}`} className="lrow" style={{ padding: 12 }}>
+                <div>
+                  <div><Dot on={false} /><b>{buildName(s.buildId)}</b> <span className="muted">· not raised yet</span></div>
+                  <div className="small muted" style={{ marginTop: 2 }}>{subText(s)} · instance appears on the first matching event</div>
+                </div>
+                <button className="btn danger" disabled={busy} onClick={() => unsub(s)}>unsubscribe</button>
+              </div>
+            ))}
+            {mine.length + pending.length === 0 && (
+              <div className="empty small">{instancesQ.loading ? "loading…" : "no watchers — the default build handles every event. subscribe one to narrow or split the coverage."}</div>
+            )}
+            <div className="row" style={{ padding: 12, background: "var(--bg-elevated)" }}>
+              <span className="small muted">subscribe build</span>
+              <select className="select" value={f.build} onChange={(e) => setF({ ...f, build: e.target.value })}>
+                {builds.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}{b.isDefault ? " (default)" : ""}</option>
+                ))}
+              </select>
+              <input className="input" style={{ flex: 1, minWidth: 180 }} value={f.actions} onChange={(e) => setF({ ...f, actions: e.target.value })} placeholder="actions · push, pull_request.opened · empty = all" />
+              <input className="input" style={{ width: 160 }} value={f.ref} onChange={(e) => setF({ ...f, ref: e.target.value })} placeholder="ref mask · release/*" />
+              <button className="btn" disabled={busy || builds.length === 0} onClick={addSub}>+ add</button>
+            </div>
+          </Panel>
+
+          <Panel label="journal" dim={`${events.length} events`} className="col" >
+            <div className="thead" style={{ "--cols": JCOLS, background: "transparent", padding: "10px 12px 6px" } as React.CSSProperties}>
+              <span>action</span><span>ref</span><span>commit</span><span>received</span>
+            </div>
+            <div style={{ overflow: "auto", flex: 1, minHeight: 120 }}>
+              {events.map((e) => (
+                <div key={e.id} className="trow tight" style={{ "--cols": JCOLS } as React.CSSProperties}>
+                  <span><b>{e.action}</b></span>
+                  <span className="comment ellip">{shortRef(e.ref)}</span>
+                  <span className="comment">{sha(e.commitSha)}</span>
+                  <span className="muted">{ago(e.receivedAt)}</span>
+                </div>
+              ))}
+              {events.length === 0 && <div className="empty small">{eventsQ.loading ? "loading…" : "nothing yet — push to the repository and the webhook delivers the first event here."}</div>}
+            </div>
+          </Panel>
+        </div>
+
+        <Panel label="chat" dim={chatInst ? `${buildName(chatInst.buildId)} #${chatInst.id}` : "no watcher"} className="col elev" >
+          <div style={{ display: "flex", flexDirection: "column", minHeight: 420, flex: 1 }}>
+            <InstanceChatPanel
+              instanceId={chatInst?.id ?? null}
+              empty="ask the watcher what it has accumulated on this repo. a down instance wakes on the first message."
+              onStatusChange={instancesQ.reload}
+            />
+          </div>
+        </Panel>
+      </div>
     </div>
   );
 }
