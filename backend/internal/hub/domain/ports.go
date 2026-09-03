@@ -150,6 +150,9 @@ type InstanceStore interface {
 	// Activity — реплей activity-кадров хода из hub.activity (payload jsonb
 	// как есть, порядок seq); eventID nil = последний ход Экземпляра.
 	Activity(ctx context.Context, instanceID int64, eventID *int64) ([][]byte, error)
+	// Messages — транскрипт чата Экземпляра, новые первыми; before — курсор
+	// (id строки, отдать старее), limit — размер страницы.
+	Messages(ctx context.Context, instanceID int64, before *int64, limit int32) ([]ChatMessage, error)
 	// RequeueInstance — «Продолжить»: незавершённые События Экземпляра — снова
 	// в outbox (механика heartbeat-ре-публикации); возвращает eventId, пусто =
 	// нечего продолжать.

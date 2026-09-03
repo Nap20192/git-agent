@@ -301,6 +301,67 @@ func (q *Queries) MarkSandboxInstanceDead(ctx context.Context, id int64) error {
 	return err
 }
 
+const messages = `-- name: Messages :many
+SELECT a.id, a.event_id, a.kind, a.payload, a.created_at, a.trace_id, e.action, e.commit_sha
+  FROM hub.activity a
+  LEFT JOIN hub.events e ON e.id = a.event_id
+ WHERE a.instance_id = $1
+   AND (a.kind IN ('chat_user', 'chat_agent', 'run_failed')
+        OR (a.kind IN ('run_started', 'run_finished') AND a.event_id IS NOT NULL))
+   AND ($2::bigint IS NULL OR a.id < $2::bigint)
+ ORDER BY a.id DESC
+ LIMIT $3
+`
+
+type MessagesParams struct {
+	InstanceID int64
+	Before     *int64
+	Lim        int32
+}
+
+type MessagesRow struct {
+	ID        int64
+	EventID   *int64
+	Kind      string
+	Payload   []byte
+	CreatedAt time.Time
+	TraceID   string
+	Action    *string
+	CommitSHA *string
+}
+
+// Messages — транскрипт чата Экземпляра (история как в ChatGPT): реплики
+// (chat_user/chat_agent), карточки ходов по Событиям (run_started/run_finished с
+// event_id) и ошибки ходов; курсор — id (before), новые первыми.
+func (q *Queries) Messages(ctx context.Context, arg MessagesParams) ([]MessagesRow, error) {
+	rows, err := q.db.Query(ctx, messages, arg.InstanceID, arg.Before, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MessagesRow
+	for rows.Next() {
+		var i MessagesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.Kind,
+			&i.Payload,
+			&i.CreatedAt,
+			&i.TraceID,
+			&i.Action,
+			&i.CommitSHA,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const reports = `-- name: Reports :many
 SELECT id, instance_id, event_id, summary, created_at, structured
   FROM hub.reports WHERE instance_id = $1 ORDER BY id DESC

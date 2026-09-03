@@ -156,6 +156,13 @@ export function createHttpHubApi(): HubApi {
 
     listRunners: () => req("/runners"),
 
+    listMessages: (instanceId, opts) => {
+      const q = new URLSearchParams();
+      if (opts?.before) q.set("before", String(opts.before));
+      if (opts?.limit) q.set("limit", String(opts.limit));
+      const qs = q.toString();
+      return req(`/instances/${instanceId}/messages${qs ? `?${qs}` : ""}`);
+    },
     chat: (instanceId, message, onEvent) =>
       streamSSE<ChatEvent>(`/instances/${instanceId}/chat`, { message }, onEvent),
 

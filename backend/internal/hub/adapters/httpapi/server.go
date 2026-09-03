@@ -87,6 +87,7 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("GET /api/instances", user(s.listInstances))
 	mux.HandleFunc("GET /api/instances/{id}", user(s.getInstance))
 	mux.HandleFunc("GET /api/instances/{id}/reports", user(s.instanceReports))
+	mux.HandleFunc("GET /api/instances/{id}/messages", user(s.instanceMessages))
 	mux.HandleFunc("GET /api/instances/{id}/findings", user(s.instanceFindings))
 	mux.HandleFunc("GET /api/instances/{id}/findings/export", user(s.exportInstanceFindings))
 	mux.HandleFunc("GET /api/instances/{id}/activity", user(s.instanceActivity))

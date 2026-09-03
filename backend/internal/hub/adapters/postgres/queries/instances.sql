@@ -77,3 +77,17 @@ UPDATE hub.agent_instances
 -- name: SetInstanceDown :exec
 UPDATE hub.agent_instances
    SET status = 'down', runner_id = NULL, updated_at = now() WHERE id = @id;
+
+-- Messages — транскрипт чата Экземпляра (история как в ChatGPT): реплики
+-- (chat_user/chat_agent), карточки ходов по Событиям (run_started/run_finished с
+-- event_id) и ошибки ходов; курсор — id (before), новые первыми.
+-- name: Messages :many
+SELECT a.id, a.event_id, a.kind, a.payload, a.created_at, a.trace_id, e.action, e.commit_sha
+  FROM hub.activity a
+  LEFT JOIN hub.events e ON e.id = a.event_id
+ WHERE a.instance_id = @instance_id
+   AND (a.kind IN ('chat_user', 'chat_agent', 'run_failed')
+        OR (a.kind IN ('run_started', 'run_finished') AND a.event_id IS NOT NULL))
+   AND (sqlc.narg('before')::bigint IS NULL OR a.id < sqlc.narg('before')::bigint)
+ ORDER BY a.id DESC
+ LIMIT @lim;

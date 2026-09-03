@@ -74,8 +74,8 @@ def repo_url(ctx: dict[str, Any]) -> str:
 
 PR_BODY_MAX_CHARS = 2000
 _FIX_TAIL = (
-    "Подтверждённые уязвимости фиксируй report_finding (файл:строки из диффа), в конце —"
-    " write_report."
+    "File every confirmed vulnerability with report_finding (file:lines from the diff);"
+    " finish with write_report."
 )
 
 
@@ -83,20 +83,20 @@ def _scope_push(event: Event) -> str:
     head = event.commit_sha or "HEAD"
     if event.before_sha:
         return (
-            f"СКОУП — изменения {event.before_sha}..{head}"
-            f"{f' (ветка {event.ref})' if event.ref else ''}. Порядок: 1) git_diff(ref={head!r},"
-            f" base={event.before_sha!r}, stat=true) — список затронутых файлов; 2) сообщения"
-            f" коммитов: sandbox_run `git log --oneline {event.before_sha}..{head}`; 3) аудит"
-            " ТОЛЬКО затронутого кода: патч по файлам git_diff(path=…), окружение изменённых"
-            " строк — read_file/grep_code (вызывающие, sink'и, проверки). Весь репозиторий"
-            " не сканировать; группы файлов делегируй Сабагентам через task."
+            f"SCOPE — changes {event.before_sha}..{head}"
+            f"{f' (branch {event.ref})' if event.ref else ''}. Order: 1) git_diff(ref={head!r},"
+            f" base={event.before_sha!r}, stat=true) — the list of touched files; 2) commit"
+            f" messages: sandbox_run `git log --oneline {event.before_sha}..{head}`; 3) audit"
+            " ONLY the touched code: per-file patches git_diff(path=…), context of the changed"
+            " lines via read_file/grep_code (callers, sinks, checks). Do not scan the whole"
+            " repository; delegate file groups to subagents via task."
         )
     return (
-        f"СКОУП — изменения последнего коммита {head} (предыдущее состояние ветки неизвестно:"
-        f" первый пуш или force-push). Порядок: 1) git_diff(ref={head!r}, stat=true), затем патч"
-        " по файлам; 2) аудит ТОЛЬКО затронутого кода с чтением окружения через"
-        " read_file/grep_code; весь репозиторий не сканировать. В отчёте сделай оговорку,"
-        " что сравнение — с HEAD~1, а не с состоянием до пуша."
+        f"SCOPE — changes of the latest commit {head} (the previous branch state is unknown:"
+        f" first push or force-push). Order: 1) git_diff(ref={head!r}, stat=true), then per-file"
+        " patches; 2) audit ONLY the touched code, reading context via read_file/grep_code;"
+        " do not scan the whole repository. State in the report that the comparison is against"
+        " HEAD~1, not the pre-push state."
     )
 
 
@@ -104,24 +104,25 @@ def _scope_pr(event: Event, merge_base: str | None) -> str:
     head = event.head_sha or event.commit_sha or "HEAD"
     base = merge_base or event.base_sha
     title = f"PR #{event.pr_number}" if event.pr_number else "PR"
-    parts = [f"{title}: {event.pr_title}" if event.pr_title else f"{title} без заголовка."]
+    parts = [f"{title}: {event.pr_title}" if event.pr_title else f"{title} with no title."]
     if event.pr_body:
         body = event.pr_body.strip()
         if len(body) > PR_BODY_MAX_CHARS:
-            body = body[:PR_BODY_MAX_CHARS] + "… [обрезано]"
-        parts.append(f"Описание PR (намерение автора, контекст, не истина):\n{body}")
+            body = body[:PR_BODY_MAX_CHARS] + "… [truncated]"
+        parts.append(f"PR description (author intent, context, not ground truth):\n{body}")
     if base:
         diff_call = f"git_diff(ref={head!r}, base={base!r}"
-        origin = "merge-base с базой" if merge_base else "база PR"
-        scope = f"СКОУП — diff {base}...{head} ({origin}): {diff_call}, stat=true), затем"
+        origin = "merge-base with the base" if merge_base else "PR base"
+        scope = f"SCOPE — diff {base}...{head} ({origin}): {diff_call}, stat=true), then"
     else:
-        scope = f"СКОУП — изменения головы PR {head}: git_diff(ref={head!r}, stat=true), затем"
+        scope = f"SCOPE — changes on the PR head {head}: git_diff(ref={head!r}, stat=true), then"
     parts.append(
-        f"{scope} патч по файлам git_diff(path=…). РЕЖИМ РЕВЬЮ: Находки — по строкам диффа,"
-        " с чтением окружения изменённых строк через read_file/grep_code; весь репозиторий не"
-        " сканировать, группы файлов делегируй Сабагентам через task. Отдельно оцени, что"
-        " изменение ломает или расширяет в attack surface (новые входы, ослабленные проверки,"
-        " новые зависимости/права). Итог write_report — как PR-ревью: вердикт, риски, Находки."
+        f"{scope} per-file patches git_diff(path=…). REVIEW MODE: findings must sit on diff"
+        " lines, with the context of the changed lines read via read_file/grep_code; do not scan"
+        " the whole repository, delegate file groups to subagents via task. Separately assess"
+        " what the change breaks or widens in the attack surface (new inputs, weakened checks,"
+        " new dependencies/permissions). The final write_report is a PR review: verdict, risks,"
+        " findings."
     )
     return "\n".join(parts)
 
@@ -129,11 +130,11 @@ def _scope_pr(event: Event, merge_base: str | None) -> str:
 def _scope_manual(event: Event) -> str:
     head = event.commit_sha or "HEAD"
     return (
-        f"Ручной запуск на коммите {head}. Если в этом треде уже разобран предыдущий коммит —"
-        f" СКОУП — изменения от него до {head}: git_diff(ref={head!r}, base=<тот sha>, stat=true);"
-        f" иначе — последний коммит: git_diff(ref={head!r}, stat=true). Затем патч по файлам и"
-        " аудит ТОЛЬКО затронутого кода с чтением окружения через read_file/grep_code; весь"
-        " репозиторий не сканировать."
+        f"Manual run on commit {head}. If a previous commit has already been reviewed in this"
+        f" thread — SCOPE is the changes from it to {head}: git_diff(ref={head!r}, base=<that"
+        f" sha>, stat=true); otherwise the latest commit: git_diff(ref={head!r}, stat=true)."
+        " Then per-file patches and an audit of ONLY the touched code, reading context via"
+        " read_file/grep_code; do not scan the whole repository."
     )
 
 
@@ -156,23 +157,25 @@ def _event_prompt(ctx: dict[str, Any], event: Event, *, merge_base: str | None =
     """Задание хода по типу События: push/PR/manual — аудит КОНКРЕТНЫХ изменений,
     full_scan — полный аудит, прочее с коммитом — разбор в контексте треда."""
     parts = [
-        f"Событие в репозитории {ctx['owner']}/{ctx['name']} ({event.provider}): {event.action}."
+        f"Event in repository {ctx['owner']}/{ctx['name']} ({event.provider}): {event.action}."
     ]
     if event.commit_sha:
-        parts.append(f"Коммит: {event.commit_sha}.")
+        parts.append(f"Commit: {event.commit_sha}.")
     if event.ref:
         parts.append(f"Ref: {event.ref}.")
     if event.changed_files:
-        parts.append("Изменённые файлы (по данным провайдера): " + ", ".join(event.changed_files))
+        parts.append(
+            "Changed files (as reported by the provider): " + ", ".join(event.changed_files)
+        )
     if ctx.get("prompt"):
         parts.append(str(ctx["prompt"]))
     if event.action == "full_scan":
         parts.append(
-            "Проведи ПОЛНЫЙ security-аудит репозитория на этом коммите: составь"
-            " план областей (входные точки, auth, работа с данными, зависимости,"
-            " конфиги/секреты), делегируй каждую область Сабагенту через task,"
-            " собери и зафиксируй все подтверждённые Находки report_finding,"
-            " в конце — сводный write_report. Не ограничивайся диффом — весь код."
+            "Run a FULL security audit of the repository at this commit: plan the areas"
+            " (entry points, auth, data handling, dependencies, config/secrets), delegate"
+            " each area to a subagent via task, collect and file every confirmed finding"
+            " with report_finding, and finish with a summary write_report. Do not stop at"
+            " the diff — cover the whole codebase."
         )
     elif event.action == "push":
         parts.extend([_scope_push(event), _FIX_TAIL])
@@ -182,9 +185,9 @@ def _event_prompt(ctx: dict[str, Any], event: Event, *, merge_base: str | None =
         parts.extend([_scope_manual(event), _FIX_TAIL])
     else:
         parts.append(
-            "Разбери это Событие в контексте того, что ты уже знаешь о репозитории"
-            " (тред накапливается между Событиями). Подтверждённые уязвимости фиксируй"
-            " report_finding, в конце запиши итог write_report."
+            "Review this event in the context of what you already know about the repository"
+            " (the thread accumulates across events). File confirmed vulnerabilities with"
+            " report_finding and record the outcome with write_report at the end."
         )
     return "\n".join(parts)
 
@@ -391,7 +394,7 @@ class EventExecutor:
                 async for mode, chunk in graph.astream(
                     {"messages": [HumanMessage(content=message)]},
                     config=config,
-                    stream_mode=profile.stream_modes,
+                    stream_mode=[*profile.stream_modes, "messages"],  # токены ответа в чат
                 ):
                     yield mode, serialize(chunk, mode=mode)
         finally:

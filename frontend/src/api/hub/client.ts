@@ -8,6 +8,7 @@ import type {
   AgentBuildInput,
   AgentInstance,
   ChatEvent,
+  ChatHistory,
   Finding,
   FindingExportFormat,
   FindingFilters,
@@ -114,6 +115,8 @@ export interface HubApi {
   exportRepositoryFindings(repositoryId: number, format: FindingExportFormat, filters?: FindingFilters): Promise<string>;
   /** Streams the agent's reply; resolves when the stream ends. */
   chat(instanceId: number, message: string, onEvent: (e: ChatEvent) => void): Promise<void>;
+  /** Persisted transcript page (oldest first); `before` = id of the oldest row shown. */
+  listMessages(instanceId: number, opts?: { before?: number; limit?: number }): Promise<ChatHistory>;
   /** Runs one stream-console command in the Экземпляр's sandbox (running only). */
   terminal(instanceId: number, command: string, onEvent: (e: TerminalEvent) => void): Promise<void>;
   /**

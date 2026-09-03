@@ -26,12 +26,26 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
+def message_text(content: Any) -> str:
+    """Текст AI-сообщения: строка либо content-блоки провайдера (type=text)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            str(b.get("text", ""))
+            for b in content
+            if isinstance(b, dict) and b.get("type") == "text"
+        )
+    return ""
+
+
 class ActivityCollector:
     """(mode, serialized chunk) → activity-кадры; держит счётчик Находок Лида
     и статусы Сабагентов (queued до первого прогресс-события)."""
 
     def __init__(self) -> None:
         self.findings = 0
+        self.reply: list[str] = []  # текст AI-сообщений хода — ответ агента в чате
         self._tasks: dict[str, str] = {}  # task_id -> status кадра
 
     def _frame(self, kind: str, **fields: Any) -> dict[str, Any]:
@@ -42,6 +56,15 @@ class ActivityCollector:
 
     def run_finished(self) -> dict[str, Any]:
         return self._frame("run_finished", findingsCount=self.findings)
+
+    # Транскрипт чата (история как в ChatGPT): реплика пользователя и ответ агента
+    # — кадры хода, персистятся в hub.activity, hub отдаёт их GET /instances/{id}/messages.
+    def chat_user(self, text: str) -> dict[str, Any]:
+        return self._frame("chat_user", text=text)
+
+    def chat_agent(self) -> dict[str, Any] | None:
+        text = "\n\n".join(self.reply).strip()
+        return self._frame("chat_agent", text=text) if text else None
 
     def run_failed(self, error: Any) -> dict[str, Any]:
         return self._frame("run_failed", description=str(error)[:500], findingsCount=self.findings)
@@ -101,6 +124,8 @@ class ActivityCollector:
                     self.findings += sum(
                         1 for c in msg.get("tool_calls") or [] if c.get("name") == "report_finding"
                     )
+                    if text := message_text(msg.get("content")).strip():
+                        self.reply.append(text)
                 # самоотчёт Сабагента: ToolMessage task-тула, парный task_id
                 if (
                     msg.get("type") == "tool"

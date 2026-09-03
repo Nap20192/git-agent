@@ -160,3 +160,17 @@ type FindingFilter struct {
 	EventID      *int64
 	IntroducedBy *string
 }
+
+// ChatMessage — строка транскрипта чата Экземпляра (из hub.activity): реплика
+// чата (chat_user/chat_agent) либо карточка хода по Событию (run_*); Payload —
+// кадр activity как есть, Action/CommitSHA — Событие карточки.
+type ChatMessage struct {
+	ID        int64
+	EventID   *int64
+	Kind      string
+	Payload   []byte
+	CreatedAt time.Time
+	TraceID   string
+	Action    *string
+	CommitSHA *string
+}

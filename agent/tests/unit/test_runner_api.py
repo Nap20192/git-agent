@@ -145,11 +145,58 @@ def test_chat_sse_stream_is_chat_events(client, service):
         assert response.headers["content-type"].startswith("text/event-stream")
         body = "".join(response.iter_text())
     frames = [json.loads(line[len("data: ") :]) for line in body.splitlines() if line]
-    assert [f["kind"] for f in frames] == ["activity", "activity", "token", "done"]
+    assert [f["kind"] for f in frames] == ["activity", "activity", "message", "done"]
     assert frames[0]["text"] == "думаю"
     assert frames[1]["text"] == "lead: sandbox_run"
     assert frames[2]["text"] == "готово: всё спокойно"
     assert service.chats == [(3, "что нового?")]
+
+
+def test_chat_events_messages_mode_streams_lead_tokens_only():
+    """Стрим `messages`: токены Лида → token; токены Сабагентов (tag subagent:*) и
+    пустые tool-call-чанки не показываем; content-блоки провайдера — по type=text."""
+    from infra.server.runner_api import chat_events
+
+    lead = [{"type": "AIMessageChunk", "content": "hel"}, {"langgraph_node": "model", "tags": []}]
+    assert list(chat_events("messages", lead)) == [{"kind": "token", "text": "hel"}]
+    blocks = [{"type": "AIMessageChunk", "content": [{"type": "text", "text": "lo"}]}, {}]
+    assert list(chat_events("messages", blocks)) == [{"kind": "token", "text": "lo"}]
+    sub = [{"type": "AIMessageChunk", "content": "x"}, {"tags": ["subagent:general-purpose"]}]
+    assert list(chat_events("messages", sub)) == []
+    empty = [{"type": "AIMessageChunk", "content": "", "tool_call_chunks": [{}]}, {}]
+    assert list(chat_events("messages", empty)) == []
+
+
+def test_collector_chat_frames_persist_transcript():
+    """chat_user/chat_agent — реплики чата в hub.activity (история для hub /messages)."""
+    from core.runner.activity import ActivityCollector
+
+    c = ActivityCollector()
+    assert c.chat_user("hi")["kind"] == "chat_user" and c.chat_user("hi")["text"] == "hi"
+    assert c.chat_agent() is None
+    c.frames(
+        "updates",
+        {
+            "model": {
+                "messages": [
+                    {"type": "ai", "content": "Checking…", "tool_calls": [{"name": "grep_code"}]}
+                ]
+            }
+        },
+    )
+    c.frames(
+        "updates",
+        {
+            "model": {
+                "messages": [{"type": "ai", "content": [{"type": "text", "text": "All clear."}]}]
+            }
+        },
+    )
+    assert c.chat_agent() == {
+        **c.chat_agent(),
+        "kind": "chat_agent",
+        "text": "Checking…\n\nAll clear.",
+    }
 
 
 def test_chat_requires_message(client, service):

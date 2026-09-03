@@ -526,6 +526,27 @@ b {
   font-size: 12px;
   font-style: italic;
 }
+.chat-event {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.chat-event.bad {
+  color: var(--danger, #e5484d);
+  border-color: currentColor;
+}
+.chat-time {
+  margin-left: 1ch;
+  color: var(--text-comment);
+  font-size: 11px;
+  opacity: 0;
+}
+.chat-user:hover .chat-time,
+.chat-agent:hover .chat-time {
+  opacity: 1;
+}
 .cursor {
   background: var(--accent);
   color: #000;
@@ -542,7 +563,12 @@ b {
   color: var(--accent);
   white-space: nowrap;
 }
-.prompt > input {
+.prompt > input,
+.prompt > textarea {
+  resize: none;
+  field-sizing: content;
+  max-height: 8lh;
+  line-height: 1.4;
   font: inherit;
   font-size: 13px;
   background: transparent;

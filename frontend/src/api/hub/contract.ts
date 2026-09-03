@@ -222,8 +222,36 @@ export type FindingExportFormat = "csv" | "md";
  * kind=activity — a status line, kind=done — terminal frame, stream closes.
  */
 export interface ChatEvent {
-  kind: "token" | "activity" | "done";
+  /** token — a reply fragment as it is generated; message — a whole agent
+   *  message (replaces the streamed text: canonical, and the fallback when
+   *  the provider does not stream). */
+  kind: "token" | "message" | "activity" | "done";
   text?: string | null;
+}
+
+/**
+ * One row of GET /api/instances/{id}/messages — the persisted transcript
+ * (ChatGPT-style history). role=user|agent — a message (agent text is
+ * markdown); role=event — a turn card: status started|finished|failed,
+ * action/commitSha of the Событие (absent for a failed chat turn — then
+ * `text` is the reason), findingsCount.
+ */
+export interface ChatMessage {
+  id: number;
+  role: "user" | "agent" | "event";
+  text?: string;
+  eventId?: number;
+  action?: string;
+  commitSha?: string;
+  status?: "started" | "finished" | "failed";
+  findingsCount?: number;
+  ts: string;
+  traceId?: string;
+}
+/** Page of the transcript, oldest first; more=true → repeat with before=<first id>. */
+export interface ChatHistory {
+  messages: ChatMessage[];
+  more: boolean;
 }
 
 /**
@@ -256,6 +284,8 @@ export type ActivityStatus = "queued" | "working" | "done" | "failed" | "timeout
 export interface ActivityEvent {
   kind:
     | "run_started"
+    | "chat_user"
+    | "chat_agent"
     | "node"
     | "task_started"
     | "task_finished"

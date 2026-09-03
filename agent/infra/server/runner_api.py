@@ -15,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from core.runner import RunnerService, parse_event
+from core.runner.activity import message_text
 from core.runner.ports import InstanceUnavailableError, SandboxNotProvisionedError
 from pkg import trace
 from pkg.errors import describe
@@ -135,8 +136,20 @@ async def accept_event(instance_id: int, request: Request) -> dict[str, Any]:
 
 
 def chat_events(mode: str, data: Any):
-    """(mode, chunk) графа → кадры ChatEvent {kind: token|activity, text}
-    (контракт backend/docs/openapi.yaml: hub проксирует кадры как есть)."""
+    """(mode, chunk) графа → кадры ChatEvent (контракт backend/docs/openapi.yaml,
+    hub проксирует как есть): token — фрагмент ответа по мере генерации (стрим
+    `messages` Лида; токены Сабагентов с тегом subagent:* не показываем), message —
+    целое AI-сообщение из `updates` (фронт заменяет им накопленные токены: канон и
+    фолбэк для провайдеров без стриминга), activity — статусная строка."""
+    if mode == "messages":
+        if isinstance(data, list) and len(data) == 2 and isinstance(data[0], dict):
+            msg, meta = data
+            tags = meta.get("tags") if isinstance(meta, dict) else None
+            subagent = any(str(t).startswith("subagent:") for t in tags or [])
+            is_ai = str(msg.get("type", "")).lower().startswith("ai")
+            if is_ai and not subagent and (text := message_text(msg.get("content"))):
+                yield {"kind": "token", "text": text}
+        return
     if mode == "updates" and isinstance(data, dict):
         for node, update in data.items():
             messages = update.get("messages") if isinstance(update, dict) else None
@@ -145,9 +158,8 @@ def chat_events(mode: str, data: Any):
                     continue
                 for call in msg.get("tool_calls") or []:
                     yield {"kind": "activity", "text": f"{node}: {call.get('name', 'tool')}"}
-                content = msg.get("content")
-                if msg.get("type") == "ai" and not msg.get("tool_calls") and str(content).strip():
-                    yield {"kind": "token", "text": str(content)}
+                if msg.get("type") == "ai" and (text := message_text(msg.get("content")).strip()):
+                    yield {"kind": "message", "text": text}
         return
     text = data.get("note") if isinstance(data, dict) else None
     yield {

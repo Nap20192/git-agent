@@ -22,6 +22,7 @@ import type {
   SandboxConnection,
   SandboxInstance,
   Subscription,
+  ChatMessage,
 } from "./contract.ts";
 import { UnauthorizedError, type HubApi } from "./client.ts";
 
@@ -215,6 +216,8 @@ const runners: Runner[] = [
 ];
 
 let nextId = 100;
+// persisted chat transcript per instance (mirror of hub.activity chat_* rows)
+const transcript: (ChatMessage & { instanceId: number })[] = [];
 
 /* Живая лента: repo 1 gets a fresh push Событие every ~40s of wall time, and
    its running agent files a report for it shortly after — so the Playground
@@ -627,10 +630,19 @@ export function createMockHubApi(): HubApi {
       return runners.map((r) => ({ ...r, lastHeartbeatAt: new Date().toISOString() }));
     },
 
+    async listMessages(instanceId, opts) {
+      await delay();
+      authed();
+      const all = transcript.filter((m) => m.instanceId === instanceId && (!opts?.before || m.id < opts.before));
+      const limit = opts?.limit ?? 50;
+      const page = all.slice(-limit);
+      return { messages: page.map(({ instanceId: _i, ...m }) => m), more: all.length > page.length };
+    },
     async chat(instanceId, message, onEvent) {
       authed();
       const inst = instances.find((i) => i.id === instanceId);
       if (!inst) throw new Error("404 instance not found");
+      transcript.push({ instanceId, id: nextId++, role: "user", text: message, ts: new Date().toISOString() });
       if (inst.status === "down") {
         onEvent({ kind: "activity", text: "waking instance on runner…" });
         await delay(700);
@@ -649,6 +661,8 @@ export function createMockHubApi(): HubApi {
         onEvent({ kind: "token", text: word });
         await delay(30);
       }
+      onEvent({ kind: "message", text: reply });
+      transcript.push({ instanceId, id: nextId++, role: "agent", text: reply, ts: new Date().toISOString() });
       onEvent({ kind: "done" });
     },
 

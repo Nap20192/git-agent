@@ -431,6 +431,25 @@ paths:
       responses:
         "200":
           content: { application/json: { schema: { $ref: "#/components/schemas/AgentInstance" } } }
+  /api/instances/{id}/messages:
+    get:
+      summary: Транскрипт чата Экземпляра (история как в ChatGPT — реплики + карточки ходов по Событиям)
+      description: >
+        Реплики чата (chat_user/chat_agent кадры хода из hub.activity) и карточки
+        ходов по Событиям; новые последними. Пагинация назад: more=true →
+        повторить с before=<id первой строки>. limit 1..200, дефолт 50.
+      parameters:
+        - { name: before, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } }
+                  more: { type: boolean }
   /api/instances/{id}/chat:
     post:
       summary: Чат с агентом (SSE; поднимает down-Экземпляр через раннер и проксирует)
@@ -820,17 +839,36 @@ components:
         address: { type: string }
         slots: { type: integer }
         lastHeartbeatAt: { type: string, format: date-time }
+    ChatMessage:
+      type: object
+      description: >
+        Строка транскрипта чата. role=user|agent — реплика (text, markdown у agent);
+        role=event — карточка хода: status started|finished|failed, action/commitSha
+        События (нет у упавшего хода чата — тогда text = причина), findingsCount.
+      required: [id, role, ts]
+      properties:
+        id: { type: integer }
+        role: { type: string, enum: [user, agent, event] }
+        text: { type: string }
+        eventId: { type: integer }
+        action: { type: string }
+        commitSha: { type: string }
+        status: { type: string, enum: [started, finished, failed] }
+        findingsCount: { type: integer }
+        ts: { type: string, format: date-time }
+        traceId: { type: string }
     ChatEvent:
       type: object
       description: >
-        Кадр SSE-чата (базовая форма — предложение фронта). kind=token —
-        инкремент текста ответа (text); kind=activity — статусная строка
-        о действии агента (text); kind=done — терминальный кадр, поток
-        закрывается. Неизвестные kind фронт должен игнорировать.
+        Кадр SSE-чата. kind=token — фрагмент ответа по мере генерации (text);
+        kind=message — целое сообщение агента (text): фронт заменяет им
+        накопленные токены (канон; и фолбэк без стриминга); kind=activity —
+        статусная строка о действии агента (text); kind=done — терминальный
+        кадр, поток закрывается. Неизвестные kind фронт должен игнорировать.
       required: [kind]
       properties:
-        kind: { type: string, enum: [token, activity, done] }
-        text: { type: [string, "null"], description: "для token/activity" }
+        kind: { type: string, enum: [token, message, activity, done] }
+        text: { type: [string, "null"], description: "для token/message/activity" }
     ActivityEvent:
       type: object
       description: >

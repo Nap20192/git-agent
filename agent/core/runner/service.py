@@ -319,6 +319,7 @@ class RunnerService:
                 turn = self._begin_turn(instance_id, None)  # event_id NULL — ход чата
                 collector = ActivityCollector()
                 await turn.emit(collector.run_started())
+                await turn.emit(collector.chat_user(message))
                 try:
                     async for mode, data in self._executor.chat_stream(ctx, message):
                         for frame in collector.frames(mode, data):
@@ -332,6 +333,8 @@ class RunnerService:
                     raise
                 else:
                     log.info("chat turn finished", duration_ms=_ms(started))
+                    if reply := collector.chat_agent():
+                        await turn.emit(reply)
                     await turn.emit(collector.run_finished())
                 finally:
                     turn.close()

@@ -408,6 +408,21 @@ func (s *Store) Activity(ctx context.Context, instanceID int64, eventID *int64) 
 	return s.q().ActivityByEvent(ctx, db.ActivityByEventParams{InstanceID: instanceID, EventID: eventID})
 }
 
+func (s *Store) Messages(ctx context.Context, instanceID int64, before *int64, limit int32) ([]domain.ChatMessage, error) {
+	rows, err := s.q().Messages(ctx, db.MessagesParams{InstanceID: instanceID, Before: before, Lim: limit})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.ChatMessage, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, domain.ChatMessage{
+			ID: r.ID, EventID: r.EventID, Kind: r.Kind, Payload: r.Payload, CreatedAt: r.CreatedAt,
+			TraceID: r.TraceID, Action: r.Action, CommitSHA: r.CommitSHA,
+		})
+	}
+	return out, nil
+}
+
 // threadID — тред чекпоинтов Экземпляра (Сборка, Репозиторий); один и тот же
 // у Ingest и UpsertInstance — иначе разъедутся на ON CONFLICT.
 func threadID(buildID, repositoryID int64) string {
