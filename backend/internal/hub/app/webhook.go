@@ -68,6 +68,13 @@ func (s *WebhookService) FanOut(ctx context.Context, repo *domain.Repository, e 
 	if err != nil {
 		return false, nil, err
 	}
+	// Событие без кода (ping, issues, comments) — только в журнал: Экземпляр под
+	// него не поднимаем, раннер такой ход всё равно пропускает (skipped_no_commit).
+	// Иначе ping сразу после подключения плодит Экземпляр дефолтной Сборки,
+	// который потом висит рядом с настоящими подписками.
+	if e.CommitSHA == "" && e.HeadSHA == "" && e.Action != "full_scan" {
+		buildIDs = nil
+	}
 	return s.Ingestor.Ingest(ctx, repo, e, payload, buildIDs)
 }
 

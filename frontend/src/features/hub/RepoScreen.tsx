@@ -12,8 +12,12 @@ import { Dot, Panel, ago, sha, shortRef, useScreenCtx, useShell } from "./ui.tsx
 
 const JCOLS = "150px 1fr 110px 1fr";
 
-const subText = (sub?: Subscription) =>
-  sub ? `subscribed: ${sub.actions.length ? sub.actions.join(", ") : "all actions"} · ${sub.refMask ?? "any ref"}` : "served by default build · no subscription";
+const subText = (sub: Subscription | undefined, othersSubscribed: boolean) =>
+  sub
+    ? `subscribed: ${sub.actions.length ? sub.actions.join(", ") : "all actions"} · ${sub.refMask ?? "any ref"}`
+    : othersSubscribed
+      ? "no subscription · idle — events go to the subscribed builds; subscribe this build to serve it again"
+      : "served by default build · no subscription";
 
 export function RepoScreen() {
   const id = Number(useParams().id);
@@ -153,7 +157,7 @@ export function RepoScreen() {
                     <div className="small comment" style={{ marginTop: 2 }}>
                       sandbox instance {w.sandboxExternalId ?? "none yet — created on run"}{w.sandboxStatus ? ` (${w.sandboxStatus})` : ""} · runner {w.runnerId ?? "—"} · updated {ago(w.updatedAt)}
                     </div>
-                    <div className="small muted" style={{ marginTop: 2 }}>{subText(sub)}</div>
+                    <div className="small muted" style={{ marginTop: 2 }}>{subText(sub, subs.length > 0)}</div>
                   </div>
                   <div className="row" style={{ flexWrap: "nowrap" }}>
                     <button className="btn" onClick={() => navigate(`/instances/${w.id}`)}>playground →</button>
@@ -167,7 +171,7 @@ export function RepoScreen() {
               <div key={`s${s.id}`} className="lrow" style={{ padding: 12 }}>
                 <div>
                   <div><Dot on={false} /><b>{buildName(s.buildId)}</b> <span className="muted">· not raised yet</span></div>
-                  <div className="small muted" style={{ marginTop: 2 }}>{subText(s)} · instance appears on the first matching event</div>
+                  <div className="small muted" style={{ marginTop: 2 }}>{subText(s, true)} · instance appears on the first matching event</div>
                 </div>
                 <button className="btn danger" disabled={busy} onClick={() => unsub(s)}>unsubscribe</button>
               </div>
