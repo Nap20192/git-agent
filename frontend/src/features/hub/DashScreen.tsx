@@ -5,7 +5,7 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useHubApi, type Finding, type RepoEvent } from "@/api/hub";
 import { useAsync, useBuilds, useHubRepositories, useInstances, useLlmConnections, useRunners } from "@/hooks";
-import { FindingsTable } from "./PlaygroundScreen.tsx";
+import { FindingsTable } from "./findings.tsx";
 import { Dot, Onboarding, Panel, ago, useScreenCtx } from "./ui.tsx";
 
 const POLL_MS = 15000;

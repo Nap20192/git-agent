@@ -2,10 +2,11 @@
  *  Сборка; no subscriptions → the default Сборка covers everything) with
  *  playground/stop/unsubscribe, a subscribe form (build + actions + ref mask),
  *  the Событие journal and a chat with the active watcher. */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useHubApi, type Subscription } from "@/api/hub";
 import { useBuilds, useHubRepositories, useInstances, useRepoEvents, useSubscriptions } from "@/hooks";
+import { FindingsPanel, type FindingsSource } from "./findings.tsx";
 import { InstanceChatPanel } from "./InstanceChatPanel.tsx";
 import { Dot, Panel, ago, sha, shortRef, useScreenCtx, useShell } from "./ui.tsx";
 
@@ -26,6 +27,7 @@ export function RepoScreen() {
   const subsQ = useSubscriptions(id);
   const [busy, setBusy] = useState(false);
   const [f, setF] = useState({ build: "", actions: "", ref: "" });
+  const findingsSource = useMemo<FindingsSource>(() => ({ list: (x) => api.listRepositoryFindings(id, x), export: (format, x) => api.exportRepositoryFindings(id, format, x) }), [api, id]);
 
   const repo = (reposQ.data ?? []).find((r) => r.id === id);
   useScreenCtx(repo ? `${repo.owner}/${repo.name}` : null);
@@ -215,6 +217,11 @@ export function RepoScreen() {
             />
           </div>
         </Panel>
+      </div>
+
+      <div>
+        <h2 style={{ marginBottom: 12 }}>findings <span className="muted small" style={{ fontWeight: 400 }}>· across every agent of this repository</span></h2>
+        <FindingsPanel source={findingsSource} events={events} empty="no findings on this repository yet — they appear after the first run." fileName={`findings-${repo.owner}-${repo.name}`} />
       </div>
     </div>
   );

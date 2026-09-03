@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import type { ActivityStatus, Report } from "@/api/hub";
 import { duration, type AgentNode, type TurnGraph, type WorkFrame } from "./activity.ts";
 import { Clamp, Rich } from "./rich.tsx";
+import { ReportView } from "./findings.tsx";
 import { Panel } from "./ui.tsx";
 
 const COLS = "2ch 1fr 80px 70px 70px";
@@ -41,6 +42,7 @@ export function InstanceAgentsPanel({ graph, leadName, report, selected, onSelec
     findingsCount: graph.leadFindings,
     error: graph.error,
     report: report?.summary,
+    reportObj: report,
     work: graph.leadWork,
   };
   const rows = [lead, ...graph.tasks];
@@ -87,7 +89,7 @@ function AgentDetail({ a }: { a: AgentNode }) {
       {a.error && <div className="err small pretty">{a.error}</div>}
       <section>
         <div className="flabel" style={{ marginBottom: 4 }}>{a.taskId === "lead" ? "report" : "self-report"}</div>
-        {a.report ? <Clamp><Rich>{a.report}</Rich></Clamp> : <div className="small muted">{idle ? "still working — the report lands when it finishes." : "no report received."}</div>}
+        {a.reportObj ? <Clamp><ReportView report={a.reportObj} /></Clamp> : a.report ? <Clamp><Rich>{a.report}</Rich></Clamp> : <div className="small muted">{idle ? "still working — the report lands when it finishes." : "no report received."}</div>}
       </section>
       <section>
         <div className="flabel" style={{ marginBottom: 4 }}>work log · {a.work.length}</div>

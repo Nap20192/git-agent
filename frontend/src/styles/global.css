@@ -750,3 +750,41 @@ b {
   background: var(--bg-elevated);
   font-size: 12px;
 }
+
+/* findings v2: expanded row + structured report */
+.tag.dim {
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+.fdetail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 14px 32px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  font-size: 12px;
+}
+.code {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font: inherit;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.report-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent);
+  background: var(--bg-elevated);
+}

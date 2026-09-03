@@ -7,20 +7,19 @@
  *  only activity streams. Chat and terminal stay mounted across tabs. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useHubApi, type Finding, type RepoEvent, type Report } from "@/api/hub";
+import { useHubApi, type RepoEvent, type Report } from "@/api/hub";
 import { useBuilds, useHubRepositories, useInstance, useInstanceFindings, useInstanceReports, useInstances, useLlmConnections, useRepoEvents, useRunners, useSandboxConnections } from "@/hooks";
 import { activityLine, foldActivity, useInstanceActivity } from "./activity.ts";
+import { FindingsPanel, ReportView, type FindingsSource } from "./findings.tsx";
 import { InstanceAgentsPanel } from "./InstanceAgentsPanel.tsx";
 import { InstanceChatPanel } from "./InstanceChatPanel.tsx";
-import { Clamp, Rich } from "./rich.tsx";
+import { Clamp } from "./rich.tsx";
 import { InstanceTerminalPanel } from "./InstanceTerminalPanel.tsx";
 import { Dot, Panel, ago, sha, shortRef, toShellError, useScreenCtx, useShell } from "./ui.tsx";
 
 const POLL_MS = 5000;
 const TABS = ["timeline", "agents", "findings", "chat", "terminal"] as const;
 type Tab = (typeof TABS)[number];
-const FCOLS = "70px 100px 1.2fr 1.4fr 1.4fr";
-const SEV_COLOR: Record<string, string> = { critical: "var(--error)", crit: "var(--error)", high: "var(--error)", medium: "var(--warning)", med: "var(--warning)", low: "var(--text-muted)" };
 
 interface Line {
   at: Date;
@@ -37,27 +36,6 @@ export function limitsText(limits?: Record<string, unknown>): string {
   const qt = n("queueTimeout"); if (qt != null) p.push(`${qt}s queue`);
   const b = n("tokenBudget"); if (b != null) p.push(`${b.toLocaleString("en-US")} tokens`);
   return p.length ? p.join(" · ") : "no limits";
-}
-
-export function FindingsTable({ rows, loading, empty = "no findings filed by this agent yet." }: { rows: Finding[]; loading?: boolean; empty?: string }) {
-  const loc = (f: Finding) => (f.file ? `${f.file}${f.lineStart != null ? `:${f.lineStart}${f.lineEnd != null && f.lineEnd !== f.lineStart ? `-${f.lineEnd}` : ""}` : ""}` : "—");
-  return (
-    <div className="box">
-      <div className="thead" style={{ "--cols": FCOLS } as React.CSSProperties}>
-        <span>severity</span><span>cwe</span><span>location</span><span>evidence</span><span>remediation</span>
-      </div>
-      {rows.map((f) => (
-        <div key={f.id} className="trow top" style={{ "--cols": FCOLS } as React.CSSProperties}>
-          <span style={{ fontWeight: 700, color: SEV_COLOR[f.severity.toLowerCase()] ?? "var(--text)" }}>{f.severity}</span>
-          <span className="comment">{f.cwe ?? f.cve ?? "—"}</span>
-          <span style={{ textDecoration: "underline", wordBreak: "break-all" }}>{loc(f)}</span>
-          <span className="comment"><Clamp lines={6}><Rich>{f.evidence ?? ""}</Rich></Clamp></span>
-          <span><Clamp lines={6}><Rich>{f.remediation ?? ""}</Rich></Clamp></span>
-        </div>
-      ))}
-      {rows.length === 0 && <div className="empty">{loading ? "loading…" : empty}</div>}
-    </div>
-  );
 }
 
 export function PlaygroundScreen() {
@@ -105,6 +83,7 @@ export function PlaygroundScreen() {
   }, []);
 
   const graph = useMemo(() => foldActivity(frames), [frames]);
+  const findingsSource = useMemo<FindingsSource>(() => ({ list: (f) => api.listInstanceFindings(id, f), export: (format, f) => api.exportInstanceFindings(id, format, f) }), [api, id]);
 
   if (instQ.error || (inst == null && !instQ.loading)) {
     return <div className="gate">{instQ.error ? `failed to load instance #${id}: ${instQ.error.message}` : `instance #${id} not found.`}</div>;
@@ -168,9 +147,9 @@ export function PlaygroundScreen() {
 
   // timeline: events (●, click → replay on graph) + reports (→) + activity lines (⚙; node frames stay on the graph), newest first
   const timeline = [
-    ...events.map((e) => ({ t: new Date(e.receivedAt), glyph: "●", color: graphEventId === e.id ? "var(--accent)" : "var(--text-muted)", title: e.action, meta: `${shortRef(e.ref)} @ ${sha(e.commitSha)}${reportFor(e) ? "" : running ? " · no report yet" : " · unfinished"}`, body: "", eventId: e.id })),
-    ...reports.map((r) => ({ t: new Date(r.createdAt), glyph: "→", color: "var(--accent)", title: "report", meta: r.eventId != null ? `for event #${r.eventId}` : "", body: r.summary, eventId: null })),
-    ...[...local, ...frames.filter((f) => f.kind !== "node").flatMap((f) => { const text = activityLine(f); return text ? [{ at: f.ts ? new Date(f.ts) : new Date(), text }] : []; })].map((l) => ({ t: l.at, glyph: "⚙", color: "var(--text-comment)", title: "", meta: l.text, body: "", eventId: null })),
+    ...events.map((e) => ({ t: new Date(e.receivedAt), glyph: "●", color: graphEventId === e.id ? "var(--accent)" : "var(--text-muted)", title: e.action, meta: `${shortRef(e.ref)} @ ${sha(e.commitSha)}${reportFor(e) ? "" : running ? " · no report yet" : " · unfinished"}`, body: "", report: undefined as Report | undefined, eventId: e.id })),
+    ...reports.map((r) => ({ t: new Date(r.createdAt), glyph: "→", color: "var(--accent)", title: "report", meta: r.eventId != null ? `for event #${r.eventId}` : "", body: "", report: r, eventId: null })),
+    ...[...local, ...frames.filter((f) => f.kind !== "node").flatMap((f) => { const text = activityLine(f); return text ? [{ at: f.ts ? new Date(f.ts) : new Date(), text }] : []; })].map((l) => ({ t: l.at, glyph: "⚙", color: "var(--text-comment)", title: "", meta: l.text, body: "", report: undefined as Report | undefined, eventId: null })),
   ].sort((a, b) => b.t.getTime() - a.t.getTime());
 
   const saList = graph.tasks;
@@ -232,7 +211,7 @@ export function PlaygroundScreen() {
                 <div style={{ minWidth: 0 }}>
                   {it.title && <span style={{ fontWeight: 700 }}>{it.title} </span>}
                   <span className="comment">{it.meta}</span>
-                  {it.body && <div style={{ marginTop: 4 }}><Clamp lines={6}><Rich>{it.body}</Rich></Clamp></div>}
+                  {it.report && <div style={{ marginTop: 4 }}><Clamp lines={10}><ReportView report={it.report} /></Clamp></div>}
                 </div>
               </div>
             ))}
@@ -292,7 +271,7 @@ export function PlaygroundScreen() {
         </>
       )}
 
-      {tab === "findings" && <FindingsTable rows={[...findings].reverse()} loading={findingsQ.loading && findingsQ.data === undefined} />}
+      {tab === "findings" && <FindingsPanel source={findingsSource} events={events} empty="no findings filed by this agent yet." fileName={`findings-${repo ? `${repo.owner}-${repo.name}` : `instance-${inst.id}`}`} />}
 
       <div className="box" hidden={tab !== "chat"} style={{ display: tab === "chat" ? "flex" : undefined, flexDirection: "column", flex: 1, minHeight: 420 }}>
         <InstanceChatPanel instanceId={inst.id} empty={`thread ${inst.threadId ?? "—"} · nothing said yet.`} onStatusChange={() => { instQ.reload(); instancesQ.reload(); }} onActivity={log} />

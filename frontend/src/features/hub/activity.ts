@@ -78,6 +78,8 @@ export interface AgentNode {
   error?: string;
   /** Self-report text from the task_report frame. */
   report?: string;
+  /** The lead's Отчёт object (structured when the agent wrote one). */
+  reportObj?: import("@/api/hub").Report;
   /** Work log (tool_call / tool_result / text frames), oldest first. */
   work: WorkFrame[];
 }

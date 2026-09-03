@@ -9,6 +9,8 @@ import type {
   AgentInstance,
   ChatEvent,
   Finding,
+  FindingExportFormat,
+  FindingFilters,
   Identity,
   LlmConnection,
   Me,
@@ -101,7 +103,13 @@ export interface HubApi {
   /** «Продолжить»: republish unprocessed События; empty list = nothing to resume. */
   resumeInstance(id: number): Promise<{ eventIds: number[] }>;
   listInstanceReports(id: number): Promise<Report[]>;
-  listInstanceFindings(id: number): Promise<Finding[]>;
+  /** Находки of one Экземпляр, filtered server-side (findings v2). */
+  listInstanceFindings(id: number, filters?: FindingFilters): Promise<Finding[]>;
+  /** GET …/findings/export?format=csv|md → file body as text. */
+  exportInstanceFindings(id: number, format: FindingExportFormat, filters?: FindingFilters): Promise<string>;
+  /** Находки across every Экземпляр of a repository. */
+  listRepositoryFindings(repositoryId: number, filters?: FindingFilters): Promise<Finding[]>;
+  exportRepositoryFindings(repositoryId: number, format: FindingExportFormat, filters?: FindingFilters): Promise<string>;
   /** Streams the agent's reply; resolves when the stream ends. */
   chat(instanceId: number, message: string, onEvent: (e: ChatEvent) => void): Promise<void>;
   /** Runs one stream-console command in the Экземпляр's sandbox (running only). */

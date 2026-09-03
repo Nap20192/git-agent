@@ -9,6 +9,7 @@ import type {
   AgentBuild,
   AgentInstance,
   Finding,
+  FindingFilters,
   Identity,
   LlmConnection,
   Me,
@@ -108,7 +109,22 @@ const subscriptions: Subscription[] = [
 const reports: Record<number, Report[]> = {
   1: [
     { id: 2, instanceId: 1, eventId: 3, summary: "Push 9f3c1a2: no new findings. The auth refactor removes the token-in-query pattern flagged earlier.", createdAt: iso(10) },
-    { id: 1, instanceId: 1, eventId: 1, summary: "Initial scan: FastAPI gateway + LangGraph worker. One high-severity finding (SQL string interpolation in run_store).", createdAt: iso(60 * 19) },
+    {
+      id: 1,
+      instanceId: 1,
+      eventId: 1,
+      summary: "Initial scan: FastAPI gateway + LangGraph worker. One high-severity finding (SQL string interpolation in run_store).",
+      structured: {
+        summary: "Initial scan of the FastAPI gateway and the LangGraph worker. One high-severity injection, one hard-coded secret in the compose file.",
+        scope: { eventType: "push", range: "0000000..4f3a9c1", filesTouched: ["infra/db/run_store.py", "deploy/docker-compose.yml", "core/lead/graph.py"], linesChanged: 412 },
+        method: ["semgrep default rules", "manual review of db/ and deploy/", "grep for secrets"],
+        findingsBySeverity: { high: 1, medium: 1 },
+        topRisks: ["SQL string interpolation in run_store.py lets a crafted run id read any row.", "The sandbox api key ships inside the compose file."],
+        recommendations: ["Bind parameters in run_store.py.", "Move OPEN_SANDBOX_API_KEY to an env file outside the image.", "Add semgrep to CI."],
+        limitations: ["No dynamic testing.", "Frontend not in scope of this turn."],
+      },
+      createdAt: iso(60 * 19),
+    },
   ],
   2: [],
 };
@@ -119,7 +135,13 @@ const findings: Record<number, Finding[]> = {
       id: 1,
       instanceId: 1,
       reportId: 1,
+      eventId: 1,
       severity: "high",
+      title: "SQL injection via f-string in run lookup",
+      description: "The run id from the request is interpolated straight into the SQL text.",
+      impact: "Any authenticated caller can read or modify arbitrary rows of hub.runs.",
+      confidence: "high",
+      category: "injection",
       cwe: "CWE-89",
       cve: null,
       file: "infra/db/run_store.py",
@@ -127,13 +149,26 @@ const findings: Record<number, Finding[]> = {
       lineEnd: 148,
       evidence: 'query = f"SELECT * FROM runs WHERE id = {run_id}"',
       remediation: "Use psycopg parameter binding instead of f-string interpolation.",
+      references: ["https://cwe.mitre.org/data/definitions/89.html"],
+      blameAuthor: "vnkjd",
+      blameEmail: "vnkjd47@gmail.com",
+      blameCommit: "4f3a9c1e7b2d",
+      blameDate: iso(60 * 24 * 3),
+      blameCommitMessage: "run store: lookup by id",
+      introducedBy: "this_event",
       createdAt: iso(60 * 19),
     },
     {
       id: 2,
       instanceId: 1,
       reportId: 1,
-      severity: "med",
+      eventId: 1,
+      severity: "medium",
+      title: "Sandbox api key committed in docker-compose",
+      description: "A working api key is a literal in the compose file that ships with the image.",
+      impact: "Anyone with the image can drive the sandbox host.",
+      confidence: "medium",
+      category: "secrets",
       cwe: "CWE-798",
       cve: null,
       file: "deploy/docker-compose.yml",
@@ -141,11 +176,39 @@ const findings: Record<number, Finding[]> = {
       lineEnd: 23,
       evidence: "OPEN_SANDBOX_API_KEY: dev-local-key",
       remediation: "Move the sandbox key to an env file excluded from the image.",
+      references: [],
+      blameAuthor: "vnkjd",
+      blameCommit: "91c0de4aa01f",
+      blameDate: iso(60 * 24 * 40),
+      blameCommitMessage: "deploy: compose for local dev",
+      introducedBy: "earlier",
       createdAt: iso(60 * 19),
     },
   ],
   2: [],
 };
+
+/** Server-side filter of GET …/findings (mirrors the query params). */
+function filterFindings(rows: Finding[], f?: FindingFilters): Finding[] {
+  return rows.filter(
+    (x) =>
+      (!f?.severity || x.severity === f.severity) &&
+      (!f?.category || x.category === f.category) &&
+      (f?.eventId == null || x.eventId === f.eventId) &&
+      (!f?.introducedBy || x.introducedBy === f.introducedBy),
+  );
+}
+/** GET …/findings/export — the file body the hub would send. */
+function exportFindings(rows: Finding[], format: "csv" | "md"): string {
+  const loc = (x: Finding) => (x.file ? `${x.file}${x.lineStart != null ? `:${x.lineStart}` : ""}` : "");
+  const cols = ["severity", "title", "category", "location", "introducedBy", "blameAuthor", "blameCommit", "cwe", "cve", "confidence"];
+  const cell = (x: Finding, c: string) => (c === "location" ? loc(x) : String((x as unknown as Record<string, unknown>)[c] ?? ""));
+  if (format === "csv") {
+    const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s);
+    return [cols.join(","), ...rows.map((x) => cols.map((c) => esc(cell(x, c))).join(","))].join("\n");
+  }
+  return [`| ${cols.join(" | ")} |`, `| ${cols.map(() => "---").join(" | ")} |`, ...rows.map((x) => `| ${cols.map((c) => cell(x, c).replaceAll("|", "\\|")).join(" | ")} |`)].join("\n");
+}
 
 const runners: Runner[] = [
   { id: 1, name: "runner-local", address: "127.0.0.1:9090", slots: 4, lastHeartbeatAt: iso(0) },
@@ -535,9 +598,23 @@ export function createMockHubApi(): HubApi {
       await delay();
       return [...(reports[id] ?? [])];
     },
-    async listInstanceFindings(id) {
+    async listInstanceFindings(id, f) {
       await delay();
-      return [...(findings[id] ?? [])];
+      return filterFindings(findings[id] ?? [], f);
+    },
+    async exportInstanceFindings(id, format, f) {
+      await delay();
+      return exportFindings(filterFindings(findings[id] ?? [], f), format);
+    },
+    async listRepositoryFindings(repositoryId, f) {
+      await delay();
+      const ids = instances.filter((i) => i.repositoryId === repositoryId).map((i) => i.id);
+      return filterFindings(ids.flatMap((id) => findings[id] ?? []), f);
+    },
+    async exportRepositoryFindings(repositoryId, format, f) {
+      await delay();
+      const ids = instances.filter((i) => i.repositoryId === repositoryId).map((i) => i.id);
+      return exportFindings(filterFindings(ids.flatMap((id) => findings[id] ?? []), f), format);
     },
 
     async listRunners() {
