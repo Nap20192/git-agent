@@ -268,3 +268,43 @@ def test_executor_passes_mcp_tools_to_lead_profile(monkeypatch):
         "load_skill",
         "write_report",
     ]
+
+
+def test_ensure_commits_fetches_missing_and_resolves_merge_base():
+    from core.repo import ensure_commits
+
+    class ScriptedSandbox(FakeSandbox):
+        """cat-file: есть только 'have'; merge-base: успех после unshallow."""
+
+        def __init__(self):
+            super().__init__("")
+            self.unshallowed = False
+
+        async def run(self, command, *, timeout_seconds=None):
+            self.commands.append(command)
+            if "cat-file -e" in command:
+                if "have^{commit}" not in command:
+                    raise SandboxCommandError(command, 1, "")
+                return ""
+            if "merge-base" in command:
+                if not self.unshallowed:
+                    raise SandboxCommandError(command, 128, "no merge base")
+                return "mb0\n"
+            if "--unshallow" in command:
+                self.unshallowed = True
+            return ""
+
+    async def run():
+        sb = ScriptedSandbox()
+        mb = await ensure_commits(sb, ["have", "miss", "miss"], merge_base_of=("have", "miss"))
+        assert mb == "mb0"
+        fetches = [c for c in sb.commands if " fetch " in c]
+        assert fetches == [
+            "git -C /repo fetch --depth 1 origin miss",  # только отсутствующий, без дублей
+            "git -C /repo fetch --unshallow origin || git -C /repo fetch origin",
+        ]
+        # без пары — merge-base не ищется, провал fetch — warning, не исключение
+        failing = FakeSandbox(SandboxCommandError("git", 128, "not our ref"))
+        assert await ensure_commits(failing, ["zzz"]) is None
+
+    asyncio.run(run())
