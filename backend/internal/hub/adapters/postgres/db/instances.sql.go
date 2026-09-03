@@ -88,13 +88,37 @@ func (q *Queries) CreateSandboxInstance(ctx context.Context, arg CreateSandboxIn
 }
 
 const findings = `-- name: Findings :many
-SELECT id, instance_id, report_id, severity, cwe, cve, file, line_start, line_end,
-       evidence, remediation, created_at
-  FROM hub.findings WHERE instance_id = $1 ORDER BY id DESC
+SELECT f.id, f.instance_id, f.report_id, f.severity, f.cwe, f.cve, f.file, f.line_start, f.line_end, f.evidence, f.remediation, f.created_at, f.title, f.description, f.impact, f.confidence, f.category, f."references", f.blame_author, f.blame_email, f.blame_commit, f.blame_date, f.blame_commit_message, f.introduced_by, f.event_id FROM hub.findings f
+  JOIN hub.agent_instances i ON i.id = f.instance_id
+ WHERE ($1::bigint IS NULL OR f.instance_id = $1)
+   AND ($2::bigint IS NULL OR i.repository_id = $2)
+   AND ($3::text IS NULL OR f.severity = $3)
+   AND ($4::text IS NULL OR f.category = $4)
+   AND ($5::bigint IS NULL OR f.event_id = $5)
+   AND ($6::text IS NULL OR f.introduced_by = $6)
+ ORDER BY f.id DESC
 `
 
-func (q *Queries) Findings(ctx context.Context, instanceID int64) ([]HubFinding, error) {
-	rows, err := q.db.Query(ctx, findings, instanceID)
+type FindingsParams struct {
+	InstanceID   *int64
+	RepositoryID *int64
+	Severity     *string
+	Category     *string
+	EventID      *int64
+	IntroducedBy *string
+}
+
+// Находки v2 (миграция 007): скоуп — Экземпляр либо Репозиторий (все его
+// Экземпляры), фильтры — NULL = без фильтра.
+func (q *Queries) Findings(ctx context.Context, arg FindingsParams) ([]HubFinding, error) {
+	rows, err := q.db.Query(ctx, findings,
+		arg.InstanceID,
+		arg.RepositoryID,
+		arg.Severity,
+		arg.Category,
+		arg.EventID,
+		arg.IntroducedBy,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +139,19 @@ func (q *Queries) Findings(ctx context.Context, instanceID int64) ([]HubFinding,
 			&i.Evidence,
 			&i.Remediation,
 			&i.CreatedAt,
+			&i.Title,
+			&i.Description,
+			&i.Impact,
+			&i.Confidence,
+			&i.Category,
+			&i.References,
+			&i.BlameAuthor,
+			&i.BlameEmail,
+			&i.BlameCommit,
+			&i.BlameDate,
+			&i.BlameCommitMessage,
+			&i.IntroducedBy,
+			&i.EventID,
 		); err != nil {
 			return nil, err
 		}
@@ -265,7 +302,7 @@ func (q *Queries) MarkSandboxInstanceDead(ctx context.Context, id int64) error {
 }
 
 const reports = `-- name: Reports :many
-SELECT id, instance_id, event_id, summary, created_at
+SELECT id, instance_id, event_id, summary, created_at, structured
   FROM hub.reports WHERE instance_id = $1 ORDER BY id DESC
 `
 
@@ -284,6 +321,7 @@ func (q *Queries) Reports(ctx context.Context, instanceID int64) ([]HubReport, e
 			&i.EventID,
 			&i.Summary,
 			&i.CreatedAt,
+			&i.Structured,
 		); err != nil {
 			return nil, err
 		}

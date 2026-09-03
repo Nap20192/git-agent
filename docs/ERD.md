@@ -20,6 +20,7 @@ erDiagram
     runners |o--o{ agent_instances : "running держит раннер"
     agent_instances ||--o{ instance_events : "дедуп/обработано"
     events ||--o{ instance_events : ""
+    events |o--o{ findings : ""
     agent_instances ||--o{ reports : ""
     agent_instances ||--o{ findings : ""
     reports |o--o{ findings : ""
@@ -98,13 +99,23 @@ erDiagram
     }
     reports {
         text summary
+        jsonb structured
     }
     findings {
         text severity
+        text title
+        text category
+        text confidence
         text cwe
         text file
         int line_start
         text evidence
         text remediation
+        jsonb references
+        text blame_author
+        text blame_commit
+        timestamptz blame_date
+        text introduced_by
+        bigint event_id FK
     }
 ```

@@ -151,6 +151,36 @@ paths:
             application/json:
               schema: { type: array, items: { $ref: "#/components/schemas/Event" } }
 
+  /api/repositories/{id}/findings:
+    get:
+      summary: Находки сводно по всем Экземплярам Репозитория
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/FindingSeverity"
+        - $ref: "#/components/parameters/FindingCategory"
+        - $ref: "#/components/parameters/FindingEventId"
+        - $ref: "#/components/parameters/FindingIntroducedBy"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Finding" } }
+  /api/repositories/{id}/findings/export:
+    get:
+      summary: Табличный экспорт Находок Репозитория (как у Экземпляра)
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ExportFormat"
+        - $ref: "#/components/parameters/FindingSeverity"
+        - $ref: "#/components/parameters/FindingCategory"
+        - $ref: "#/components/parameters/FindingEventId"
+        - $ref: "#/components/parameters/FindingIntroducedBy"
+      responses:
+        "200":
+          content:
+            text/csv: { schema: { type: string } }
+            text/markdown: { schema: { type: string } }
+        "400": { description: format не csv|md }
   /api/repositories/{id}/trigger:
     post:
       summary: Запустить агента вручную (без вебхука)
@@ -530,13 +560,38 @@ paths:
               schema: { type: array, items: { $ref: "#/components/schemas/Report" } }
   /api/instances/{id}/findings:
     get:
-      summary: Находки Экземпляра
-      parameters: [{ $ref: "#/components/parameters/Id" }]
+      summary: Находки Экземпляра (v2, новые сверху)
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/FindingSeverity"
+        - $ref: "#/components/parameters/FindingCategory"
+        - $ref: "#/components/parameters/FindingEventId"
+        - $ref: "#/components/parameters/FindingIntroducedBy"
       responses:
         "200":
           content:
             application/json:
               schema: { type: array, items: { $ref: "#/components/schemas/Finding" } }
+  /api/instances/{id}/findings/export:
+    get:
+      summary: Табличный экспорт Находок Экземпляра (те же фильтры)
+      description: |
+        Таблица critical → info: `#, severity, title, category, file:lines, introduced by
+        (author @ date, sha7, this event/earlier), cwe/cve, confidence, remediation`.
+        CSV — RFC 4180 (CRLF, UTF-8 BOM); md — Markdown-таблица. `Content-Disposition: attachment`.
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ExportFormat"
+        - $ref: "#/components/parameters/FindingSeverity"
+        - $ref: "#/components/parameters/FindingCategory"
+        - $ref: "#/components/parameters/FindingEventId"
+        - $ref: "#/components/parameters/FindingIntroducedBy"
+      responses:
+        "200":
+          content:
+            text/csv: { schema: { type: string } }
+            text/markdown: { schema: { type: string } }
+        "400": { description: format не csv|md }
 
   # ── Раннеры (auth: X-Runner-Token) ──────────────────────────────────
   /api/runners:
@@ -577,6 +632,14 @@ components:
       description: Сквозной trace_id (32 hex). Принимается на любом пути; без него hub генерирует свой.
       schema: { type: string, pattern: "^[0-9a-f]{32}$" }
     Id: { name: id, in: path, required: true, schema: { type: integer } }
+    FindingSeverity: { name: severity, in: query, schema: { type: string } }
+    FindingCategory:
+      name: category
+      in: query
+      schema: { type: string, enum: [injection, auth, crypto, secrets, deps, config, xss, ssrf, path, logic, other] }
+    FindingEventId: { name: eventId, in: query, schema: { type: integer }, description: Событие, породившее Находку }
+    FindingIntroducedBy: { name: introducedBy, in: query, schema: { type: string, enum: [this_event, earlier] } }
+    ExportFormat: { name: format, in: query, required: true, schema: { type: string, enum: [csv, md] } }
     Provider:
       name: provider
       in: path
@@ -796,21 +859,71 @@ components:
         id: { type: integer }
         instanceId: { type: integer }
         eventId: { type: [integer, "null"] }
-        summary: { type: string }
+        summary: { type: string, description: markdown-рендер structured (делает раннер) }
+        structured:
+          oneOf: [{ $ref: "#/components/schemas/ReportStructured" }, { type: "null" }]
+          description: null у отчётов до миграции 007
         createdAt: { type: string, format: date-time }
+    ReportStructured:
+      type: object
+      description: Структурированный отчёт хода (hub.reports.structured, пишет раннер).
+      properties:
+        summary: { type: string }
+        scope:
+          type: object
+          properties:
+            eventType: { type: string, enum: [push, pull_request, merge_request, manual, full_scan] }
+            range:
+              type: object
+              description: "push/manual: {before, after}; PR/MR: {base, head}"
+              properties:
+                before: { type: string }
+                after: { type: string }
+                base: { type: string }
+                head: { type: string }
+            filesTouched: { type: integer }
+            linesChanged: { type: integer }
+        method: { type: array, items: { type: string } }
+        findingsBySeverity:
+          type: object
+          properties:
+            critical: { type: integer }
+            high: { type: integer }
+            medium: { type: integer }
+            low: { type: integer }
+            info: { type: integer }
+        topRisks: { type: array, items: { type: string } }
+        recommendations: { type: array, items: { type: string } }
+        limitations: { type: array, items: { type: string } }
     Finding:
       type: object
-      required: [id, instanceId, severity]
+      description: Находка v2 (миграция 007). Новые поля null у старых строк и без blame.
+      required: [id, instanceId, severity, createdAt]
       properties:
         id: { type: integer }
         instanceId: { type: integer }
         reportId: { type: [integer, "null"] }
+        eventId: { type: [integer, "null"], description: Событие, породившее Находку }
         severity: { type: string }
+        title: { type: [string, "null"] }
+        description: { type: [string, "null"] }
+        impact: { type: [string, "null"] }
+        confidence: { type: [string, "null"], enum: [high, medium, low, null] }
+        category:
+          type: [string, "null"]
+          enum: [injection, auth, crypto, secrets, deps, config, xss, ssrf, path, logic, other, null]
         cwe: { type: [string, "null"] }
         cve: { type: [string, "null"] }
+        references: { type: [array, "null"], items: { type: string } }
         file: { type: [string, "null"] }
         lineStart: { type: [integer, "null"] }
         lineEnd: { type: [integer, "null"] }
         evidence: { type: [string, "null"] }
         remediation: { type: [string, "null"] }
+        blameAuthor: { type: [string, "null"] }
+        blameEmail: { type: [string, "null"] }
+        blameCommit: { type: [string, "null"] }
+        blameDate: { type: [string, "null"], format: date-time }
+        blameCommitMessage: { type: [string, "null"] }
+        introducedBy: { type: [string, "null"], enum: [this_event, earlier, null] }
         createdAt: { type: string, format: date-time }

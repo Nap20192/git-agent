@@ -116,21 +116,47 @@ type Report struct {
 	ID         int64
 	InstanceID int64
 	EventID    *int64
-	Summary    string
+	Summary    string // markdown-рендер Structured (делает раннер)
 	CreatedAt  time.Time
+	Structured json.RawMessage // {summary, scope, method, findingsBySeverity, topRisks, recommendations, limitations}; nil у старых
 }
 
+// Finding — Находка v2 (миграция 007). Порядок полей = hub.findings (sqlc-модель
+// конвертируется приведением типа). Новые поля NULL-able: старые строки, нет blame.
 type Finding struct {
-	ID          int64
-	InstanceID  int64
-	ReportID    *int64
-	Severity    string
-	CWE         *string
-	CVE         *string
-	File        *string
-	LineStart   *int
-	LineEnd     *int
-	Evidence    *string
-	Remediation *string
-	CreatedAt   time.Time
+	ID                 int64
+	InstanceID         int64
+	ReportID           *int64
+	Severity           string
+	CWE                *string
+	CVE                *string
+	File               *string
+	LineStart          *int
+	LineEnd            *int
+	Evidence           *string
+	Remediation        *string
+	CreatedAt          time.Time
+	Title              *string
+	Description        *string
+	Impact             *string
+	Confidence         *string         // high | medium | low
+	Category           *string         // injection | auth | crypto | secrets | deps | config | xss | ssrf | path | logic | other
+	References         json.RawMessage // []string
+	BlameAuthor        *string
+	BlameEmail         *string
+	BlameCommit        *string
+	BlameDate          *time.Time
+	BlameCommitMessage *string
+	IntroducedBy       *string // this_event | earlier
+	EventID            *int64  // Событие, породившее Находку
+}
+
+// FindingFilter — скоуп (Экземпляр либо Репозиторий) + фильтры GET findings; nil = без фильтра.
+type FindingFilter struct {
+	InstanceID   *int64
+	RepositoryID *int64
+	Severity     *string
+	Category     *string
+	EventID      *int64
+	IntroducedBy *string
 }

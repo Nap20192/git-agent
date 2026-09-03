@@ -54,13 +54,21 @@ UPDATE hub.agent_instances i SET sandbox_instance_id = @sandbox_instance_id::big
  WHERE i.id = @id AND r.id = i.repository_id AND r.user_id = @user_id;
 
 -- name: Reports :many
-SELECT id, instance_id, event_id, summary, created_at
+SELECT id, instance_id, event_id, summary, created_at, structured
   FROM hub.reports WHERE instance_id = @instance_id ORDER BY id DESC;
 
+-- Находки v2 (миграция 007): скоуп — Экземпляр либо Репозиторий (все его
+-- Экземпляры), фильтры — NULL = без фильтра.
 -- name: Findings :many
-SELECT id, instance_id, report_id, severity, cwe, cve, file, line_start, line_end,
-       evidence, remediation, created_at
-  FROM hub.findings WHERE instance_id = @instance_id ORDER BY id DESC;
+SELECT f.* FROM hub.findings f
+  JOIN hub.agent_instances i ON i.id = f.instance_id
+ WHERE (sqlc.narg('instance_id')::bigint IS NULL OR f.instance_id = sqlc.narg('instance_id'))
+   AND (sqlc.narg('repository_id')::bigint IS NULL OR i.repository_id = sqlc.narg('repository_id'))
+   AND (sqlc.narg('severity')::text IS NULL OR f.severity = sqlc.narg('severity'))
+   AND (sqlc.narg('category')::text IS NULL OR f.category = sqlc.narg('category'))
+   AND (sqlc.narg('event_id')::bigint IS NULL OR f.event_id = sqlc.narg('event_id'))
+   AND (sqlc.narg('introduced_by')::text IS NULL OR f.introduced_by = sqlc.narg('introduced_by'))
+ ORDER BY f.id DESC;
 
 -- name: SetInstanceRunning :exec
 UPDATE hub.agent_instances
