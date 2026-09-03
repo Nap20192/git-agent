@@ -232,9 +232,9 @@ func (s *Store) UpsertSubscription(ctx context.Context, sub *domain.BuildSubscri
 	var id int64
 	err := s.Pool.QueryRow(ctx,
 		`INSERT INTO hub.build_subscriptions (build_id, repository_id, actions, ref_mask)
-		 VALUES ($1, $2, COALESCE($3, '{}'), $4)
+		 VALUES ($1, $2, COALESCE($3, '{}'::text[]), $4)
 		 ON CONFLICT (build_id, repository_id) DO UPDATE
-		   SET actions = COALESCE($3, '{}'), ref_mask = $4
+		   SET actions = COALESCE($3, '{}'::text[]), ref_mask = $4
 		 RETURNING id`,
 		sub.BuildID, sub.RepositoryID, sub.Actions, sub.RefMask,
 	).Scan(&id)

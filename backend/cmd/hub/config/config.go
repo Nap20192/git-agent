@@ -28,6 +28,8 @@ type Config struct {
 	FrontendURL       string // redirect после входа
 
 	ChatFirstByteTimeout time.Duration // ожидание первого байта SSE от раннера
+
+	DevUserID int64 // DEV_USER_ID: dev-обход OAuth — запросы без сессии идут от этого user id; 0 = выключено
 }
 
 // Load читает .env (корень монорепы либо cwd) и собирает конфиг.
@@ -76,6 +78,13 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("config: CHAT_FIRST_BYTE_TIMEOUT_SECONDS must be a positive integer")
 		}
 		c.ChatFirstByteTimeout = time.Duration(n) * time.Second
+	}
+	if v := os.Getenv("DEV_USER_ID"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 1 {
+			return nil, fmt.Errorf("config: DEV_USER_ID must be a positive integer")
+		}
+		c.DevUserID = n
 	}
 	for name, v := range map[string]string{
 		"DATABASE_URL": c.DatabaseURL,

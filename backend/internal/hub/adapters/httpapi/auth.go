@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/app"
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
@@ -25,11 +26,17 @@ const userIDKey ctxKey = 0
 // opaque-токен из httpOnly cookie против hub.sessions; нет/истёк — 401.
 type Session struct {
 	Store domain.AuthStore
+	// DevUserID — dev-обход OAuth (DEV_USER_ID в .env): без валидной cookie
+	// запрос идёт от этого пользователя. 0 = выключено (прод).
+	DevUserID int64
 }
 
 func (s *Session) Wrap(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := s.currentUser(r)
+		if !ok && s.DevUserID != 0 {
+			userID, ok = s.DevUserID, true
+		}
 		if !ok {
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
@@ -65,11 +72,19 @@ type AuthHandler struct {
 	Store       domain.AuthStore
 	Identities  domain.IdentityStore
 	FrontendURL string
+	// PublicBaseURL — публичный базовый URL (WEBHOOK_BASE_URL), под которым hub
+	// доступен провайдеру. Callback у провайдера зарегистрирован на него, а не
+	// на localhost, поэтому redirect_uri берём отсюда. Пусто — из запроса.
+	PublicBaseURL string
 }
 
-// redirectURI строится из запроса: провайдеру регистрируют точный callback,
-// в dev это localhost/туннель — держим схему и хост входящего запроса.
-func redirectURI(r *http.Request, provider string) string {
+// redirectURI: callback у провайдера зарегистрирован на PublicBaseURL (туннель),
+// поэтому redirect_uri в login и обмене кода должны совпадать именно с ним.
+// Без PublicBaseURL — схема+хост входящего запроса (например, прямой localhost).
+func (h *AuthHandler) redirectURI(r *http.Request, provider string) string {
+	if h.PublicBaseURL != "" {
+		return fmt.Sprintf("%s/api/auth/%s/callback", strings.TrimRight(h.PublicBaseURL, "/"), provider)
+	}
 	scheme := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
@@ -91,7 +106,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	state := hex.EncodeToString(stateBytes)
 
-	authURL, err := h.Service.LoginURL(provider, redirectURI(r, provider), state)
+	authURL, err := h.Service.LoginURL(provider, h.redirectURI(r, provider), state)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -120,7 +135,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	if id, ok := h.Session.currentUser(r); ok {
 		currentUser = &id // живая сессия ⇒ добавление связки, не вход
 	}
-	token, expires, err := h.Service.HandleCallback(r.Context(), provider, code, redirectURI(r, provider), currentUser)
+	token, expires, err := h.Service.HandleCallback(r.Context(), provider, code, h.redirectURI(r, provider), currentUser)
 	if err != nil {
 		slog.Error("auth: oauth callback failed", "provider", provider, "err", err)
 		writeError(w, err)

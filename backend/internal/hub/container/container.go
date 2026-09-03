@@ -76,12 +76,15 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 	}
 	heartbeat := &app.HeartbeatService{Store: store, Timeout: cfg.HeartbeatTimeout}
 
-	session := &httpapi.Session{Store: store}
+	session := &httpapi.Session{Store: store, DevUserID: cfg.DevUserID}
+	if cfg.DevUserID != 0 {
+		slog.Warn("hub: DEV_USER_ID auth bypass is active — dev only", "userId", cfg.DevUserID)
+	}
 	mux := httpapi.NewMux(httpapi.Handlers{
 		Session: session,
 		Auth: &httpapi.AuthHandler{
 			Service: auth, Session: session, Store: store,
-			Identities: store, FrontendURL: cfg.FrontendURL,
+			Identities: store, FrontendURL: cfg.FrontendURL, PublicBaseURL: cfg.WebhookBaseURL,
 		},
 		Webhook:       &httpapi.WebhookHandler{Service: webhook},
 		Runners:       &httpapi.RunnersHandler{Store: store, Token: cfg.RunnerToken},
