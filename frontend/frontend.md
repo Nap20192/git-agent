@@ -53,6 +53,17 @@ echo 'VITE_API=http' > .env.local   # /api proxied to http://localhost:8080 (see
 bun dev
 ```
 
+### Hub (Go backend)
+
+The `/repos`, `/builds`, `/instances`, `/account` screens talk to the **Go hub** service
+(contract: `backend/docs/openapi.yaml`, camelCase, authoritative) through a separate API layer in
+`src/api/hub/` — same mock-as-spec pattern: `contract.ts` (wire types) + `client.ts` (`HubApi`) +
+`mock.ts` (executable spec, **default**) + `http.ts` (real adapter). Switch with
+`VITE_HUB_API=http` in `.env.local` once the hub is running. Hooks live in `src/hooks/hub.ts`;
+screens in `src/features/hub/` behind `HubGate` (OAuth sign-in via `GET /api/me`, Railway model).
+The chat SSE frame shape (`ChatEvent`) is the frontend's provisional spec — the openapi contract
+only says "события chat"; keep mock and backend in sync when it lands.
+
 ---
 
 ## 3. Screens & where things go

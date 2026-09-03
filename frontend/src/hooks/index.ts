@@ -13,5 +13,6 @@ export {
   useCapabilities,
   useMemoryPresets,
 } from "./resources.ts";
+export * from "./hub.ts";
 export { useRunStream } from "./useRunStream.ts";
 export type { RunStreamState } from "./useRunStream.ts";

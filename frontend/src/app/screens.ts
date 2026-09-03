@@ -13,6 +13,11 @@ export const SCREENS: ScreenMeta[] = [
   { num: "4", path: "/sandboxes", id: "sandboxes", label: "sandboxes" },
   { num: "5", path: "/skills", id: "skills", label: "skills" },
   { num: "6", path: "/dash", id: "dash", label: "overview" },
+  // hub (Go backend) — repos/builds/instances/account, see src/api/hub
+  { num: "7", path: "/repos", id: "repos", label: "repos" },
+  { num: "8", path: "/builds", id: "builds", label: "builds" },
+  { num: "9", path: "/instances", id: "instances", label: "instances" },
+  { num: "0", path: "/account", id: "account", label: "account" },
 ];
 
 export const DEFAULT_SCREEN = "/runs";

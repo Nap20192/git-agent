@@ -1,5 +1,12 @@
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
 import { ApiProvider, api } from "@/api";
+import { HubApiProvider, hubApi } from "@/api/hub";
+import { HubGate } from "@/features/hub/HubGate.tsx";
+import { AccountScreen } from "@/features/hub/AccountScreen.tsx";
+import { RepositoriesScreen } from "@/features/hub/RepositoriesScreen.tsx";
+import { BuildsScreen } from "@/features/hub/BuildsScreen.tsx";
+import { InstancesScreen } from "@/features/hub/InstancesScreen.tsx";
+import { InstanceScreen } from "@/features/hub/InstanceScreen.tsx";
 import { AppShell } from "@/components/layout/AppShell.tsx";
 import { DEFAULT_SCREEN } from "@/app/screens.ts";
 import { RunsScreen } from "@/features/runs/RunsScreen.tsx";
@@ -25,6 +32,16 @@ const router = createBrowserRouter([
       { path: "sandboxes", element: <SandboxesScreen /> },
       { path: "skills", element: <SkillsScreen /> },
       { path: "dash", element: <OverviewScreen /> },
+      {
+        element: <HubGate />,
+        children: [
+          { path: "repos", element: <RepositoriesScreen /> },
+          { path: "builds", element: <BuildsScreen /> },
+          { path: "instances", element: <InstancesScreen /> },
+          { path: "instances/:id", element: <InstanceScreen /> },
+          { path: "account", element: <AccountScreen /> },
+        ],
+      },
       { path: "*", element: <Navigate to={DEFAULT_SCREEN} replace /> },
     ],
   },
@@ -33,7 +50,9 @@ const router = createBrowserRouter([
 export function App() {
   return (
     <ApiProvider value={api}>
-      <RouterProvider router={router} />
+      <HubApiProvider value={hubApi}>
+        <RouterProvider router={router} />
+      </HubApiProvider>
     </ApiProvider>
   );
 }
