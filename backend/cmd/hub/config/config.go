@@ -26,6 +26,10 @@ type Config struct {
 	GitLabOAuthID     string
 	GitLabOAuthSecret string
 	FrontendURL       string // redirect после входа
+	// OAuthRedirectBase — базовый URL для OAuth redirect_uri (должен совпадать с
+	// callback в OAuth App). В dev это localhost, а WebhookBaseURL — публичный
+	// туннель для вебхуков; их надо разводить. Пусто ⇒ из хоста запроса.
+	OAuthRedirectBase string
 
 	ChatFirstByteTimeout time.Duration // ожидание первого байта SSE от раннера
 
@@ -52,6 +56,7 @@ func Load() (*Config, error) {
 		GitLabOAuthID:     os.Getenv("GITLAB_OAUTH_CLIENT_ID"),
 		GitLabOAuthSecret: os.Getenv("GITLAB_OAUTH_CLIENT_SECRET"),
 		FrontendURL:       os.Getenv("FRONTEND_URL"),
+		OAuthRedirectBase: os.Getenv("OAUTH_REDIRECT_BASE"),
 	}
 	if c.Addr == "" {
 		c.Addr = ":8081"

@@ -84,7 +84,7 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 		Session: session,
 		Auth: &httpapi.AuthHandler{
 			Service: auth, Session: session, Store: store,
-			Identities: store, FrontendURL: cfg.FrontendURL, PublicBaseURL: cfg.WebhookBaseURL,
+			Identities: store, FrontendURL: cfg.FrontendURL, PublicBaseURL: cfg.OAuthRedirectBase,
 		},
 		Webhook:       &httpapi.WebhookHandler{Service: webhook},
 		Runners:       &httpapi.RunnersHandler{Store: store, Token: cfg.RunnerToken},

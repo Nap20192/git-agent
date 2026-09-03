@@ -6,17 +6,11 @@ export interface ScreenMeta {
   label: string;
 }
 
+// hub (Go backend) — repo pages own their agent (Экземпляр), see src/api/hub
 export const SCREENS: ScreenMeta[] = [
-  { num: "1", path: "/runs", id: "runs", label: "runs" },
-  { num: "2", path: "/reports", id: "reports", label: "reports" },
-  { num: "3", path: "/connections", id: "connections", label: "connections" },
-  { num: "4", path: "/sandboxes", id: "sandboxes", label: "sandboxes" },
-  { num: "5", path: "/skills", id: "skills", label: "skills" },
-  { num: "6", path: "/dash", id: "dash", label: "overview" },
-  // hub (Go backend) — repo pages own their agent (Экземпляр), see src/api/hub
-  { num: "7", path: "/repos", id: "repos", label: "repos" },
-  { num: "8", path: "/builds", id: "builds", label: "builds" },
-  { num: "9", path: "/account", id: "account", label: "account" },
+  { num: "1", path: "/repos", id: "repos", label: "repos" },
+  { num: "2", path: "/builds", id: "builds", label: "builds" },
+  { num: "3", path: "/account", id: "account", label: "account" },
 ];
 
-export const DEFAULT_SCREEN = "/runs";
+export const DEFAULT_SCREEN = "/repos";
