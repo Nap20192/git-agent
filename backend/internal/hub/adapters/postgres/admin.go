@@ -459,6 +459,32 @@ func (s *Store) Instance(ctx context.Context, id, userID int64) (*domain.AgentIn
 	return &list[0], nil
 }
 
+// Activity — реплей activity-кадров хода (тикет 012); eventID nil — последний
+// ход (группа event_id самой свежей строки; NULL-группа = ход чата).
+func (s *Store) Activity(ctx context.Context, instanceID int64, eventID *int64) ([][]byte, error) {
+	q := `SELECT payload FROM hub.activity
+	       WHERE instance_id = $1 AND event_id IS NOT DISTINCT FROM $2
+	       ORDER BY seq, id`
+	args := []any{instanceID, eventID}
+	if eventID == nil {
+		q = `SELECT payload FROM hub.activity
+		      WHERE instance_id = $1 AND event_id IS NOT DISTINCT FROM
+		            (SELECT event_id FROM hub.activity WHERE instance_id = $1
+		              ORDER BY id DESC LIMIT 1)
+		      ORDER BY seq, id`
+		args = []any{instanceID}
+	}
+	rows, err := s.Pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	return collect(rows, func(r pgx.Rows) ([]byte, error) {
+		var payload []byte
+		err := r.Scan(&payload)
+		return payload, err
+	})
+}
+
 // ── Sandbox instances (владение — юзер/hub; раннер только читает) ──────────
 
 func (s *Store) SandboxInstances(ctx context.Context) ([]domain.SandboxInstance, error) {

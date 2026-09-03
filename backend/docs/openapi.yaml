@@ -394,6 +394,26 @@ paths:
             text/event-stream:
               schema: { $ref: "#/components/schemas/TerminalEvent" }
         "409": { description: Экземпляр down / раннер пропал — терминал ничего не поднимает }
+  /api/instances/{id}/activity:
+    get:
+      summary: Activity-кадры хода — граф Рана «Лид → Сабагенты» (SSE)
+      description: >
+        Ответ — text/event-stream из ActivityEvent-кадров. Живой ход
+        running-Экземпляра проксируется в его раннер и стримится по мере
+        появления; завершённый ход и down-Экземпляр — реплей из hub.activity
+        (down hub реплеит сам, без раннера). Без eventId — живой либо
+        последний ход (ход чата пишется с event_id NULL и тоже считается
+        ходом); eventId выбирает ход конкретного События. Терминальный кадр —
+        kind=done, после него поток закрывается.
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: eventId, in: query, schema: { type: integer }, description: "ход этого События; без него — живой/последний" }
+      responses:
+        "200":
+          description: "text/event-stream; каждый кадр: `data: <ActivityEvent JSON>\\n\\n`"
+          content:
+            text/event-stream:
+              schema: { $ref: "#/components/schemas/ActivityEvent" }
   /api/instances/{id}/stop:
     post:
       summary: Опустить Экземпляр (через раннер)
@@ -612,6 +632,28 @@ components:
       properties:
         kind: { type: string, enum: [token, activity, done] }
         text: { type: [string, "null"], description: "для token/activity" }
+    ActivityEvent:
+      type: object
+      description: >
+        Кадр activity хода (тикет 012, пишет раннер в hub.activity).
+        run_started/run_finished/run_failed — границы хода; node — узел Лида
+        отработал (description — имя узла); task_started — Сабагент
+        (status: queued → working); task_finished/task_failed — терминал
+        Сабагента (status: done|failed|timeout, description — ошибка,
+        findingsCount — Находки Сабагента); task_report — самоотчёт Сабагента
+        (description — полный текст, для drawer'а графа); done — терминальный
+        кадр потока. findingsCount на node/run_* — накопленные Находки Лида.
+        Неизвестные kind фронт должен игнорировать.
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [run_started, node, task_started, task_finished, task_failed, task_report, run_finished, run_failed, done]
+        taskId: { type: [string, "null"], description: "для task_*" }
+        description: { type: [string, "null"] }
+        status: { type: [string, "null"], enum: [queued, working, done, failed, timeout, null] }
+        findingsCount: { type: [integer, "null"] }
+        ts: { type: [string, "null"], format: date-time }
     TerminalEvent:
       type: object
       description: >

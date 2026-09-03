@@ -2,7 +2,7 @@
  * HTTP + SSE adapter for the Go hub backend (backend/docs/openapi.yaml).
  * Session cookie auth; hub endpoints return bare JSON arrays/objects.
  */
-import type { ChatEvent, TerminalEvent } from "./contract.ts";
+import type { ActivityEvent, ChatEvent, TerminalEvent } from "./contract.ts";
 import { UnauthorizedError, type HubApi } from "./client.ts";
 
 /* Hub base URL. Default "" = same-origin /api (vite proxies that to the
@@ -94,16 +94,30 @@ export function createHttpHubApi(): HubApi {
 
     terminal: (instanceId, command, onEvent) =>
       streamSSE<TerminalEvent>(`/instances/${instanceId}/terminal`, { command }, onEvent),
+
+    activity: (instanceId, eventId, onEvent, signal) =>
+      streamSSE<ActivityEvent>(
+        `/instances/${instanceId}/activity${eventId != null ? `?eventId=${eventId}` : ""}`,
+        null,
+        onEvent,
+        signal,
+      ),
   };
 }
 
-/** POST an SSE endpoint and feed each `data: <JSON>` frame to onEvent. */
-async function streamSSE<E>(path: string, body: unknown, onEvent: (e: E) => void): Promise<void> {
+/** Hit an SSE endpoint (POST with body, GET without) and feed each `data: <JSON>` frame to onEvent. */
+async function streamSSE<E>(
+  path: string,
+  body: unknown,
+  onEvent: (e: E) => void,
+  signal?: AbortSignal,
+): Promise<void> {
   const res = await fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
+    method: body != null ? "POST" : "GET",
+    headers: body != null ? { "content-type": "application/json" } : undefined,
     credentials: "include",
-    body: JSON.stringify(body),
+    body: body != null ? JSON.stringify(body) : undefined,
+    signal,
   });
   if (res.status === 401) throw new UnauthorizedError();
   if (!res.ok || !res.body) {

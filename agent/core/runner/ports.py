@@ -52,6 +52,18 @@ class InstanceStore(Protocol):
 
     async def add_finding(self, instance_id: int, finding: dict[str, Any]) -> None: ...
 
+    async def add_activity(
+        self, instance_id: int, *, event_id: int | None, seq: int, frame: dict[str, Any]
+    ) -> None:
+        """Кадр activity хода в hub.activity (тикет 012); event_id NULL — чат."""
+        ...
+
+    async def list_activity(
+        self, instance_id: int, *, event_id: int | None = None, latest: bool = False
+    ) -> list[dict[str, Any]]:
+        """Реплей кадров хода по seq; latest=True — последний ход Экземпляра."""
+        ...
+
 
 class HubClient(Protocol):
     """HTTP-клиент hub'а (регистрация/heartbeat) и соседних раннеров (форвард).

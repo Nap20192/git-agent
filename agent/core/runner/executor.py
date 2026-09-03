@@ -164,7 +164,16 @@ class EventExecutor:
         )
         return graph, profile
 
-    async def process_event(self, ctx: dict[str, Any], event: Event) -> None:
+    async def process_event(
+        self,
+        ctx: dict[str, Any],
+        event: Event,
+        on_chunk: Callable[[str, Any], Awaitable[None]] | None = None,
+    ) -> None:
+        """Исполнить ход; on_chunk получает (mode, serialized chunk) — activity-кадры
+        из них сворачивает сервис (core/runner/activity.py)."""
+        from core.runtime.serialization import serialize
+
         sandbox = await self._connect(ctx)
         try:
             from core.repo import advance_repo, prepare_repo, repo_present
@@ -175,9 +184,13 @@ class EventExecutor:
                 await advance_repo(sandbox, event.commit_sha)
             graph, profile = self._graph(ctx, sandbox, event.event_id)
             config = {"configurable": {"thread_id": ctx["thread_id"]}, **profile.run_config}
-            await graph.ainvoke(
-                {"messages": [HumanMessage(content=_event_prompt(ctx, event))]}, config=config
-            )
+            async for mode, chunk in graph.astream(
+                {"messages": [HumanMessage(content=_event_prompt(ctx, event))]},
+                config=config,
+                stream_mode=profile.stream_modes,
+            ):
+                if on_chunk is not None:
+                    await on_chunk(mode, serialize(chunk, mode=mode))
         finally:
             await sandbox.close()
 

@@ -278,3 +278,65 @@ func TestTerminalRequiresRunningInstance(t *testing.T) {
 		t.Errorf("stream: %q", body)
 	}
 }
+
+// down-Экземпляр: hub реплеит activity-кадры из hub.activity сам, без раннера;
+// eventId выбирает ход, без него — последний (включая NULL-группу чата).
+func TestActivityReplayForDownInstance(t *testing.T) {
+	db := testdb.Setup(t)
+	userID, instID := seedInstance(t, db)
+
+	var eventID int64
+	if err := db.QueryRow(t.Context(), `
+		INSERT INTO hub.events (provider, delivery_id, repository_id, action, payload)
+		SELECT 'github', 'd-1', repository_id, 'push', '{}' FROM hub.agent_instances WHERE id = $1
+		RETURNING id`, instID).Scan(&eventID); err != nil {
+		t.Fatal(err)
+	}
+	for seq, frame := range []string{
+		`{"kind": "run_started", "ts": "2026-01-01T00:00:00Z"}`,
+		`{"kind": "run_finished", "findingsCount": 1, "ts": "2026-01-01T00:01:00Z"}`,
+	} {
+		if _, err := db.Exec(t.Context(), `
+			INSERT INTO hub.activity (instance_id, event_id, seq, kind, payload)
+			VALUES ($1, $2, $3, 'x', $4)`, instID, eventID, seq+1, frame); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// более поздний ход чата (event_id NULL) — он и есть «последний»
+	if _, err := db.Exec(t.Context(), `
+		INSERT INTO hub.activity (instance_id, event_id, seq, kind, payload)
+		VALUES ($1, NULL, 1, 'x', '{"kind": "run_started", "chat": true}')`, instID); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := &InstanceService{
+		Instances: store(db), Runners: store(db), Client: &runnerapi.Client{},
+		RunnersAlive: 30 * time.Second,
+	}
+
+	read := func(eventID *int64) string {
+		t.Helper()
+		stream, err := svc.Activity(t.Context(), instID, userID, eventID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer stream.Close()
+		body, err := io.ReadAll(stream)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+
+	byEvent := read(&eventID)
+	if !strings.Contains(byEvent, `"run_started"`) || !strings.Contains(byEvent, `"findingsCount": 1`) ||
+		!strings.HasSuffix(byEvent, "data: {\"kind\": \"done\"}\n\n") {
+		t.Errorf("event replay: %q", byEvent)
+	}
+	latest := read(nil)
+	if !strings.Contains(latest, `"chat": true`) || strings.Contains(latest, "findingsCount") {
+		t.Errorf("latest turn must be the chat one: %q", latest)
+	}
+}
+
+func store(db *pgxpool.Pool) *pgstore.Store { return &pgstore.Store{Pool: db} }

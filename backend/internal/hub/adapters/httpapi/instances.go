@@ -77,6 +77,31 @@ func (h *InstancesHandler) Findings(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
+// Activity — GET /api/instances/{id}/activity[?eventId=]: SSE activity-кадров
+// хода (ActivityEvent, openapi.yaml). Running-Экземпляр — прокси в раннер;
+// down — hub реплеит из hub.activity сам. Терминальный кадр — kind=done.
+func (h *InstancesHandler) Activity(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var eventID *int64
+	if q := r.URL.Query().Get("eventId"); q != "" {
+		v, err := strconv.ParseInt(q, 10, 64)
+		if err != nil {
+			http.Error(w, `{"error":"bad eventId"}`, http.StatusBadRequest)
+			return
+		}
+		eventID = &v
+	}
+	stream, err := h.Service.Activity(r.Context(), id, userID(r), eventID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	pipeSSE(w, stream, "activity", id)
+}
+
 // Stop — POST /api/instances/{id}/stop.
 func (h *InstancesHandler) Stop(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)

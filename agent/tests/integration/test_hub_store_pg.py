@@ -45,7 +45,7 @@ def _seed() -> dict[str, Any]:
             "TRUNCATE hub.users, hub.sessions, hub.identities, hub.llm_connections,"
             " hub.sandbox_connections, hub.agent_builds, hub.repositories, hub.events,"
             " hub.outbox, hub.sandbox_instances, hub.runners, hub.agent_instances,"
-            " hub.instance_events, hub.reports, hub.findings RESTART IDENTITY CASCADE"
+            " hub.instance_events, hub.reports, hub.findings, hub.activity RESTART IDENTITY CASCADE"
         )
         ids: dict[str, Any] = {}
         row = conn.execute(
@@ -240,5 +240,26 @@ def test_results_written():
         assert finding[:5] == ("medium", "CWE-79", "tpl.py", 5, 6)
         assert "XSS в шаблоне" in finding[5] and "без экранирования" in finding[5]
         assert finding[6] == "экранировать"
+
+    asyncio.run(main())
+
+
+def test_activity_roundtrip():
+    async def main():
+        ids = _seed()
+        store = HubInstanceStore()
+        inst = ids["instance"]
+        await store.add_activity(inst, event_id=ids["event"], seq=1, frame={"kind": "run_started"})
+        await store.add_activity(
+            inst, event_id=ids["event"], seq=2, frame={"kind": "run_finished", "findingsCount": 0}
+        )
+        assert [f["kind"] for f in await store.list_activity(inst, event_id=ids["event"])] == [
+            "run_started",
+            "run_finished",
+        ]
+        # ход чата (event_id NULL) — более поздний, latest выбирает его
+        await store.add_activity(inst, event_id=None, seq=1, frame={"kind": "run_started"})
+        assert await store.list_activity(inst, event_id=None) == [{"kind": "run_started"}]
+        assert await store.list_activity(inst, latest=True) == [{"kind": "run_started"}]
 
     asyncio.run(main())

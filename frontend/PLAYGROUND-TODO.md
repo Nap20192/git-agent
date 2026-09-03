@@ -4,12 +4,10 @@
 эндпоинтов. Чего не хватает в `backend/docs/openapi.yaml`, чтобы сделать его
 по-настоящему живым:
 
-1. **SSE активности прогона.** `GET /api/instances/{id}/activity?eventId={eventId}`
-   (или общий live-стрим Экземпляра) — кадры хода разбора События: сообщения
-   агента, тул-коллы, статусные строки. Формат кадра можно взять тот же
-   `ChatEvent` (kind=token|activity|done). Сейчас активность видна только внутри
-   chat-SSE — Playground собирает activity-кадры чата, но ход разбора Событий
-   невидим.
+1. ~~**SSE активности прогона.**~~ ✅ Сделано (тикет 012):
+   `GET /api/instances/{id}/activity?eventId=` — кадры `ActivityEvent`
+   (openapi.yaml), живой ход стримится, завершённый реплеится из `hub.activity`.
+   Кормит граф Рана «Лид → Сабагенты» и activity-лог Playground.
 
 2. **Журнал обработки Событий Экземпляром.** Статус per (instanceId, eventId):
    `queued | processing | done | failed` + timestamps. Сейчас Playground выводит

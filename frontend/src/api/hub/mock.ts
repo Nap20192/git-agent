@@ -5,6 +5,7 @@
  * instance per repo, chat wakes a down instance and streams tokens.
  */
 import type {
+  ActivityEvent,
   AgentBuild,
   AgentInstance,
   Finding,
@@ -511,6 +512,31 @@ export function createMockHubApi(): HubApi {
         await delay(30);
       }
       onEvent({ kind: "done" });
+    },
+
+    async activity(instanceId, eventId, onEvent, signal) {
+      authed();
+      if (!instances.find((i) => i.id === instanceId)) throw new Error("404 instance not found");
+      const ts = () => new Date().toISOString();
+      const frames: ActivityEvent[] = [
+        { kind: "run_started", ts: ts() },
+        { kind: "node", description: "lead", status: "done", findingsCount: 0, ts: ts() },
+        { kind: "task_started", taskId: "t1", description: "review auth flow", status: "queued", ts: ts() },
+        { kind: "task_started", taskId: "t1", status: "working", ts: ts() },
+        { kind: "task_started", taskId: "t2", description: "scan deps for CVEs", status: "working", ts: ts() },
+        { kind: "task_finished", taskId: "t1", status: "done", findingsCount: 1, ts: ts() },
+        { kind: "task_report", taskId: "t1", description: "Проверил auth-флоу: одна слабая проверка сессии (см. Находку). Остальное чисто.", ts: ts() },
+        { kind: "task_failed", taskId: "t2", status: "timeout", description: "600s", ts: ts() },
+        { kind: "node", description: "lead", status: "done", findingsCount: 2, ts: ts() },
+        { kind: "run_finished", findingsCount: 2, ts: ts() },
+        { kind: "done" },
+      ];
+      // прошлый ход — мгновенный реплей; live — кадры «идут» с паузами
+      for (const f of frames) {
+        if (signal?.aborted) return;
+        if (eventId == null) await delay(600);
+        onEvent(f);
+      }
     },
 
     async terminal(instanceId, command, onEvent) {
