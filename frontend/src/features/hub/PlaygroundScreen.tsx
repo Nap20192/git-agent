@@ -19,6 +19,7 @@ import {
 import { useHubApi } from "@/api/hub";
 import { Badge, Button, Panel, PanelHeader } from "@/components/primitives";
 import { InstanceChatPanel } from "./InstanceChatPanel.tsx";
+import { InstanceTerminalPanel } from "./InstanceTerminalPanel.tsx";
 import { FindingRow } from "./RepoScreen.tsx";
 import styles from "./hub.module.css";
 
@@ -266,6 +267,12 @@ export function PlaygroundScreen() {
                 instancesQ.reload();
               }}
               onActivity={(text) => setActivity((a) => [...a, { at: new Date(), text }])}
+            />
+
+            <InstanceTerminalPanel
+              instanceId={inst.id}
+              running={running}
+              hasSandbox={inst.sandboxInstanceId != null}
             />
 
             <Panel>

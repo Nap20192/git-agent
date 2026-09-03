@@ -334,6 +334,31 @@ paths:
               schema: { $ref: "#/components/schemas/ChatEvent" }
         "409": { description: нет ни одного живого раннера }
         "504": { description: раннер не начал стримить за отведённое время (очередь) }
+  /api/instances/{id}/terminal:
+    post:
+      summary: Терминал к песочнице Экземпляра (SSE-стрим-консоль; прокси в раннер)
+      description: >
+        Стрим-консоль, не PTY: каждая команда исполняется в песочнице
+        Экземпляра отдельным shell; между командами переносится только рабочая
+        директория (env и фоновые процессы — нет). Ответ — text/event-stream из
+        TerminalEvent-кадров: output (вывод, stdout+stderr слиты), exit (код и
+        новая cwd; после ошибки исполнения code/cwd = null), done. Hub
+        проксирует кадры раннера как есть. Connect-only: песочницу создаёт
+        пользователь в UI; down-Экземпляр НЕ поднимается и песочница НЕ
+        создаётся — 409. Нет живой песочницы — раннер отвечает кадром output с
+        текстом ошибки.
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [command], properties: { command: { type: string } } }
+      responses:
+        "200":
+          description: "text/event-stream; каждый кадр: `data: <TerminalEvent JSON>\\n\\n`"
+          content:
+            text/event-stream:
+              schema: { $ref: "#/components/schemas/TerminalEvent" }
+        "409": { description: Экземпляр down / раннер пропал — терминал ничего не поднимает }
   /api/instances/{id}/stop:
     post:
       summary: Опустить Экземпляр (через раннер)
@@ -525,6 +550,20 @@ components:
       properties:
         kind: { type: string, enum: [token, activity, done] }
         text: { type: [string, "null"], description: "для token/activity" }
+    TerminalEvent:
+      type: object
+      description: >
+        Кадр SSE-стрим-консоли. kind=output — вывод команды (text, stdout+stderr
+        слиты); kind=exit — команда завершилась (code — код выхода, cwd — рабочая
+        директория после команды; оба null, если shell не дошёл до маркера);
+        kind=done — терминальный кадр, поток закрывается. Неизвестные kind фронт
+        должен игнорировать.
+      required: [kind]
+      properties:
+        kind: { type: string, enum: [output, exit, done] }
+        text: { type: [string, "null"], description: "для output" }
+        code: { type: [integer, "null"], description: "для exit" }
+        cwd: { type: [string, "null"], description: "для exit" }
     Report:
       type: object
       required: [id, instanceId, summary, createdAt]

@@ -32,6 +32,8 @@ class FakeService:
         self.stop_ok = True
         self.events: list[Event] = []
         self.chats: list[tuple[int, str]] = []
+        self.terminals: list[tuple[int, str]] = []
+        self.terminal_result: tuple[str, int | None, str | None] | Exception = ("ok", 0, "/repo")
 
     async def raise_instance(self, instance_id: int) -> bool:
         return self.raise_ok
@@ -42,6 +44,12 @@ class FakeService:
     async def handle_event(self, event: Event) -> str:
         self.events.append(event)
         return "processed"
+
+    async def terminal(self, instance_id: int, command: str):
+        self.terminals.append((instance_id, command))
+        if isinstance(self.terminal_result, Exception):
+            raise self.terminal_result
+        return self.terminal_result
 
     async def chat(self, instance_id: int, message: str):
         self.chats.append((instance_id, message))
@@ -123,3 +131,40 @@ def test_chat_sse_stream_is_chat_events(client, service):
 def test_chat_requires_message(client, service):
     assert client.post("/instances/3/chat", json={"message": "  "}).status_code == 422
     assert service.chats == []
+
+
+def _terminal_frames(client, command: str) -> list[dict]:
+    with client.stream("POST", "/instances/3/terminal", json={"command": command}) as response:
+        assert response.headers["content-type"].startswith("text/event-stream")
+        body = "".join(response.iter_text())
+    return [json.loads(line[len("data: "):]) for line in body.splitlines() if line]
+
+
+def test_terminal_sse_frames(client, service):
+    """Кадры — TerminalEvent {kind: output|exit|done} (контракт hub openapi)."""
+    service.terminal_result = ("total 0\ndrwxr-xr-x", 0, "/repo/sub")
+    frames = _terminal_frames(client, "ls -la")
+    assert frames == [
+        {"kind": "output", "text": "total 0\ndrwxr-xr-x"},
+        {"kind": "exit", "code": 0, "cwd": "/repo/sub"},
+        {"kind": "done"},
+    ]
+    assert service.terminals == [(3, "ls -la")]
+
+
+def test_terminal_empty_output_skips_output_frame(client, service):
+    service.terminal_result = ("", 0, "/repo")
+    assert [f["kind"] for f in _terminal_frames(client, "true")] == ["exit", "done"]
+
+
+def test_terminal_unavailable_instance_is_error_frames(client, service):
+    service.terminal_result = RuntimeError("instance 3 unavailable: missing")
+    frames = _terminal_frames(client, "ls")
+    assert frames[0] == {"kind": "output", "text": "instance 3 unavailable: missing"}
+    assert frames[1] == {"kind": "exit", "code": None, "cwd": None}
+    assert frames[2] == {"kind": "done"}
+
+
+def test_terminal_requires_command(client, service):
+    assert client.post("/instances/3/terminal", json={"command": " \n"}).status_code == 422
+    assert service.terminals == []

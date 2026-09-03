@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
@@ -15,7 +16,7 @@ from core.agents.findings import (
     validate_finding,
 )
 from core.agents.llm import make_model
-from core.ports import Sandbox
+from core.ports import Sandbox, SandboxCommandError
 from core.runner.events import Event
 from core.runner.ports import InstanceStore
 from pkg.logger import get_logger
@@ -24,8 +25,42 @@ log = get_logger(__name__)
 
 _HOSTS = {"github": "github.com", "gitlab": "gitlab.com"}
 
+TERMINAL_MARKER = "__GIT_AGENT_TERM__"
+TERMINAL_TIMEOUT_SECONDS = 300.0
+
+
+def wrap_terminal_command(command: str, cwd: str) -> str:
+    """Обернуть команду стрим-консоли: cwd + слитый stderr + маркер (код, $PWD).
+
+    `exec 2>&1` вместо brace-группы: синтаксически битая команда пользователя
+    не ломает обёртку целиком — bash печатает ошибку и маркер просто не
+    приходит (parse вернёт вывод как есть, cwd не сдвинется).
+    """
+    return (
+        f"exec 2>&1\ncd {shlex.quote(cwd)} 2>/dev/null\n"
+        f"{command}\n"
+        f'printf "\\n{TERMINAL_MARKER} %d %s" "$?" "$PWD"'
+    )
+
+
+def parse_terminal_output(raw: str) -> tuple[str, int | None, str | None]:
+    """Вывод обёрнутой команды → (output, exit_code, new_cwd); без маркера — (raw, None, None)."""
+    head, sep, tail = raw.rpartition("\n" + TERMINAL_MARKER + " ")
+    if not sep:
+        if not raw.startswith(TERMINAL_MARKER + " "):
+            return raw, None, None
+        head, tail = "", raw[len(TERMINAL_MARKER) + 1 :]
+    code_text, _, cwd = tail.partition(" ")
+    try:
+        code = int(code_text)
+    except ValueError:
+        return raw, None, None
+    return head, code, cwd or None
+
 # провижининг песочницы Экземпляра: (ctx) -> (sandbox, reused); собирается в deps
 SandboxProvision = Callable[[dict[str, Any]], Awaitable[tuple[Sandbox, bool]]]
+# connect-only к живой песочнице (терминал): создаёт пользователь, не раннер
+SandboxConnect = Callable[[dict[str, Any]], Awaitable[Sandbox]]
 
 
 def repo_url(ctx: dict[str, Any]) -> str:
@@ -105,12 +140,14 @@ class EventExecutor:
         provision_sandbox: SandboxProvision,
         decrypt: Callable[[bytes | None], str | None],
         make_model: Callable[..., Any] = make_model,
+        connect_sandbox: SandboxConnect | None = None,
     ) -> None:
         self._store = store
         self._checkpointer = checkpointer
         self._provision = provision_sandbox
         self._decrypt = decrypt
         self._make_model = make_model
+        self._connect = connect_sandbox
 
     def _graph(
         self, ctx: dict[str, Any], sandbox: Sandbox, event_id: int | None
@@ -144,6 +181,32 @@ class EventExecutor:
             await graph.ainvoke(
                 {"messages": [HumanMessage(content=_event_prompt(ctx, event))]}, config=config
             )
+        finally:
+            await sandbox.close()
+
+    async def terminal(
+        self, ctx: dict[str, Any], command: str, cwd: str | None = None
+    ) -> tuple[str, int | None, str | None]:
+        """Одна команда стрим-консоли в песочнице Экземпляра → (output, exit_code, cwd).
+
+        Connect-only: песочницу создаёт пользователь в UI; нет живой — RuntimeError.
+        ponytail: каждая команда — свежий shell (порт Sandbox умеет только run);
+        между командами переносится cwd (маркером), env/фоновые процессы — нет.
+        """
+        if self._connect is None:
+            raise RuntimeError("terminal is not wired (no sandbox connector)")
+        sandbox = await self._connect(ctx)
+        try:
+            start = cwd or sandbox.repo_dir
+            try:
+                raw = await sandbox.run(
+                    wrap_terminal_command(command, start),
+                    timeout_seconds=TERMINAL_TIMEOUT_SECONDS,
+                )
+            except SandboxCommandError as exc:
+                return exc.stderr or str(exc), exc.exit_code, start
+            output, code, new_cwd = parse_terminal_output(raw)
+            return output, code, new_cwd or start
         finally:
             await sandbox.close()
 

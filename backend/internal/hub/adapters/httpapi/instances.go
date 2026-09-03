@@ -112,6 +112,37 @@ func (h *InstancesHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	pipeSSE(w, stream, "chat", id)
+}
+
+// Terminal — POST /api/instances/{id}/terminal: SSE-прокси стрим-консоли в
+// Раннер. Кадры TerminalEvent (openapi.yaml) идут от раннера как есть;
+// down-Экземпляр/отсутствующая песочница — 409, ничего не поднимается.
+func (h *InstancesHandler) Terminal(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Command string `json:"command"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.Command == "" {
+		http.Error(w, `{"error":"command is required"}`, http.StatusBadRequest)
+		return
+	}
+	stream, err := h.Service.Terminal(r.Context(), id, userID(r), req.Command)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	pipeSSE(w, stream, "terminal", id)
+}
+
+// pipeSSE — прокинуть SSE-поток раннера клиенту как есть, с flush по-кадрово.
+func pipeSSE(w http.ResponseWriter, stream io.ReadCloser, label string, id int64) {
 	defer stream.Close()
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -133,7 +164,7 @@ func (h *InstancesHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			if err != io.EOF {
-				slog.Warn("instances: chat stream interrupted", "instanceId", id, "err", err)
+				slog.Warn("instances: "+label+" stream interrupted", "instanceId", id, "err", err)
 			}
 			return
 		}

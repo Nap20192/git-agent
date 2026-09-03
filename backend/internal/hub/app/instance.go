@@ -37,6 +37,30 @@ func (s *InstanceService) Chat(ctx context.Context, id, userID int64, message st
 	return s.Client.Chat(ctx, runner.Address, inst.ID, message)
 }
 
+// Terminal — команда стрим-консоли в песочнице Экземпляра (SSE-поток раннера,
+// кадры TerminalEvent). В отличие от Chat, down-Экземпляр НЕ поднимается и
+// песочница НЕ создаётся (её создаёт пользователь в UI) — 409.
+func (s *InstanceService) Terminal(ctx context.Context, id, userID int64, command string) (io.ReadCloser, error) {
+	inst, err := s.Instances.Instance(ctx, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	if inst == nil {
+		return nil, domain.ErrNotFound
+	}
+	if inst.Status != "running" || inst.RunnerID == nil {
+		return nil, fmt.Errorf("instance is down — raise the agent first: %w", domain.ErrConflict)
+	}
+	runner, err := s.Runners.Runner(ctx, *inst.RunnerID)
+	if err != nil {
+		return nil, err
+	}
+	if runner == nil {
+		return nil, fmt.Errorf("runner of instance is gone: %w", domain.ErrConflict)
+	}
+	return s.Client.Terminal(ctx, runner.Address, inst.ID, command)
+}
+
 // Stop опускает running-Экземпляр через его Раннер; down — no-op.
 func (s *InstanceService) Stop(ctx context.Context, id, userID int64) error {
 	inst, err := s.Instances.Instance(ctx, id, userID)

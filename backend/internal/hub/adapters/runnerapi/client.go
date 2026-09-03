@@ -134,6 +134,31 @@ func (c *Client) Chat(ctx context.Context, addr string, instanceID int64, messag
 	return &bufferedStream{head: buf[:n], body: resp.Body, cancel: func() { cancel(nil) }}, nil
 }
 
+// Terminal — SSE-поток стрим-консоли раннера. Без first-byte-таймаута: кадры
+// приходят по завершении команды, а команда может идти дольше любого
+// разумного таймаута — стримом управляет ctx.
+func (c *Client) Terminal(ctx context.Context, addr string, instanceID int64, command string) (io.ReadCloser, error) {
+	b, _ := json.Marshal(map[string]string{"command": command})
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		fmt.Sprintf("%s/instances/%d/terminal", addr, instanceID), bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	streamClient := &http.Client{} // без Timeout — иначе он убьёт долгую команду
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		resp.Body.Close()
+		return nil, fmt.Errorf("runner terminal: status %d: %s", resp.StatusCode, msg)
+	}
+	return resp.Body, nil
+}
+
 // bufferedStream — уже прочитанный первый кусок + остаток потока.
 type bufferedStream struct {
 	head   []byte

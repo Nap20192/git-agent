@@ -2,7 +2,7 @@
  * HTTP + SSE adapter for the Go hub backend (backend/docs/openapi.yaml).
  * Session cookie auth; hub endpoints return bare JSON arrays/objects.
  */
-import type { ChatEvent } from "./contract.ts";
+import type { ChatEvent, TerminalEvent } from "./contract.ts";
 import { UnauthorizedError, type HubApi } from "./client.ts";
 
 /* Hub base URL. Default "" = same-origin /api (vite proxies that to the
@@ -79,43 +79,50 @@ export function createHttpHubApi(): HubApi {
 
     listRunners: () => req("/runners"),
 
-    async chat(instanceId, message, onEvent) {
-      const res = await fetch(`${BASE}/instances/${instanceId}/chat`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ message }),
-      });
-      if (res.status === 401) throw new UnauthorizedError();
-      if (!res.ok || !res.body) {
-        let m = res.statusText;
-        try {
-          m = (await res.json())?.error?.message ?? m;
-        } catch {
-          /* non-JSON */
-        }
-        throw new Error(`${res.status} ${m}`);
-      }
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let idx: number;
-        while ((idx = buf.indexOf("\n\n")) >= 0) {
-          const frame = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          const line = frame.split("\n").find((l) => l.startsWith("data: "));
-          if (!line) continue;
-          try {
-            onEvent(JSON.parse(line.slice(6)) as ChatEvent);
-          } catch {
-            /* skip malformed frame */
-          }
-        }
-      }
-    },
+    chat: (instanceId, message, onEvent) =>
+      streamSSE<ChatEvent>(`/instances/${instanceId}/chat`, { message }, onEvent),
+
+    terminal: (instanceId, command, onEvent) =>
+      streamSSE<TerminalEvent>(`/instances/${instanceId}/terminal`, { command }, onEvent),
   };
+}
+
+/** POST an SSE endpoint and feed each `data: <JSON>` frame to onEvent. */
+async function streamSSE<E>(path: string, body: unknown, onEvent: (e: E) => void): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401) throw new UnauthorizedError();
+  if (!res.ok || !res.body) {
+    let m = res.statusText;
+    try {
+      m = (await res.json())?.error?.message ?? m;
+    } catch {
+      /* non-JSON */
+    }
+    throw new Error(`${res.status} ${m}`);
+  }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buf.indexOf("\n\n")) >= 0) {
+      const frame = buf.slice(0, idx);
+      buf = buf.slice(idx + 2);
+      const line = frame.split("\n").find((l) => l.startsWith("data: "));
+      if (!line) continue;
+      try {
+        onEvent(JSON.parse(line.slice(6)) as E);
+      } catch {
+        /* skip malformed frame */
+      }
+    }
+  }
 }

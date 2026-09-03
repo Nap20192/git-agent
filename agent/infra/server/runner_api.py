@@ -97,3 +97,36 @@ async def chat(instance_id: int, request: Request):
         media_type="text/event-stream",
         headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
     )
+
+
+@api.post("/instances/{instance_id}/terminal")
+async def terminal(instance_id: int, request: Request):
+    """Стрим-консоль (не PTY): {command} → SSE-кадры TerminalEvent
+    (output — слитый stdout+stderr, exit — код и новая cwd, done).
+    Каждая команда — свежий shell; между командами переносится только cwd."""
+    body = await request.json()
+    command = (body.get("command") or "").rstrip("\n")
+    if not command.strip():
+        raise HTTPException(422, "command is required")
+    service = _service(request)
+
+    async def sse():
+        def frame(data: dict[str, Any]) -> str:
+            return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        try:
+            output, code, cwd = await service.terminal(instance_id, command)
+        except RuntimeError as exc:
+            yield frame({"kind": "output", "text": str(exc)})
+            yield frame({"kind": "exit", "code": None, "cwd": None})
+        else:
+            if output:
+                yield frame({"kind": "output", "text": output})
+            yield frame({"kind": "exit", "code": code, "cwd": cwd})
+        yield frame({"kind": "done"})
+
+    return StreamingResponse(
+        sse(),
+        media_type="text/event-stream",
+        headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
+    )
