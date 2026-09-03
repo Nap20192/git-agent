@@ -178,8 +178,7 @@ def seed_demo() -> dict[str, int]:
             ids[f"repo_{key}"] = repo["id"]
         # A и C — чистый старт (прошлое демо могло быть убито без graceful shutdown)
         conn.execute(
-            "UPDATE hub.agent_instances SET status = 'down', runner_id = NULL"
-            " WHERE id = ANY(%s)",
+            "UPDATE hub.agent_instances SET status = 'down', runner_id = NULL WHERE id = ANY(%s)",
             ([ids["a"], ids["c"]],),
         )
         # B «running» у мёртвого держателя — для демо форварда
@@ -216,7 +215,7 @@ async def publish_event(ids: dict[str, int], key: str, *, dedup: str | None = No
         dedup_key=commit,
         commit_sha=commit,
     )
-    connection = await aio_pika.connect_robust(settings.rabbit_url)
+    connection = await aio_pika.connect_robust(settings.rabbitmq_url)
     async with connection:
         channel = await connection.channel()
         exchange = await channel.declare_exchange(
@@ -319,7 +318,7 @@ async def main() -> None:
     )
 
     # чистая очередь — прошлые демо-События не всплывают
-    connection = await aio_pika.connect_robust(settings.rabbit_url)
+    connection = await aio_pika.connect_robust(settings.rabbitmq_url)
     async with connection:
         channel = await connection.channel()
         queue = await channel.declare_queue("events.runners", durable=True)
@@ -343,14 +342,14 @@ async def main() -> None:
     import uvicorn
     from fastapi import FastAPI
 
-    from infra.server.runner_api import api
+    from infra.server.runner_api import install_api
 
     app = FastAPI()
-    app.include_router(api)
+    install_api(app)
     app.state.service = service
     server = uvicorn.Server(uvicorn.Config(app, port=settings.runner_port, log_level="warning"))
     background = [
-        asyncio.create_task(consume_events(settings.rabbit_url, service.handle_event)),
+        asyncio.create_task(consume_events(settings.rabbitmq_url, service.handle_event)),
         asyncio.create_task(service.idle_loop()),
         asyncio.create_task(server.serve()),
     ]

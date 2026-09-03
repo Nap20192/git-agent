@@ -106,7 +106,7 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 		Repositories: repositories,
 		Instances:    instances,
 		Heartbeat:    heartbeat,
-		Server:       &http.Server{Addr: cfg.Addr, Handler: mux},
+		Server:       &http.Server{Addr: cfg.Addr, Handler: httpapi.Logging(httpapi.Recover(mux))},
 	}, nil
 }
 

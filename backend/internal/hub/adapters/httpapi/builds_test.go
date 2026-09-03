@@ -31,9 +31,8 @@ func TestBuildInputValidateLimits(t *testing.T) {
 			if (err == nil) != tc.ok {
 				t.Fatalf("validate = %v, want ok=%v", err, tc.ok)
 			}
-			var invalid *domain.ValidationError
-			if err != nil && !errors.As(err, &invalid) {
-				t.Fatalf("validate error %T, want *domain.ValidationError", err)
+			if err != nil && !errors.Is(err, domain.ErrInvalid) {
+				t.Fatalf("validate error %v, want ErrInvalid", err)
 			}
 		})
 	}

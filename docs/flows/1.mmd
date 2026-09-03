@@ -1,0 +1,34 @@
+sequenceDiagram
+    actor U as Пользователь
+    participant F as Frontend
+    participant H as hub
+    participant G as GitHub OAuth
+    participant DB as Postgres (hub.*)
+
+    Note over U,DB: ФАЗА 1 — ВХОД
+    U->>F: «continue with github»
+    F->>H: GET /api/auth/github/login
+    alt OAuth-ключи не заданы
+        H-->>F: 503 provider not configured
+    else ok
+        H->>H: state (anti-CSRF) → cookie hub_oauth_state
+        H-->>U: 302 → github.com/login/oauth/authorize?redirect_uri=OAUTH_REDIRECT_BASE/callback
+    end
+    U->>G: авторизует приложение
+    G-->>H: GET /api/auth/github/callback?code&state
+    alt state ≠ cookie
+        H-->>U: 400 invalid oauth state
+    else redirect_uri ≠ зарегистрированному в OAuth App
+        G-->>H: error redirect_uri mismatch
+        H-->>U: 500 (лог: oauth callback failed)
+    else DNS/сеть до github.com
+        H-->>U: 500 exchange code: dial tcp lookup ... no such host
+    else ok
+        H->>G: POST /login/oauth/access_token
+        G-->>H: access_token
+        H->>G: GET api.github.com/user
+        G-->>H: профиль (id, login)
+        Note over H,DB: upsert identities (unique provider+provider_user_id),<br/>токен — AES-GCM(SECRETS_KEY) · без сессии = вход, с сессией = добавить связку (409 если чужая)
+        H->>DB: INSERT users? / identities / sessions
+        H-->>U: 302 FRONTEND_URL + cookie hub_session (httpOnly)
+    end

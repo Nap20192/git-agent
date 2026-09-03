@@ -7,6 +7,8 @@ info:
     приём вебхуков, Сборки/Экземпляры Агентов, раннеры. Решения — .wayfinder/map.md.
     Auth: session cookie (роуты /api/*, кроме раннерных), раннеры — заголовок
     X-Runner-Token (общий секрет RUNNER_TOKEN), вебхуки — подпись провайдера.
+    Ошибки (любой 4xx/5xx) — ApiError {"error": {"code", "message"}}, как у
+    Python-gateway (frontend/docs/openapi.yaml); message — человекочитаемая причина.
 
 paths:
   # ── Auth ────────────────────────────────────────────────────────────
@@ -541,6 +543,16 @@ components:
       required: true
       schema: { type: string, enum: [github, gitlab] }
   schemas:
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, enum: [bad_request, unauthorized, not_found, conflict, upstream, unavailable, timeout, internal] }
+            message: { type: string }
     Me:
       type: object
       required: [id, displayName, identities]

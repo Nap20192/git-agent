@@ -60,7 +60,7 @@ func (c *Client) do(ctx context.Context, apiKey, method, url string, body, out a
 	}
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("opensandbox unreachable: %v: %w", err, domain.ErrUpstream)
 	}
 	defer resp.Body.Close()
 	if method == http.MethodDelete && resp.StatusCode == http.StatusNotFound {
@@ -68,7 +68,7 @@ func (c *Client) do(ctx context.Context, apiKey, method, url string, body, out a
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("opensandbox %s %s: status %d: %s", method, url, resp.StatusCode, msg)
+		return fmt.Errorf("opensandbox %s %s: status %d: %s: %w", method, url, resp.StatusCode, msg, domain.ErrUpstream)
 	}
 	if out == nil {
 		return nil
@@ -76,7 +76,7 @@ func (c *Client) do(ctx context.Context, apiKey, method, url string, body, out a
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-func (c *Client) CreateSandbox(ctx context.Context, domain, apiKey, image string) (string, error) {
+func (c *Client) CreateSandbox(ctx context.Context, host, apiKey, image string) (string, error) {
 	body := map[string]any{
 		"image": map[string]string{"uri": image},
 		// API требует entrypoint и resourceLimits вместе с image;
@@ -91,11 +91,11 @@ func (c *Client) CreateSandbox(ctx context.Context, domain, apiKey, image string
 	var out struct {
 		ID string `json:"id"`
 	}
-	if err := c.do(ctx, apiKey, http.MethodPost, baseURL(domain)+"/sandboxes", body, &out); err != nil {
+	if err := c.do(ctx, apiKey, http.MethodPost, baseURL(host)+"/sandboxes", body, &out); err != nil {
 		return "", err
 	}
 	if out.ID == "" {
-		return "", fmt.Errorf("opensandbox create: empty sandbox id in response")
+		return "", fmt.Errorf("opensandbox create: empty sandbox id in response: %w", domain.ErrUpstream)
 	}
 	return out.ID, nil
 }

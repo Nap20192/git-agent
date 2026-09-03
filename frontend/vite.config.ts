@@ -11,10 +11,7 @@ export default defineConfig({
   server: {
     port: 5173,
 
-    // Proxy API calls to the git-agent backend during dev. Toggle the mock
-    // adapter in src/api instead if the backend isn't running (see docs/API_CONTRACT.md).
     proxy: {
-      "/api": { target: "http://localhost:8080", changeOrigin: true },
       // Go hub (backend/cmd/hub, HUB_ADDR, default :8081). The hub api layer
       // prefixes its requests with VITE_HUB_URL=/hub; strip it here so the
       // session cookie stays same-origin.

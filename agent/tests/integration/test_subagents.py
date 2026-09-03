@@ -7,9 +7,10 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from core.agents.factory import build_agent
-from core.subagents import SubagentCapacity, build_task_tool
+from core.subagents import SubagentCapacity
 from core.subagents.contract import read_subagent_result_metadata
 from core.subagents.registry import BUILTIN_SUBAGENTS, GENERAL_PURPOSE
+from core.tools.delegation import build_task_tool
 from core.tools.sandbox import build_sandbox_tools
 
 

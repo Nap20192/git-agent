@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from core.runner.activity import ActivityCollector, ActivityFeed
-from infra.server.runner_api import api
+from infra.server.runner_api import install_api
 from tests.unit.test_runner import WIRE, FakeExecutor, MemStore, make_service, parse_event, seed
 
 
@@ -144,7 +144,7 @@ def test_failed_event_records_run_failed():
             await service.handle_event(parse_event(WIRE))
         kinds = [frame["kind"] for (_, _, _, frame) in store.activity]
         assert kinds == ["run_started", "run_failed"]
-        assert store.activity[-1][3]["description"] == "boom"
+        assert store.activity[-1][3]["description"] == "RuntimeError: boom"
 
     asyncio.run(run())
 
@@ -152,7 +152,7 @@ def test_failed_event_records_run_failed():
 def test_activity_sse_replay_and_done():
     """GET /instances/{id}/activity — кадры ActivityEvent + терминальный done."""
     app = FastAPI()
-    app.include_router(api)
+    install_api(app)
 
     class Service:
         async def activity(self, instance_id, *, event_id=None):

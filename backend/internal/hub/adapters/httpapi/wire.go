@@ -4,9 +4,13 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"runtime/debug"
 	"strconv"
+	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -21,10 +25,6 @@ func handle(fn handler) http.HandlerFunc {
 			writeError(w, err)
 		}
 	}
-}
-
-type errorDTO struct {
-	Error string `json:"error"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -45,42 +45,63 @@ func noContent(w http.ResponseWriter) error {
 	return nil
 }
 
+var errStatus = []struct {
+	sentinel       error
+	status         int
+	code, fallback string
+}{
+	{domain.ErrInvalid, http.StatusBadRequest, "bad_request", "invalid request"},
+	{domain.ErrUnauthorized, http.StatusUnauthorized, "unauthorized", "unauthorized"},
+	{domain.ErrNotFound, http.StatusNotFound, "not_found", "not found"},
+	{domain.ErrConflict, http.StatusConflict, "conflict", "conflict"},
+	{domain.ErrUpstream, http.StatusBadGateway, "upstream", "upstream service failed"},
+	{domain.ErrUnavailable, http.StatusServiceUnavailable, "unavailable", "provider is not configured (set *_OAUTH_CLIENT_ID/SECRET in .env)"},
+	{domain.ErrTimeout, http.StatusGatewayTimeout, "timeout", "runner did not start streaming in time (queued too long)"},
+}
+
+// writeError — {"error":{"code","message"}} (зеркало frontend ApiError).
 func writeError(w http.ResponseWriter, err error) {
-	var invalid *domain.ValidationError
-	switch {
-	case errors.As(err, &invalid):
-		writeJSON(w, http.StatusBadRequest, errorDTO{invalid.Msg})
-	case errors.Is(err, domain.ErrNotFound):
-		writeJSON(w, http.StatusNotFound, errorDTO{"not found"})
-	case errors.Is(err, domain.ErrConflict):
-		writeJSON(w, http.StatusConflict, errorDTO{"conflict"})
-	case errors.Is(err, domain.ErrUnavailable):
-		writeJSON(w, http.StatusServiceUnavailable, errorDTO{"provider is not configured (set *_OAUTH_CLIENT_ID/SECRET in .env)"})
-	case errors.Is(err, domain.ErrTimeout):
-		writeJSON(w, http.StatusGatewayTimeout, errorDTO{"runner did not start streaming in time (queued too long)"})
-	case errors.Is(err, domain.ErrUpstream):
-		zap.S().Warnw("httpapi: upstream error", "err", err)
-		writeJSON(w, http.StatusBadGateway, errorDTO{"provider unavailable"})
-	default:
-		zap.S().Errorw("httpapi: internal error", "err", err)
-		writeJSON(w, http.StatusInternalServerError, errorDTO{"internal"})
+	for _, m := range errStatus {
+		if errors.Is(err, m.sentinel) {
+			writeAPIError(w, m.status, m.code, humanMessage(err, m.sentinel, m.fallback))
+			return
+		}
 	}
+	zap.S().Errorw("httpapi: internal error", "err", err)
+	writeAPIError(w, http.StatusInternalServerError, "internal", "internal error: "+err.Error())
+}
+
+func writeAPIError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": message}})
+}
+
+func humanMessage(err, sentinel error, fallback string) string {
+	msg := strings.TrimSuffix(err.Error(), ": "+sentinel.Error())
+	if msg == "" || msg == sentinel.Error() {
+		return fallback
+	}
+	return msg
 }
 
 func unauthorized(w http.ResponseWriter) {
-	writeJSON(w, http.StatusUnauthorized, errorDTO{"unauthorized"})
+	writeError(w, domain.ErrUnauthorized)
 }
 
 func decode(r *http.Request, v any) error {
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		return domain.Invalid("bad json")
+	err := json.NewDecoder(r.Body).Decode(v)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, io.EOF):
+		return domain.Invalid("request body is required")
+	default:
+		return domain.Invalid("invalid JSON body: " + err.Error())
 	}
-	return nil
 }
 
 func decodeOptional(r *http.Request, v any) error {
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil && !errors.Is(err, io.EOF) {
-		return domain.Invalid("bad json")
+		return domain.Invalid("invalid JSON body: " + err.Error())
 	}
 	return nil
 }
@@ -88,7 +109,7 @@ func decodeOptional(r *http.Request, v any) error {
 func pathID(r *http.Request) (int64, error) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		return 0, domain.Invalid("bad id")
+		return 0, domain.Invalid("id in path must be an integer")
 	}
 	return id, nil
 }
@@ -100,7 +121,7 @@ func queryID(r *http.Request, name string) (*int64, error) {
 	}
 	id, err := strconv.ParseInt(q, 10, 64)
 	if err != nil {
-		return nil, domain.Invalid("bad " + name)
+		return nil, domain.Invalid(name + " must be an integer")
 	}
 	return &id, nil
 }
@@ -121,4 +142,58 @@ func mapSlice[T, D any](in []T, f func(T) D) []D {
 		out[i] = f(v)
 	}
 	return out
+}
+
+// Logging — одна строка на запрос; 5xx — ERROR; /healthz не шумит.
+func Logging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		start := time.Now()
+		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(sw, r)
+		fields := []any{"method", r.Method, "path", r.URL.Path, "status", sw.status,
+			"duration_ms", time.Since(start).Milliseconds(), "remote", r.RemoteAddr}
+		if sw.status >= 500 {
+			zap.S().Errorw("http", fields...)
+		} else {
+			zap.S().Infow("http", fields...)
+		}
+	})
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusWriter) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusWriter) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+// Recover — паника хендлера → 500 в wire-формате вместо оборванного соединения.
+func Recover(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if p := recover(); p != nil {
+				if p == http.ErrAbortHandler {
+					panic(p)
+				}
+				zap.S().Errorw("httpapi: panic", "method", r.Method, "path", r.URL.Path, "panic", p, "stack", string(debug.Stack()))
+				writeAPIError(w, http.StatusInternalServerError, "internal", fmt.Sprintf("internal error: panic: %v", p))
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }

@@ -140,6 +140,23 @@ def test_claim_release_cas():
     asyncio.run(main())
 
 
+def test_peek_holder():
+    async def main():
+        ids = _seed()
+        store = HubInstanceStore()
+        r1 = await store.register_runner(name="r1", address="http://r1", slots=1)
+        r2 = await store.register_runner(name="r2", address="http://r2", slots=1)
+
+        assert (await store.peek_holder(ids["instance"], runner_id=r1)).outcome == "free"
+        await store.claim_instance(ids["instance"], runner_id=r1)
+        assert (await store.peek_holder(ids["instance"], runner_id=r1)).outcome == "held_by_self"
+        other = await store.peek_holder(ids["instance"], runner_id=r2)
+        assert other.outcome == "held_by_other" and other.holder_address == "http://r1"
+        assert (await store.peek_holder(999999, runner_id=r1)).outcome == "missing"
+
+    asyncio.run(main())
+
+
 def test_dedup_journal():
     async def main():
         ids = _seed()
@@ -197,8 +214,7 @@ def test_load_context_sees_hub_linked_sandbox():
         assert ctx["sandbox_status"] == "alive"
         with _conn() as conn:
             conn.execute(
-                "UPDATE hub.sandbox_instances SET status = 'dead', killed_at = now()"
-                " WHERE id = %s",
+                "UPDATE hub.sandbox_instances SET status = 'dead', killed_at = now() WHERE id = %s",
                 (si,),
             )
         assert (await store.load_context(ids["instance"]))["sandbox_status"] == "dead"
@@ -210,9 +226,7 @@ def test_results_written():
     async def main():
         ids = _seed()
         store = HubInstanceStore()
-        report_id = await store.add_report(
-            ids["instance"], event_id=ids["event"], summary="итог"
-        )
+        report_id = await store.add_report(ids["instance"], event_id=ids["event"], summary="итог")
         await store.add_finding(
             ids["instance"],
             {

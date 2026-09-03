@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -33,7 +34,7 @@ func (s *RepositoryService) Connect(ctx context.Context, userID, identityID int6
 		return nil, err
 	}
 	if ident == nil {
-		return nil, fmt.Errorf("identity %d: %w", identityID, domain.ErrNotFound)
+		return nil, fmt.Errorf("identity %d is not connected: %w", identityID, domain.ErrNotFound)
 	}
 	var pr *domain.ProviderRepo
 	if err := s.Auth.CallWithToken(ctx, ident, func(token string) error {
@@ -159,7 +160,7 @@ func (s *RepositoryService) Trigger(ctx context.Context, userID, id int64, ref, 
 			return nil, err
 		}
 		if ident == nil {
-			return nil, fmt.Errorf("identity %d: %w", repo.IdentityID, domain.ErrNotFound)
+			return nil, fmt.Errorf("identity %d of the repository is gone: %w", repo.IdentityID, domain.ErrNotFound)
 		}
 		if err := s.Auth.CallWithToken(ctx, ident, func(token string) error {
 			var err error
@@ -211,8 +212,11 @@ func (s *RepositoryService) ProviderRepos(ctx context.Context, userID, identityI
 		repos, err = s.Provider.Repos(ctx, ident.Provider, token)
 		return err
 	})
+	if errors.Is(err, domain.ErrUnauthorized) {
+		return nil, fmt.Errorf("%s rejected the access token — reconnect the account: %w", ident.Provider, domain.ErrUpstream)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("%w: provider repos: %v", domain.ErrUpstream, err)
+		return nil, fmt.Errorf("%s repos: %v: %w", ident.Provider, err, domain.ErrUpstream)
 	}
 	return repos, nil
 }

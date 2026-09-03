@@ -10,27 +10,28 @@ import (
 	"syscall"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/vnkjd/git-agent/backend/cmd/hub/config"
 	"github.com/vnkjd/git-agent/backend/internal/hub/container"
 )
 
 func main() {
-	logger := newLogger()
-	defer logger.Sync() //nolint:errcheck // stderr
-	zap.ReplaceGlobals(logger)
+	zap.ReplaceGlobals(newLogger(zapcore.InfoLevel)) // до чтения конфига
 	if err := run(); err != nil {
 		zap.S().Errorw("hub: fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
-// newLogger — HUB_ENV=prod → JSON-продакшен, иначе dev-консоль (цвет, caller, stacktrace на warn).
-func newLogger() *zap.Logger {
+// newLogger — HUB_ENV=prod → JSON-продакшен, иначе dev-консоль; порог — LOG_LEVEL.
+func newLogger(level zapcore.Level) *zap.Logger {
+	cfg := zap.NewDevelopmentConfig()
 	if os.Getenv("HUB_ENV") == "prod" {
-		return zap.Must(zap.NewProduction())
+		cfg = zap.NewProductionConfig()
 	}
-	return zap.Must(zap.NewDevelopment())
+	cfg.Level = zap.NewAtomicLevelAt(level)
+	return zap.Must(cfg.Build())
 }
 
 func run() error {
@@ -38,6 +39,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	logger := newLogger(cfg.LogLevel)
+	defer logger.Sync() //nolint:errcheck // stderr
+	zap.ReplaceGlobals(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

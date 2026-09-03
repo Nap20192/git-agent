@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"crypto/subtle"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -50,7 +51,7 @@ func (s *Server) registerRunner(w http.ResponseWriter, r *http.Request) error {
 	}
 	id, err := s.Store.Upsert(r.Context(), domain.Runner{Name: req.Name, Address: req.Address, Slots: req.Slots})
 	if err != nil {
-		return err
+		return fmt.Errorf("register runner %q: %w", req.Name, err)
 	}
 	run, err := found(s.Store.Runner(r.Context(), id))
 	if err != nil {
@@ -67,10 +68,10 @@ func (s *Server) runnerHeartbeat(w http.ResponseWriter, r *http.Request) error {
 	}
 	ok, err := s.Store.Heartbeat(r.Context(), id)
 	if err != nil {
-		return err
+		return fmt.Errorf("heartbeat runner %d: %w", id, err)
 	}
 	if !ok {
-		return domain.ErrNotFound
+		return fmt.Errorf("runner %d is not registered: %w", id, domain.ErrNotFound)
 	}
 	return noContent(w)
 }

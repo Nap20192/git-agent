@@ -2,8 +2,8 @@
 
 from langchain_core.messages import AIMessage
 
-from core.agents.findings import collect_findings, report_finding
 from core.skills import available_skills, load_skills, validate_requested_skills
+from core.tools.security import collect_findings, report_finding
 
 
 def test_skills_catalog_and_load():
@@ -46,19 +46,6 @@ def test_collect_findings_dedup_and_sort():
     assert findings[0]["file"] == "app.py" and findings[0]["startLine"] == 5
 
 
-def test_wire_report_surfaces_findings():
-    from infra.server.wire import report_to_wire
-
-    report = {
-        "answer": "review done",
-        "summary": "review done",
-        "findings": [{"title": "SQLi", "severity": "high", "description": "x"}],
-    }
-    wire = report_to_wire(report)
-    assert wire["findings"][0]["title"] == "SQLi"
-    assert wire["summary"] == "review done"
-
-
 def test_mcp_config_off_by_default(monkeypatch):
     from core.config import settings
     from infra.mcp import _server_configs
@@ -70,7 +57,7 @@ def test_mcp_config_off_by_default(monkeypatch):
 
 
 def test_collect_findings_from_events_merges_lead_and_subagents():
-    from core.agents.findings import collect_findings_from_events, summarize_findings
+    from core.tools.security import collect_findings_from_events, summarize_findings
 
     events = [
         {

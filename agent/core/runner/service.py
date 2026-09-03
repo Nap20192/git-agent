@@ -6,6 +6,8 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 
+from structlog.contextvars import bound_contextvars
+
 from core.runner.activity import ActivityCollector, ActivityFeed, ActivityTurn
 from core.runner.events import Event
 from core.runner.executor import EventExecutor
@@ -13,8 +15,10 @@ from core.runner.ports import (
     ClaimResult,
     HubClient,
     InstanceStore,
+    InstanceUnavailableError,
     SandboxNotProvisionedError,
 )
+from pkg.errors import describe
 from pkg.logger import get_logger
 
 log = get_logger(__name__)
@@ -24,6 +28,16 @@ IDLE_SCAN_INTERVAL_SECONDS = 30.0
 # сколько raise ждёт слот, прежде чем ответить queued и поднимать фоном
 # (hub-прокси не готов ждать слот HTTP-запросом — прод-бага context deadline exceeded)
 RAISE_WAIT_SECONDS = 1.0
+
+
+def _ms(started: float) -> int:
+    return int((time.monotonic() - started) * 1000)
+
+
+def _log_task_failure(task: asyncio.Task) -> None:
+    """Фоновый таск упал — иначе исключение всплывёт лишь как 'never retrieved' при GC."""
+    if not task.cancelled() and task.exception() is not None:
+        log.error("background task failed", task=task.get_name(), error=describe(task.exception()))
 
 
 @dataclass
@@ -111,6 +125,12 @@ class RunnerService:
                     return existing
                 claim = await self._store.claim_instance(instance_id, runner_id=self.runner_id)
                 if claim.outcome not in ("claimed", "held_by_self"):
+                    log.info(
+                        "instance claim rejected",
+                        instance_id=instance_id,
+                        outcome=claim.outcome,
+                        holder=claim.holder_address,
+                    )
                     return claim
                 instance = LocalInstance(id=instance_id)
                 self._instances[instance_id] = instance
@@ -127,11 +147,13 @@ class RunnerService:
         Ответ не ждёт слот дольше RAISE_WAIT_SECONDS: занятые слоты — queued,
         подъём продолжается фоном и завершится, когда слот освободится.
         """
-        task = asyncio.create_task(self._raise(instance_id))
+        task = asyncio.create_task(self._raise(instance_id), name=f"raise-{instance_id}")
         done, _ = await asyncio.wait({task}, timeout=RAISE_WAIT_SECONDS)
         if not done:
             self._pending_raises.add(task)
             task.add_done_callback(self._pending_raises.discard)
+            task.add_done_callback(_log_task_failure)
+            log.info("instance raise queued: no free slot", instance_id=instance_id)
             return "queued"
         return "running" if isinstance(task.result(), LocalInstance) else "rejected"
 
@@ -153,29 +175,39 @@ class RunnerService:
         """Обработать Событие: клейм → локально либо форвард держателю → дедуп → исполнение.
 
         Возвращает исход: processed | duplicate | forwarded | dropped | cancelled.
-        Исключение исполнения пробрасывается (processed_at не ставится — Событие
-        доисполнит ре-публикация backend'а).
+        Исключение исполнения логируется здесь (один раз, с трейсбеком и контекстом
+        хода) и пробрасывается: processed_at не ставится — Событие доисполнит
+        ре-публикация backend'а.
         """
-        # ponytail: чужое Событие тоже проходит через ожидание слота (слот берётся до
-        # клейма); peek держателя без слота — если задержка форварда станет проблемой
+        started = time.monotonic()
+        with bound_contextvars(instance_id=event.instance_id, event_id=event.event_id):
+            log.info(
+                "event received",
+                provider=event.provider,
+                action=event.action,
+                ref=event.ref,
+                commit=event.commit_sha,
+            )
+            try:
+                outcome = await self._handle_event(event)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.exception("turn failed", error=describe(exc), duration_ms=_ms(started))
+                raise
+            log.info("event handled", outcome=outcome, duration_ms=_ms(started))
+            return outcome
+
+    async def _handle_event(self, event: Event) -> str:
+        # чужое/пропавшее — определяем ДО ожидания слота (peek без клейма);
+        # гонку peek→claim решает CAS: _raise вернёт held_by_other и мы форварднём
+        if event.instance_id not in self._instances:
+            peek = await self._store.peek_holder(event.instance_id, runner_id=self.runner_id)
+            if peek.outcome in ("held_by_other", "missing"):
+                return await self._hand_off(event, peek)
         raised = await self._raise(event.instance_id)
         if isinstance(raised, ClaimResult):
-            if raised.outcome == "held_by_other" and raised.holder_address:
-                ok = await self._hub.forward_event(raised.holder_address, event)
-                if ok:
-                    return "forwarded"
-                log.warning(
-                    "event holder unreachable, dropping until re-publish",
-                    instance_id=event.instance_id,
-                    holder=raised.holder_address,
-                )
-                return "dropped"
-            log.warning(
-                "event for unclaimable instance",
-                instance_id=event.instance_id,
-                outcome=raised.outcome,
-            )
-            return "dropped"
+            return await self._hand_off(event, raised)
         if not await self._store.begin_event(event):
             raised.touch()
             return "duplicate"
@@ -219,7 +251,7 @@ class RunnerService:
                 await turn.emit(collector.run_failed(f"sandbox not provisioned: {exc}"))
                 return "dropped"
             except Exception as exc:
-                await turn.emit(collector.run_failed(exc))
+                await turn.emit(collector.run_failed(describe(exc)))
                 raise
             else:
                 await turn.emit(collector.run_finished())
@@ -230,43 +262,70 @@ class RunnerService:
             raised.touch()
         return "processed"
 
+    async def _hand_off(self, event: Event, claim: ClaimResult) -> str:
+        """Событие не наше: форвард держателю либо drop (доисполнит ре-публикация)."""
+        if claim.outcome == "held_by_other" and claim.holder_address:
+            if await self._hub.forward_event(claim.holder_address, event):
+                return "forwarded"
+            log.warning(
+                "event holder unreachable, dropping until re-publish",
+                instance_id=event.instance_id,
+                holder=claim.holder_address,
+            )
+            return "dropped"
+        log.warning(
+            "event for unclaimable instance",
+            instance_id=event.instance_id,
+            outcome=claim.outcome,
+        )
+        return "dropped"
+
     async def chat(self, instance_id: int, message: str):
-        """Ход чата в тред Экземпляра; поднимает его при необходимости."""
-        raised = await self._raise(instance_id)
-        if isinstance(raised, ClaimResult):
-            raise RuntimeError(f"instance {instance_id} unavailable: {raised.outcome}")
-        async with raised.lock:
-            raised.touch()
-            ctx = await self._store.load_context(instance_id)
-            if ctx is None:
-                raise RuntimeError(f"instance {instance_id} context missing")
-            turn = self._begin_turn(instance_id, None)  # event_id NULL — ход чата
-            collector = ActivityCollector()
-            await turn.emit(collector.run_started())
-            try:
-                async for mode, data in self._executor.chat_stream(ctx, message):
-                    for frame in collector.frames(mode, data):
-                        await turn.emit(frame)
-                    yield mode, data
-            except Exception as exc:
-                await turn.emit(collector.run_failed(exc))
-                raise
-            else:
-                await turn.emit(collector.run_finished())
-            finally:
-                turn.close()
-            raised.touch()
+        """Ход чата в тред Экземпляра; поднимает его при необходимости.
+
+        Ошибка хода логируется здесь (с трейсбеком) и пробрасывается вызывающему,
+        который переводит её в кадр стрима.
+        """
+        started = time.monotonic()
+        with bound_contextvars(instance_id=instance_id, turn="chat"):
+            raised = await self._raise(instance_id)
+            if isinstance(raised, ClaimResult):
+                raise InstanceUnavailableError(instance_id, raised.outcome)
+            async with raised.lock:
+                raised.touch()
+                ctx = await self._store.load_context(instance_id)
+                if ctx is None:
+                    raise InstanceUnavailableError(instance_id, "context missing")
+                log.info("chat turn started", chars=len(message))
+                turn = self._begin_turn(instance_id, None)  # event_id NULL — ход чата
+                collector = ActivityCollector()
+                await turn.emit(collector.run_started())
+                try:
+                    async for mode, data in self._executor.chat_stream(ctx, message):
+                        for frame in collector.frames(mode, data):
+                            await turn.emit(frame)
+                        yield mode, data
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    log.exception("chat turn failed", error=describe(exc), duration_ms=_ms(started))
+                    await turn.emit(collector.run_failed(describe(exc)))
+                    raise
+                else:
+                    log.info("chat turn finished", duration_ms=_ms(started))
+                    await turn.emit(collector.run_finished())
+                finally:
+                    turn.close()
+                raised.touch()
 
     def _begin_turn(self, instance_id: int, event_id: int | None) -> ActivityTurn:
         """Открыть activity-ход; персист кадров best-effort (ход важнее журнала)."""
 
         async def persist(seq: int, frame: dict) -> None:
             try:
-                await self._store.add_activity(
-                    instance_id, event_id=event_id, seq=seq, frame=frame
-                )
-            except Exception:
-                log.warning("activity persist failed", instance_id=instance_id, exc_info=True)
+                await self._store.add_activity(instance_id, event_id=event_id, seq=seq, frame=frame)
+            except Exception as exc:
+                log.warning("activity persist failed", seq=seq, error=describe(exc))
 
         return self._activity.begin(instance_id, event_id, persist)
 
@@ -285,27 +344,29 @@ class RunnerService:
 
     async def terminal(self, instance_id: int, command: str) -> tuple[str, int | None, str | None]:
         """Команда стрим-консоли в песочнице Экземпляра; поднимает его при необходимости."""
-        raised = await self._raise(instance_id)
-        if isinstance(raised, ClaimResult):
-            raise RuntimeError(f"instance {instance_id} unavailable: {raised.outcome}")
-        async with raised.lock:
-            raised.touch()
-            ctx = await self._store.load_context(instance_id)
-            if ctx is None:
-                raise RuntimeError(f"instance {instance_id} context missing")
-            output, code, new_cwd = await self._executor.terminal(ctx, command, raised.term_cwd)
-            if new_cwd:
-                raised.term_cwd = new_cwd
-            raised.touch()
-            return output, code, new_cwd
+        with bound_contextvars(instance_id=instance_id, turn="terminal"):
+            raised = await self._raise(instance_id)
+            if isinstance(raised, ClaimResult):
+                raise InstanceUnavailableError(instance_id, raised.outcome)
+            async with raised.lock:
+                raised.touch()
+                ctx = await self._store.load_context(instance_id)
+                if ctx is None:
+                    raise InstanceUnavailableError(instance_id, "context missing")
+                output, code, new_cwd = await self._executor.terminal(ctx, command, raised.term_cwd)
+                log.info("terminal command finished", exit_code=code, output_chars=len(output))
+                if new_cwd:
+                    raised.term_cwd = new_cwd
+                raised.touch()
+                return output, code, new_cwd
 
     async def heartbeat_loop(self) -> None:
         while True:
             try:
                 await self._store.heartbeat_runner(self.runner_id)
                 await self._hub.heartbeat(runner_id=self.runner_id)
-            except Exception:
-                log.warning("heartbeat failed", exc_info=True)
+            except Exception as exc:
+                log.warning("heartbeat failed, will retry", error=describe(exc))
             await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
 
     async def reap_idle(self) -> None:

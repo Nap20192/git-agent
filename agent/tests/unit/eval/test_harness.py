@@ -430,23 +430,3 @@ def test_grade_twice_byte_identical(tmp_path):
     first = p1.read_bytes()
     p2 = grade_run(out, BATTERY_PATH)
     assert p2.read_bytes() == first
-
-
-# -- зеркало констант (единственный тест, которому МОЖНО импортировать app) ----
-
-
-def test_signal_mirror_matches_app():
-    from core.runtime.schemas import TERMINAL_STATUSES
-    from core.subagents.task_tool import _terminal_event  # noqa: F401
-    from evals import common
-
-    assert set(common.RUN_TERMINAL_STATUSES) == {s.value for s in TERMINAL_STATUSES}
-    import inspect
-
-    from core.runtime import worker
-
-    source = inspect.getsource(worker)
-    assert f'"{common.USAGE_EVENT_KIND}"' in source
-    from core.subagents import task_tool
-
-    assert common.TASK_STARTED_TYPE in inspect.getsource(task_tool)

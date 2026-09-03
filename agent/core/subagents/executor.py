@@ -9,10 +9,10 @@ from typing import Any
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.runnables.config import ensure_config, merge_configs
 from langchain_core.tools import BaseTool
 from langgraph.errors import GraphRecursionError
 
-from core.agents.findings import collect_findings
 from core.subagents.contract import SubagentResult, SubagentStatus
 from core.subagents.receipts import (
     build_acceptance_criteria_system_note,
@@ -23,6 +23,7 @@ from core.subagents.receipts import (
 )
 from core.subagents.registry import SubagentConfig
 from core.subagents.steps import capture_new_step_messages
+from core.tools.security.findings import collect_findings
 from pkg.logger import get_logger
 
 log = get_logger(__name__)
@@ -152,9 +153,16 @@ class SubagentExecutor:
             name=f"subagent:{self.config.name}",
         )
         state = {"messages": _build_messages(self.config, task, acceptance_criteria)}
+        # Из контекста родителя берём ТОЛЬКО callbacks (трейсер хода, LangSmith/
+        # Langfuse): явный callbacks= заменял бы их, и Сабагент выпадал из трейса.
+        # configurable родителя (thread_id, checkpoint_ns) сюда попадать НЕ должен —
+        # ребёнок без чекпоинтера, см. test_child_config_never_carries_checkpoint_coordinates.
+        inherited = ensure_config().get("callbacks")
         run_config: dict[str, Any] = {
             "recursion_limit": self.config.max_turns,
-            "callbacks": [collector],
+            "callbacks": merge_configs({"callbacks": inherited}, {"callbacks": [collector]})[
+                "callbacks"
+            ],
             "tags": [f"subagent:{self.config.name}"],
         }
 

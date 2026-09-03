@@ -11,6 +11,7 @@ from __future__ import annotations
 import httpx
 
 from core.runner.events import Event
+from pkg.errors import describe
 from pkg.logger import get_logger
 
 log = get_logger(__name__)
@@ -68,6 +69,8 @@ class HttpHubClient:
             response = await self._client.post(url, json=event.to_wire())
             response.raise_for_status()
             return True
-        except httpx.HTTPError:
-            log.warning("event forward failed", url=url, event_id=event.event_id)
+        except httpx.HTTPError as exc:
+            log.warning(
+                "event forward failed", url=url, event_id=event.event_id, error=describe(exc)
+            )
             return False

@@ -1,0 +1,22 @@
+sequenceDiagram
+    actor U as Пользователь
+    participant H as hub
+    participant RN as Раннер
+    participant DB as Postgres
+    participant MQ as RabbitMQ
+
+    U->>H: POST /api/instances/{id}/stop
+    H->>RN: POST /instances/{id}/stop
+    RN->>RN: cancel asyncio-таска хода (CancelledError — штатно)
+    RN->>DB: CAS running→down (только со своим runner_id) · processed_at НЕ ставится
+    RN-->>H: 204 (слот свободен, чекпоинт хранит завершённые шаги)
+    U->>H: POST /api/instances/{id}/resume
+    H->>DB: instance_events WHERE processed_at IS NULL
+    alt нечего продолжать
+        H-->>U: 200 {eventIds: []}
+    else
+        H->>DB: INSERT outbox (ре-публикация, тот же код что heartbeat-воркер)
+        H-->>U: 200 {eventIds}
+        H->>MQ: publish
+        MQ->>RN: Событие → клейм → LangGraph продолжает с чекпоинта
+    end

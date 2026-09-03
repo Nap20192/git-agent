@@ -10,14 +10,14 @@ from langchain_core.tools import BaseTool
 
 from core.agents.factory import build_agent
 from core.agents.features import RuntimeFeatures
-from core.agents.findings import build_security_tools, collect_findings
+from core.lead.profile import GraphProfile
 from core.ports import Sandbox
-from core.repo import prepare_repo
-from core.runtime.profile import GraphProfile
 from core.skills import available_skills
-from core.subagents import SubagentCapacity, build_task_tool
-from core.tools import assemble_deferred_tools, get_deferred_tools_prompt_section
+from core.subagents import SubagentCapacity
+from core.tools.delegation import build_task_tool
+from core.tools.mcp import assemble_deferred_tools, get_deferred_tools_prompt_section
 from core.tools.sandbox import build_sandbox_tools
+from core.tools.security import build_security_tools, collect_findings
 
 LEAD_MAX_TURNS = 100000
 
@@ -232,7 +232,6 @@ def build_lead_profile(
 
     return GraphProfile(
         build=_build,
-        prepare=prepare_repo,
         make_input=_lead_input,
         extract_report=_lead_report,
         stream_modes=["updates", "custom"],

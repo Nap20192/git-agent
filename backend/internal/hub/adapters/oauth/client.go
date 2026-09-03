@@ -133,12 +133,12 @@ func (c *Client) token(ctx context.Context, tokenURL string, form url.Values) (*
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("oauth token endpoint unreachable: %v: %w", err, domain.ErrUpstream)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("oauth token endpoint: status %d: %s", resp.StatusCode, msg)
+		return nil, fmt.Errorf("oauth token endpoint: status %d: %s: %w", resp.StatusCode, msg, domain.ErrUpstream)
 	}
 	var body struct {
 		AccessToken  string `json:"access_token"`
@@ -151,10 +151,10 @@ func (c *Client) token(ctx context.Context, tokenURL string, form url.Values) (*
 		return nil, err
 	}
 	if body.Error != "" {
-		return nil, fmt.Errorf("oauth token endpoint: %s: %s", body.Error, body.ErrorDesc)
+		return nil, fmt.Errorf("oauth token endpoint: %s: %s: %w", body.Error, body.ErrorDesc, domain.ErrUpstream)
 	}
 	if body.AccessToken == "" {
-		return nil, fmt.Errorf("oauth token endpoint: empty access_token")
+		return nil, fmt.Errorf("oauth token endpoint: empty access_token: %w", domain.ErrUpstream)
 	}
 	tok := &domain.OAuthToken{AccessToken: body.AccessToken, RefreshToken: body.RefreshToken}
 	if body.ExpiresIn > 0 {
@@ -182,11 +182,11 @@ func (c *Client) UserInfo(ctx context.Context, provider, accessToken string) (st
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("oauth userinfo unreachable: %v: %w", err, domain.ErrUpstream)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return "", "", fmt.Errorf("oauth userinfo: status %d", resp.StatusCode)
+		return "", "", fmt.Errorf("oauth userinfo: status %d: %w", resp.StatusCode, domain.ErrUpstream)
 	}
 	var u struct {
 		ID       int64  `json:"id"`
@@ -201,7 +201,7 @@ func (c *Client) UserInfo(ctx context.Context, provider, accessToken string) (st
 		username = u.Username
 	}
 	if u.ID == 0 || username == "" {
-		return "", "", fmt.Errorf("oauth userinfo: incomplete profile")
+		return "", "", fmt.Errorf("oauth userinfo: incomplete profile: %w", domain.ErrUpstream)
 	}
 	return strconv.FormatInt(u.ID, 10), username, nil
 }

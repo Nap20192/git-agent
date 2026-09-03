@@ -1,5 +1,6 @@
 """OpenSandbox — адаптер порта core.ports.Sandbox."""
 
+import time
 from datetime import timedelta
 
 from opensandbox.config import ConnectionConfig
@@ -8,10 +9,9 @@ from opensandbox.sandbox import Sandbox as _OpenSandbox
 
 from core.config import settings
 from core.ports import SandboxCommandError
+from pkg.logger import get_logger
 
-# execd после execution_complete держит SSE-стрим ещё ApiGracefulShutdownTimeout
-# (дефолт 1s) — это ~1s накладных на КАЖДУЮ команду. Ручка — env execd.
-EXECD_ENV = {"EXECD_API_GRACE_SHUTDOWN": "100ms"}
+log = get_logger("sandbox")
 
 
 class OpenSandboxAdapter:
@@ -30,7 +30,23 @@ class OpenSandboxAdapter:
             if timeout_seconds is not None
             else None
         )
-        execution = await self._sandbox.commands.run(command, opts=opts)
+        started = time.monotonic()
+        try:
+            execution = await self._sandbox.commands.run(command, opts=opts)
+        except Exception:
+            log.warning(
+                "sandbox cmd errored",
+                cmd=command[:120],
+                seconds=round(time.monotonic() - started, 2),
+                sandbox=self.id,
+            )
+            raise
+        elapsed = round(time.monotonic() - started, 2)
+        # трейсинг: медленные команды видны в логе без отладчика
+        log.info(
+            "sandbox cmd", cmd=command[:120], seconds=elapsed,
+            exit=execution.exit_code, sandbox=self.id,
+        )
         stdout = "\n".join(line.text.rstrip("\n") for line in execution.logs.stdout)
         stderr = "\n".join(line.text.rstrip("\n") for line in execution.logs.stderr)
         if execution.exit_code not in (0, None):
@@ -44,26 +60,11 @@ class OpenSandboxAdapter:
         await self._sandbox.destroy()
 
 
-def _connection_config(
-    domain: str | None = None, api_key: str | None = None
-) -> ConnectionConfig:
+def _connection_config(domain: str | None = None, api_key: str | None = None) -> ConnectionConfig:
     return ConnectionConfig(
         domain=domain or settings.opensandbox_domain,
         api_key=api_key or settings.opensandbox_api_key or None,
     )
-
-
-async def create_sandbox(
-    image: str | None = None, *, domain: str | None = None, api_key: str | None = None
-) -> OpenSandboxAdapter:
-    """domain/api_key — переопределение endpoint'а (sandbox connection Сборки)."""
-    sandbox = await _OpenSandbox.create(
-        image or settings.sandbox_image,
-        timeout=None,
-        env=EXECD_ENV,
-        connection_config=_connection_config(domain, api_key),
-    )
-    return OpenSandboxAdapter(sandbox)
 
 
 async def connect_sandbox(
