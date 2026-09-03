@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,9 +18,20 @@ import (
 
 type Client struct {
 	HTTP *http.Client
+	// FirstByteTimeout — сколько ждать первого байта SSE-чата: раннер при
+	// занятых слотах ставит запрос в очередь, а не отказывает, поэтому
+	// ожидание щедрое (дефолт 120s); истечение — domain.ErrTimeout (504).
+	FirstByteTimeout time.Duration
 }
 
 var _ domain.RunnerClient = (*Client)(nil)
+
+func (c *Client) firstByteTimeout() time.Duration {
+	if c.FirstByteTimeout > 0 {
+		return c.FirstByteTimeout
+	}
+	return 120 * time.Second
+}
 
 func (c *Client) http() *http.Client {
 	if c.HTTP != nil {
@@ -72,26 +84,73 @@ func (c *Client) Stop(ctx context.Context, addr string, instanceID int64) error 
 	return resp.Body.Close()
 }
 
-// Chat — SSE-поток раннера; таймаут клиента не применяется (стрим),
-// жизнью запроса управляет ctx.
+// Chat — SSE-поток раннера. Таймаут применяется только к ожиданию ПЕРВОГО
+// байта (очередь на раннере), сам стрим не ограничен — им управляет ctx.
+// Возврат без ошибки гарантирует, что первый кадр уже получен.
 func (c *Client) Chat(ctx context.Context, addr string, instanceID int64, message string) (io.ReadCloser, error) {
 	b, _ := json.Marshal(map[string]string{"message": message})
-	req, err := http.NewRequestWithContext(ctx, "POST",
+
+	timedOut := errors.New("first byte timeout")
+	reqCtx, cancel := context.WithCancelCause(ctx)
+	timer := time.AfterFunc(c.firstByteTimeout(), func() { cancel(timedOut) })
+
+	fail := func(err error) (io.ReadCloser, error) {
+		timer.Stop()
+		cancel(nil)
+		if errors.Is(context.Cause(reqCtx), timedOut) {
+			return nil, fmt.Errorf("runner did not start streaming within %s: %w",
+				c.firstByteTimeout(), domain.ErrTimeout)
+		}
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(reqCtx, "POST",
 		fmt.Sprintf("%s/instances/%d/chat", addr, instanceID), bytes.NewReader(b))
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	streamClient := &http.Client{} // без Timeout — иначе он убьёт долгий чат
 	resp, err := streamClient.Do(req)
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		resp.Body.Close()
-		return nil, fmt.Errorf("runner chat: status %d: %s", resp.StatusCode, msg)
+		return fail(fmt.Errorf("runner chat: status %d: %s", resp.StatusCode, msg))
 	}
-	return resp.Body, nil
+
+	// заголовки могли прийти сразу, а первый кадр — после очереди:
+	// ждём первый байт здесь, чтобы 504 ушёл ДО начала SSE-ответа клиенту
+	buf := make([]byte, 4096)
+	n, readErr := resp.Body.Read(buf)
+	timer.Stop()
+	if n == 0 && readErr != nil && readErr != io.EOF {
+		resp.Body.Close()
+		return fail(readErr)
+	}
+	return &bufferedStream{head: buf[:n], body: resp.Body, cancel: func() { cancel(nil) }}, nil
+}
+
+// bufferedStream — уже прочитанный первый кусок + остаток потока.
+type bufferedStream struct {
+	head   []byte
+	body   io.ReadCloser
+	cancel func()
+}
+
+func (s *bufferedStream) Read(p []byte) (int, error) {
+	if len(s.head) > 0 {
+		n := copy(p, s.head)
+		s.head = s.head[n:]
+		return n, nil
+	}
+	return s.body.Read(p)
+}
+
+func (s *bufferedStream) Close() error {
+	s.cancel()
+	return s.body.Close()
 }

@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -130,7 +132,79 @@ func TestChatRaisesDownInstance(t *testing.T) {
 	}
 }
 
-// Нет живого Раннера со свободным слотом — ErrConflict, Экземпляр остаётся down.
+// Раннер ставит чат в очередь: первый кадр приходит с задержкой —
+// прокси ждёт (щедрый first-byte таймаут) и отдаёт поток целиком.
+func TestChatWaitsForDelayedFirstFrame(t *testing.T) {
+	db := testdb.Setup(t)
+	userID, instID := seedInstance(t, db)
+
+	fakeRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case fmt.Sprintf("/instances/%d/raise", instID):
+			w.WriteHeader(http.StatusOK)
+		case fmt.Sprintf("/instances/%d/chat", instID):
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
+			time.Sleep(500 * time.Millisecond) // очередь на раннере
+			fmt.Fprint(w, "data: {\"kind\":\"token\",\"text\":\"late\"}\n\ndata: {\"kind\":\"done\"}\n\n")
+		}
+	}))
+	defer fakeRunner.Close()
+
+	store := &pgstore.Store{Pool: db}
+	if _, err := store.Upsert(t.Context(),
+		domain.Runner{Name: "r1", Address: fakeRunner.URL, Slots: 1}); err != nil {
+		t.Fatal(err)
+	}
+	svc := &InstanceService{
+		Instances: store, Runners: store,
+		Client:       &runnerapi.Client{FirstByteTimeout: 5 * time.Second},
+		RunnersAlive: 30 * time.Second,
+	}
+	stream, err := svc.Chat(t.Context(), instID, userID, "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	body, _ := io.ReadAll(stream)
+	if !strings.Contains(string(body), `"late"`) || !strings.Contains(string(body), `"done"`) {
+		t.Errorf("stream: %q", body)
+	}
+}
+
+// Первый кадр не пришёл за таймаут — честный domain.ErrTimeout (504), не вечное ожидание.
+func TestChatFirstByteTimeout(t *testing.T) {
+	db := testdb.Setup(t)
+	userID, instID := seedInstance(t, db)
+
+	fakeRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case fmt.Sprintf("/instances/%d/raise", instID):
+			w.WriteHeader(http.StatusOK)
+		case fmt.Sprintf("/instances/%d/chat", instID):
+			time.Sleep(2 * time.Second) // раннер молчит дольше таймаута
+		}
+	}))
+	defer fakeRunner.Close()
+
+	store := &pgstore.Store{Pool: db}
+	if _, err := store.Upsert(t.Context(),
+		domain.Runner{Name: "r1", Address: fakeRunner.URL, Slots: 1}); err != nil {
+		t.Fatal(err)
+	}
+	svc := &InstanceService{
+		Instances: store, Runners: store,
+		Client:       &runnerapi.Client{FirstByteTimeout: 200 * time.Millisecond},
+		RunnersAlive: 30 * time.Second,
+	}
+	_, err := svc.Chat(t.Context(), instID, userID, "hi")
+	if !errors.Is(err, domain.ErrTimeout) {
+		t.Fatalf("want ErrTimeout, got %v", err)
+	}
+}
+
+// Нет живого Раннера — ErrConflict, Экземпляр остаётся down.
 func TestChatNoFreeRunner(t *testing.T) {
 	db := testdb.Setup(t)
 	userID, instID := seedInstance(t, db)

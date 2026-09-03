@@ -73,12 +73,13 @@ func (s *InstanceService) ensureRunning(ctx context.Context, inst *domain.AgentI
 			return runner, nil
 		}
 	}
-	runner, err := s.Runners.FreeRunner(ctx, s.RunnersAlive)
+	// занятый раннер сам ставит raise/chat в очередь — слоты не фильтруем
+	runner, err := s.Runners.AliveRunner(ctx, s.RunnersAlive)
 	if err != nil {
 		return nil, err
 	}
 	if runner == nil {
-		return nil, fmt.Errorf("no alive runner with a free slot: %w", domain.ErrConflict)
+		return nil, fmt.Errorf("no alive runner: %w", domain.ErrConflict)
 	}
 	if err := s.Client.Raise(ctx, runner.Address, inst.ID); err != nil {
 		return nil, fmt.Errorf("raise instance on runner %s: %w", runner.Name, err)

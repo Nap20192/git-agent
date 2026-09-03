@@ -57,6 +57,7 @@ func TestRepositoryConnect(t *testing.T) {
 	svc := &RepositoryService{
 		Repos: store, Identities: store,
 		Provider:       &provider.Client{GitHubBase: fakeGitHub.URL},
+		Auth:           &AuthService{Secrets: box},
 		Secrets:        box,
 		WebhookBaseURL: "https://hub.example",
 	}
@@ -118,6 +119,7 @@ func TestRepositoryConnectHookFailureRollsBack(t *testing.T) {
 	svc := &RepositoryService{
 		Repos: store, Identities: store,
 		Provider:       &provider.Client{GitHubBase: fakeGitHub.URL},
+		Auth:           &AuthService{Secrets: box},
 		Secrets:        box,
 		WebhookBaseURL: "https://hub.example",
 	}

@@ -13,13 +13,28 @@ paths:
   /api/auth/{provider}/login:
     get:
       summary: Redirect на OAuth провайдера (вход или добавление связки под сессией)
+      description: >
+        Ставит anti-CSRF state-cookie и редиректит на провайдера. 503 —
+        OAuth-ключи провайдера не заданы (*_OAUTH_CLIENT_ID/SECRET в .env),
+        сервис при этом работает.
       parameters: [{ $ref: "#/components/parameters/Provider" }]
-      responses: { "302": { description: redirect } }
+      responses:
+        "302": { description: redirect на провайдера }
+        "503": { description: провайдер не сконфигурирован }
   /api/auth/{provider}/callback:
     get:
       summary: OAuth callback — создаёт user+связку (или добавляет связку), ставит cookie
+      description: >
+        Проверяет state (400 при несовпадении), меняет код на токен, читает
+        профиль. Без сессии — вход (пользователь находится по связке либо
+        создаётся); с живой сессией — добавление связки текущему пользователю
+        (409, если связка принадлежит другому). Токены — шифром в БД; сессия —
+        opaque-токен в httpOnly cookie; redirect на FRONTEND_URL.
       parameters: [{ $ref: "#/components/parameters/Provider" }]
-      responses: { "302": { description: redirect на фронт } }
+      responses:
+        "302": { description: redirect на фронт }
+        "400": { description: невалидный state }
+        "409": { description: связка принадлежит другому пользователю }
   /api/auth/logout:
     post: { summary: Завершить сессию, responses: { "204": { description: ok } } }
   /api/me:
@@ -268,8 +283,10 @@ paths:
         Ответ — text/event-stream: последовательность data-кадров, каждый —
         JSON ChatEvent. Терминальный кадр — kind=done, после него поток
         закрывается. Hub проксирует кадры раннера как есть; контракт кадров
-        общий для hub↔frontend и runner↔hub. 409 — нет живого раннера со
-        свободным слотом (down-Экземпляр поднять некому).
+        общий для hub↔frontend и runner↔hub. Раннер при занятых слотах НЕ
+        отказывает, а ставит запрос в очередь — hub ждёт первый байт щедрый
+        таймаут (CHAT_FIRST_BYTE_TIMEOUT_SECONDS, дефолт 120s); истечение —
+        504. 409 — нет ни одного живого раннера.
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         content:
@@ -281,7 +298,8 @@ paths:
           content:
             text/event-stream:
               schema: { $ref: "#/components/schemas/ChatEvent" }
-        "409": { description: нет живого раннера со свободным слотом }
+        "409": { description: нет ни одного живого раннера }
+        "504": { description: раннер не начал стримить за отведённое время (очередь) }
   /api/instances/{id}/stop:
     post:
       summary: Опустить Экземпляр (через раннер)

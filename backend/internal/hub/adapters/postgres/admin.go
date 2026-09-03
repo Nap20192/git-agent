@@ -19,6 +19,7 @@ var (
 	_ domain.InstanceStore     = (*Store)(nil)
 	_ domain.StaleRequeuer     = (*Store)(nil)
 	_ domain.SubscriptionStore = (*Store)(nil)
+	_ domain.AuthStore         = (*Store)(nil)
 )
 
 func nilIfNoRows[T any](v *T, err error) (*T, error) {
@@ -37,23 +38,84 @@ func isFKViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23503"
 }
 
-// EnsureDevUser — первый пользователь БД (создаётся при пустой таблице).
-// TODO(auth, тикет 003): убрать вместе с dev-пропуском Session после OAuth-входа.
-func (s *Store) EnsureDevUser(ctx context.Context) (int64, error) {
+// ── Auth: пользователи и сессии (тикет 003) ─────────────────────────────────
+
+func (s *Store) CreateUser(ctx context.Context, displayName string) (int64, error) {
 	var id int64
-	err := s.Pool.QueryRow(ctx, `SELECT id FROM hub.users ORDER BY id LIMIT 1`).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		err = s.Pool.QueryRow(ctx, `INSERT INTO hub.users (display_name) VALUES ('dev') RETURNING id`).Scan(&id)
-	}
+	err := s.Pool.QueryRow(ctx,
+		`INSERT INTO hub.users (display_name) VALUES ($1) RETURNING id`, displayName).Scan(&id)
 	return id, err
+}
+
+func (s *Store) UserDisplayName(ctx context.Context, id int64) (string, error) {
+	var name string
+	err := s.Pool.QueryRow(ctx, `SELECT display_name FROM hub.users WHERE id = $1`, id).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
+	return name, err
+}
+
+func (s *Store) FindIdentityByProviderUser(ctx context.Context, provider, providerUserID string) (*domain.Identity, error) {
+	row := s.Pool.QueryRow(ctx,
+		`SELECT `+identityColumns+` FROM hub.identities
+		  WHERE provider = $1 AND provider_user_id = $2`, provider, providerUserID)
+	i, err := scanIdentityRow(row)
+	return nilIfNoRows(&i, err)
+}
+
+func (s *Store) InsertIdentity(ctx context.Context, i *domain.Identity) (int64, error) {
+	var id int64
+	err := s.Pool.QueryRow(ctx,
+		`INSERT INTO hub.identities
+		   (user_id, provider, provider_user_id, username, access_token_enc, refresh_token_enc, token_expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+		i.UserID, i.Provider, i.ProviderUserID, i.Username,
+		i.AccessTokenEnc, i.RefreshTokenEnc, i.TokenExpiresAt,
+	).Scan(&id)
+	return id, err
+}
+
+func (s *Store) UpdateIdentityTokens(ctx context.Context, id int64, username string, accessEnc, refreshEnc []byte, expiresAt *time.Time) error {
+	_, err := s.Pool.Exec(ctx,
+		`UPDATE hub.identities
+		    SET username = $2, access_token_enc = $3,
+		        refresh_token_enc = COALESCE($4, refresh_token_enc), token_expires_at = $5
+		  WHERE id = $1`,
+		id, username, accessEnc, refreshEnc, expiresAt)
+	return err
+}
+
+func (s *Store) CreateSession(ctx context.Context, token string, userID int64, expiresAt time.Time) error {
+	_, err := s.Pool.Exec(ctx,
+		`INSERT INTO hub.sessions (token, user_id, expires_at) VALUES ($1, $2, $3)`,
+		token, userID, expiresAt)
+	return err
+}
+
+func (s *Store) SessionUser(ctx context.Context, token string) (int64, bool, error) {
+	var userID int64
+	err := s.Pool.QueryRow(ctx,
+		`SELECT user_id FROM hub.sessions WHERE token = $1 AND expires_at > now()`, token).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	return userID, err == nil, err
+}
+
+func (s *Store) DeleteSession(ctx context.Context, token string) error {
+	_, err := s.Pool.Exec(ctx, `DELETE FROM hub.sessions WHERE token = $1`, token)
+	return err
 }
 
 // ── Identities ──────────────────────────────────────────────────────────────
 
+const identityColumns = `id, user_id, provider, provider_user_id, username,
+	access_token_enc, refresh_token_enc, token_expires_at, created_at`
+
 func (s *Store) Identities(ctx context.Context, userID int64) ([]domain.Identity, error) {
 	rows, err := s.Pool.Query(ctx,
-		`SELECT id, user_id, provider, username, access_token_enc, created_at
-		   FROM hub.identities WHERE user_id = $1 ORDER BY id`, userID)
+		`SELECT `+identityColumns+` FROM hub.identities WHERE user_id = $1 ORDER BY id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -62,8 +124,7 @@ func (s *Store) Identities(ctx context.Context, userID int64) ([]domain.Identity
 
 func (s *Store) Identity(ctx context.Context, id, userID int64) (*domain.Identity, error) {
 	row := s.Pool.QueryRow(ctx,
-		`SELECT id, user_id, provider, username, access_token_enc, created_at
-		   FROM hub.identities WHERE id = $1 AND user_id = $2`, id, userID)
+		`SELECT `+identityColumns+` FROM hub.identities WHERE id = $1 AND user_id = $2`, id, userID)
 	i, err := scanIdentityRow(row)
 	return nilIfNoRows(&i, err)
 }
@@ -453,14 +514,12 @@ func (s *Store) Runner(ctx context.Context, id int64) (*domain.Runner, error) {
 	return &list[0], nil
 }
 
-func (s *Store) FreeRunner(ctx context.Context, aliveWithin time.Duration) (*domain.Runner, error) {
+func (s *Store) AliveRunner(ctx context.Context, aliveWithin time.Duration) (*domain.Runner, error) {
 	rows, err := s.Pool.Query(ctx,
-		`SELECT r.id, r.name, r.address, r.slots, r.last_heartbeat_at
-		   FROM hub.runners r
-		  WHERE r.last_heartbeat_at > now() - $1::interval
-		    AND r.slots > (SELECT count(*) FROM hub.agent_instances i
-		                    WHERE i.runner_id = r.id AND i.status = 'running')
-		  ORDER BY r.last_heartbeat_at DESC LIMIT 1`, aliveWithin)
+		`SELECT id, name, address, slots, last_heartbeat_at
+		   FROM hub.runners
+		  WHERE last_heartbeat_at > now() - $1::interval
+		  ORDER BY last_heartbeat_at DESC LIMIT 1`, aliveWithin)
 	if err != nil {
 		return nil, err
 	}
@@ -515,13 +574,15 @@ func collect[T any](rows pgx.Rows, scan func(pgx.Rows) (T, error)) ([]T, error) 
 
 func scanIdentity(r pgx.Rows) (domain.Identity, error) {
 	var i domain.Identity
-	err := r.Scan(&i.ID, &i.UserID, &i.Provider, &i.Username, &i.AccessTokenEnc, &i.CreatedAt)
+	err := r.Scan(&i.ID, &i.UserID, &i.Provider, &i.ProviderUserID, &i.Username,
+		&i.AccessTokenEnc, &i.RefreshTokenEnc, &i.TokenExpiresAt, &i.CreatedAt)
 	return i, err
 }
 
 func scanIdentityRow(row pgx.Row) (domain.Identity, error) {
 	var i domain.Identity
-	err := row.Scan(&i.ID, &i.UserID, &i.Provider, &i.Username, &i.AccessTokenEnc, &i.CreatedAt)
+	err := row.Scan(&i.ID, &i.UserID, &i.Provider, &i.ProviderUserID, &i.Username,
+		&i.AccessTokenEnc, &i.RefreshTokenEnc, &i.TokenExpiresAt, &i.CreatedAt)
 	return i, err
 }
 

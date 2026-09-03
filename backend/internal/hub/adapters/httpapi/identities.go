@@ -5,15 +5,15 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/vnkjd/git-agent/backend/internal/hub/app"
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
-	"github.com/vnkjd/git-agent/backend/pkg/secrets"
 )
 
 // IdentitiesHandler — связки пользователя + прокси списка репозиториев провайдера.
 type IdentitiesHandler struct {
 	Store    domain.IdentityStore
 	Provider domain.ProviderClient
-	Secrets  *secrets.Box
+	Auth     *app.AuthService
 }
 
 func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
@@ -48,8 +48,8 @@ func (h *IdentitiesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Repos — GET /api/identities/{id}/repos: прокси API провайдера
-// по расшифрованному токену связки.
+// Repos — GET /api/identities/{id}/repos: прокси API провайдера токеном
+// связки (401 от провайдера — refresh-флоу внутри CallWithToken).
 func (h *IdentitiesHandler) Repos(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
@@ -64,12 +64,12 @@ func (h *IdentitiesHandler) Repos(w http.ResponseWriter, r *http.Request) {
 		writeError(w, domain.ErrNotFound)
 		return
 	}
-	token, err := h.Secrets.Decrypt(ident.AccessTokenEnc)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	repos, err := h.Provider.Repos(r.Context(), ident.Provider, string(token))
+	var repos []domain.ProviderRepo
+	err = h.Auth.CallWithToken(r.Context(), ident, func(token string) error {
+		var err error
+		repos, err = h.Provider.Repos(r.Context(), ident.Provider, token)
+		return err
+	})
 	if err != nil {
 		slog.Error("identities: provider repos failed", "identityId", id, "err", err)
 		http.Error(w, `{"error":"provider unavailable"}`, http.StatusBadGateway)

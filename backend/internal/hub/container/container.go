@@ -14,6 +14,7 @@ import (
 
 	"github.com/vnkjd/git-agent/backend/cmd/hub/config"
 	"github.com/vnkjd/git-agent/backend/internal/hub/adapters/httpapi"
+	"github.com/vnkjd/git-agent/backend/internal/hub/adapters/oauth"
 	pgstore "github.com/vnkjd/git-agent/backend/internal/hub/adapters/postgres"
 	"github.com/vnkjd/git-agent/backend/internal/hub/adapters/provider"
 	rmq "github.com/vnkjd/git-agent/backend/internal/hub/adapters/rabbitmq"
@@ -53,22 +54,21 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 	}
 
 	store := &pgstore.Store{Pool: pg.GetDB()}
-	// TODO(auth, тикет 003): dev-пользователь до OAuth-входа
-	devUserID, err := store.EnsureDevUser(ctx)
-	if err != nil {
-		pg.Close()
-		return nil, err
-	}
 
 	publisher := &rmq.Publisher{URL: cfg.RabbitMQURL}
 	providerClient := &provider.Client{}
-	runnerClient := &runnerapi.Client{}
+	runnerClient := &runnerapi.Client{FirstByteTimeout: cfg.ChatFirstByteTimeout}
+	oauthClient := &oauth.Client{
+		GitHub: oauth.App{ClientID: cfg.GitHubOAuthID, ClientSecret: cfg.GitHubOAuthSecret},
+		GitLab: oauth.App{ClientID: cfg.GitLabOAuthID, ClientSecret: cfg.GitLabOAuthSecret},
+	}
 
+	auth := &app.AuthService{Store: store, OAuth: oauthClient, Secrets: box}
 	webhook := &app.WebhookService{Repos: store, Subs: store, Ingestor: store, Secrets: box}
 	outbox := &app.OutboxService{Store: store, Publisher: publisher}
 	repositories := &app.RepositoryService{
 		Repos: store, Identities: store, Subs: store, Provider: providerClient,
-		Secrets: box, WebhookBaseURL: cfg.WebhookBaseURL,
+		Auth: auth, Secrets: box, WebhookBaseURL: cfg.WebhookBaseURL,
 	}
 	instances := &app.InstanceService{
 		Instances: store, Runners: store, Client: runnerClient,
@@ -76,11 +76,16 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 	}
 	heartbeat := &app.HeartbeatService{Store: store, Timeout: cfg.HeartbeatTimeout}
 
+	session := &httpapi.Session{Store: store}
 	mux := httpapi.NewMux(httpapi.Handlers{
-		Session:       &httpapi.Session{DevUserID: devUserID},
+		Session: session,
+		Auth: &httpapi.AuthHandler{
+			Service: auth, Session: session, Store: store,
+			Identities: store, FrontendURL: cfg.FrontendURL,
+		},
 		Webhook:       &httpapi.WebhookHandler{Service: webhook},
 		Runners:       &httpapi.RunnersHandler{Store: store, Token: cfg.RunnerToken},
-		Identities:    &httpapi.IdentitiesHandler{Store: store, Provider: providerClient, Secrets: box},
+		Identities:    &httpapi.IdentitiesHandler{Store: store, Provider: providerClient, Auth: auth},
 		Repositories:  &httpapi.RepositoriesHandler{Store: store, Subs: store, Service: repositories},
 		Subscriptions: &httpapi.SubscriptionsHandler{Store: store, Repos: store},
 		Builds:        &httpapi.BuildsHandler{Store: store},

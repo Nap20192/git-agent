@@ -5,6 +5,7 @@ import "net/http"
 // Handlers — все хендлеры HTTP-поверхности hub (backend/docs/openapi.yaml).
 type Handlers struct {
 	Session       *Session
+	Auth          *AuthHandler
 	Webhook       *WebhookHandler
 	Runners       *RunnersHandler
 	Identities    *IdentitiesHandler
@@ -16,13 +17,18 @@ type Handlers struct {
 }
 
 // NewMux собирает HTTP-поверхность hub. Пользовательские /api/* — за
-// Session (TODO(auth): пока dev-пропуск), раннерные — за X-Runner-Token,
-// вебхуки — за подписью провайдера.
+// Session (валидная cookie-сессия, иначе 401), /api/auth/* — открыты,
+// раннерные — за X-Runner-Token, вебхуки — за подписью провайдера.
 func NewMux(h Handlers) *http.ServeMux {
 	mux := http.NewServeMux()
 	s := h.Session.Wrap
 
 	mux.Handle("POST /hooks/{provider}/{repositoryId}", h.Webhook)
+
+	mux.HandleFunc("GET /api/auth/{provider}/login", h.Auth.Login)
+	mux.HandleFunc("GET /api/auth/{provider}/callback", h.Auth.Callback)
+	mux.HandleFunc("POST /api/auth/logout", h.Auth.Logout)
+	mux.HandleFunc("GET /api/me", s(h.Auth.Me))
 
 	mux.HandleFunc("POST /api/runners", h.Runners.Auth(h.Runners.Register))
 	mux.HandleFunc("POST /api/runners/{id}/heartbeat", h.Runners.Auth(h.Runners.Heartbeat))

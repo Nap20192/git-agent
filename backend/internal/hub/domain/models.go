@@ -4,12 +4,22 @@ import "time"
 
 // Identity — OAuth-связка пользователя (тикет 003).
 type Identity struct {
-	ID             int64
-	UserID         int64
-	Provider       string
-	Username       string
-	AccessTokenEnc []byte
-	CreatedAt      time.Time
+	ID              int64
+	UserID          int64
+	Provider        string
+	ProviderUserID  string
+	Username        string
+	AccessTokenEnc  []byte
+	RefreshTokenEnc []byte // nullable; refresh-флоу по 401 (GitLab)
+	TokenExpiresAt  *time.Time
+	CreatedAt       time.Time
+}
+
+// OAuthToken — результат обмена кода/refresh у провайдера.
+type OAuthToken struct {
+	AccessToken  string
+	RefreshToken string // пустой у GitHub OAuth App (токены вечные)
+	ExpiresAt    *time.Time
 }
 
 // ProviderRepo — репозиторий, видимый связке через API провайдера.

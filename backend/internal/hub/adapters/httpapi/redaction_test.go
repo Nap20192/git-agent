@@ -39,7 +39,8 @@ func TestLlmConnectionRedaction(t *testing.T) {
 	}
 
 	h := &ConnectionsHandler{Store: store, Secrets: box}
-	sess := &Session{DevUserID: userID}
+	sess := &Session{Store: store}
+	cookie := seedSession(t, db, userID)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/connections/llm", sess.Wrap(h.CreateLlm))
 	mux.HandleFunc("GET /api/connections/llm", sess.Wrap(h.ListLlm))
@@ -47,8 +48,10 @@ func TestLlmConnectionRedaction(t *testing.T) {
 	defer srv.Close()
 
 	const rawKey = "sk-super-secret-key-9876"
-	resp, err := http.Post(srv.URL+"/api/connections/llm", "application/json",
+	req, _ := http.NewRequest("POST", srv.URL+"/api/connections/llm",
 		strings.NewReader(`{"name":"main","apiBase":"https://llm.example","apiKey":"`+rawKey+`","model":"m1"}`))
+	req.AddCookie(cookie)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +67,9 @@ func TestLlmConnectionRedaction(t *testing.T) {
 		t.Errorf("masked: %v", created["apiKeyMasked"])
 	}
 
-	resp, err = http.Get(srv.URL + "/api/connections/llm")
+	req, _ = http.NewRequest("GET", srv.URL+"/api/connections/llm", nil)
+	req.AddCookie(cookie)
+	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}

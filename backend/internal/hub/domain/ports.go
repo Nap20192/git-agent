@@ -67,9 +67,9 @@ type RunnerStore interface {
 	Heartbeat(ctx context.Context, id int64) (bool, error)
 	Runners(ctx context.Context) ([]Runner, error)
 	Runner(ctx context.Context, id int64) (*Runner, error)
-	// FreeRunner — живой (heartbeat свежее aliveWithin) Раннер со свободным
-	// слотом (running-Экземпляров меньше slots); nil — свободных нет.
-	FreeRunner(ctx context.Context, aliveWithin time.Duration) (*Runner, error)
+	// AliveRunner — живой (heartbeat свежее aliveWithin) Раннер; слоты не
+	// фильтруются — занятый раннер сам ставит запросы в очередь. nil — живых нет.
+	AliveRunner(ctx context.Context, aliveWithin time.Duration) (*Runner, error)
 }
 
 // IdentityStore — OAuth-связки пользователя.
@@ -124,6 +124,30 @@ type InstanceStore interface {
 type StaleRequeuer interface {
 	// RequeueStale возвращает (сколько Экземпляров опущено, сколько Событий переопубликовано).
 	RequeueStale(ctx context.Context, timeout time.Duration) (downed, requeued int, err error)
+}
+
+// OAuthClient — OAuth-флоу провайдера (тикет 003). Провайдер без ключей
+// в конфиге — ErrUnavailable, сервис при этом работает.
+type OAuthClient interface {
+	AuthURL(provider, redirectURI, state string) (string, error)
+	Exchange(ctx context.Context, provider, code, redirectURI string) (*OAuthToken, error)
+	Refresh(ctx context.Context, provider, refreshToken string) (*OAuthToken, error)
+	// UserInfo — профиль владельца токена: (provider_user_id, username).
+	UserInfo(ctx context.Context, provider, accessToken string) (providerUserID, username string, err error)
+}
+
+// AuthStore — пользователи, связки и сессии (тикет 003).
+type AuthStore interface {
+	CreateUser(ctx context.Context, displayName string) (int64, error)
+	UserDisplayName(ctx context.Context, id int64) (string, error)
+	FindIdentityByProviderUser(ctx context.Context, provider, providerUserID string) (*Identity, error)
+	InsertIdentity(ctx context.Context, i *Identity) (int64, error)
+	UpdateIdentityTokens(ctx context.Context, id int64, username string, accessEnc, refreshEnc []byte, expiresAt *time.Time) error
+	// CreateSession — opaque-токен в httpOnly cookie.
+	CreateSession(ctx context.Context, token string, userID int64, expiresAt time.Time) error
+	// SessionUser — false для незнакомого или истёкшего токена.
+	SessionUser(ctx context.Context, token string) (int64, bool, error)
+	DeleteSession(ctx context.Context, token string) error
 }
 
 // ProviderClient — API провайдера (GitHub/GitLab) от имени связки.

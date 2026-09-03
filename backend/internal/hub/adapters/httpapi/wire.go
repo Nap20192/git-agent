@@ -36,6 +36,11 @@ func writeError(w http.ResponseWriter, err error) {
 		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 	case errors.Is(err, domain.ErrConflict):
 		http.Error(w, `{"error":"conflict"}`, http.StatusConflict)
+	case errors.Is(err, domain.ErrUnavailable):
+		// понятный текст: без OAuth-ключей провайдер недоступен, сервис жив
+		http.Error(w, `{"error":"provider is not configured (set *_OAUTH_CLIENT_ID/SECRET in .env)"}`, http.StatusServiceUnavailable)
+	case errors.Is(err, domain.ErrTimeout):
+		http.Error(w, `{"error":"runner did not start streaming in time (queued too long)"}`, http.StatusGatewayTimeout)
 	default:
 		slog.Error("httpapi: internal error", "err", err)
 		http.Error(w, `{"error":"internal"}`, http.StatusInternalServerError)

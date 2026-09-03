@@ -18,6 +18,7 @@ type RepositoryService struct {
 	Identities     domain.IdentityStore
 	Subs           domain.SubscriptionStore
 	Provider       domain.ProviderClient
+	Auth           *AuthService // токены связок + refresh-флоу
 	Secrets        *secrets.Box
 	WebhookBaseURL string
 }
@@ -30,12 +31,12 @@ func (s *RepositoryService) Connect(ctx context.Context, userID, identityID int6
 	if ident == nil {
 		return nil, fmt.Errorf("identity %d: %w", identityID, domain.ErrNotFound)
 	}
-	token, err := s.Secrets.Decrypt(ident.AccessTokenEnc)
-	if err != nil {
-		return nil, err
-	}
-	pr, err := s.Provider.Repo(ctx, ident.Provider, string(token), externalID)
-	if err != nil {
+	var pr *domain.ProviderRepo
+	if err := s.Auth.CallWithToken(ctx, ident, func(token string) error {
+		var err error
+		pr, err = s.Provider.Repo(ctx, ident.Provider, token, externalID)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 
@@ -77,7 +78,12 @@ func (s *RepositoryService) Connect(ctx context.Context, userID, identityID int6
 		repo.BuildID = buildID
 	}
 	hookURL := fmt.Sprintf("%s/hooks/%s/%d", s.WebhookBaseURL, ident.Provider, repo.ID)
-	hookID, err := s.Provider.CreateHook(ctx, ident.Provider, string(token), *pr, hookURL, hookSecret)
+	var hookID string
+	err = s.Auth.CallWithToken(ctx, ident, func(token string) error {
+		var err error
+		hookID, err = s.Provider.CreateHook(ctx, ident.Provider, token, *pr, hookURL, hookSecret)
+		return err
+	})
 	if err != nil {
 		if delErr := s.Repos.DeleteRepository(ctx, repo.ID); delErr != nil {
 			slog.Error("repository: rollback after hook failure", "repositoryId", repo.ID, "err", delErr)
@@ -103,11 +109,12 @@ func (s *RepositoryService) Disconnect(ctx context.Context, id, userID int64) er
 	}
 	if repo.WebhookProviderID != nil {
 		if ident, err := s.Identities.Identity(ctx, repo.IdentityID, userID); err == nil && ident != nil {
-			if token, err := s.Secrets.Decrypt(ident.AccessTokenEnc); err == nil {
-				if err := s.Provider.DeleteHook(ctx, repo.Provider, string(token), repo, *repo.WebhookProviderID); err != nil {
-					slog.Warn("repository: provider hook removal failed, disconnecting anyway",
-						"repositoryId", id, "err", err)
-				}
+			err := s.Auth.CallWithToken(ctx, ident, func(token string) error {
+				return s.Provider.DeleteHook(ctx, repo.Provider, token, repo, *repo.WebhookProviderID)
+			})
+			if err != nil {
+				slog.Warn("repository: provider hook removal failed, disconnecting anyway",
+					"repositoryId", id, "err", err)
 			}
 		}
 	}
