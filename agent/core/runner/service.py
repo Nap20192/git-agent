@@ -49,6 +49,9 @@ class LocalInstance:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     last_activity: float = field(default_factory=time.monotonic)
     term_cwd: str | None = None  # рабочая директория стрим-консоли; живёт пока Экземпляр поднят
+    # лок ТОЛЬКО консоли (последовательность команд одного оператора, cwd); с `lock`
+    # хода не пересекается — терминал не ждёт, пока Лид думает
+    term_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     turn_task: asyncio.Task | None = None  # исполняющийся ход События; цель stop_instance
 
     def touch(self) -> None:
@@ -355,14 +358,20 @@ class RunnerService:
             yield frame
 
     async def terminal(self, instance_id: int, command: str) -> tuple[str, int | None, str | None]:
-        """Команда стрим-консоли в песочнице Экземпляра; поднимает его при необходимости."""
+        """Команда стрим-консоли в песочнице Экземпляра; поднимает его при необходимости.
+
+        НЕ берёт lock хода: консоли нужны только поднятый Экземпляр и живая песочница,
+        execd исполняет команды параллельно с ходом агента. Осознанно: команды оператора
+        и агента могут гонять за одни файлы в /repo — это консоль оператора, не транзакция.
+        Свой term_lock — только последовательность команд и cwd; touch держит idle-таймер.
+        """
         with bound_contextvars(
             instance_id=instance_id, turn="terminal", trace_id=trace.current_or_new()
         ):
             raised = await self._raise(instance_id)
             if isinstance(raised, ClaimResult):
                 raise InstanceUnavailableError(instance_id, raised.outcome)
-            async with raised.lock:
+            async with raised.term_lock:
                 raised.touch()
                 ctx = await self._store.load_context(instance_id)
                 if ctx is None:
@@ -387,7 +396,7 @@ class RunnerService:
         """Один проход: выгрузить Экземпляры без активности дольше idle-таймаута."""
         now = time.monotonic()
         for instance_id, instance in list(self._instances.items()):
-            if instance.lock.locked():
+            if instance.lock.locked() or instance.term_lock.locked():
                 continue
             if now - instance.last_activity > self._idle_timeout:
                 log.info("idle timeout, unloading", instance_id=instance_id)
