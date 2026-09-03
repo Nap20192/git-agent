@@ -13,7 +13,7 @@ type Defaults struct {
 	LlmModel      string // LLM_MODEL
 	SandboxDomain string // OPENSANDBOX_DOMAIN, дефолт localhost:8090
 	SandboxAPIKey string // OPENSANDBOX_API_KEY
-	SandboxImage  string // SANDBOX_IMAGE, дефолт alpine/git:latest
+	SandboxImage  string // SANDBOX_IMAGE, дефолт git-agent/sandbox:strix
 }
 
 // DefaultLimits — зеркало дефолтов раннера (agent/core/lead/graph.py::_lead_features,
