@@ -21,15 +21,16 @@ type OutboxService struct {
 	Publisher domain.EventPublisher
 }
 
-// Run поллит outbox до отмены контекста. Ошибки публикации/БД не фатальны:
-// строка остаётся неопубликованной и уйдёт на следующем тике.
-func (s *OutboxService) Run(ctx context.Context) {
+// Run поллит outbox до отмены контекста (тогда возвращает nil — штатное
+// завершение). Ошибки публикации/БД не фатальны: строка остаётся
+// неопубликованной и уйдёт на следующем тике.
+func (s *OutboxService) Run(ctx context.Context) error {
 	ticker := time.NewTicker(outboxPollInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case <-ticker.C:
 			s.drain(ctx)
 		}

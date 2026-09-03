@@ -51,7 +51,8 @@ func TestOutboxService(t *testing.T) {
 
 	pub := &rmq.Publisher{URL: url}
 	defer pub.Close()
-	go (&OutboxService{Store: &pgstore.Store{Pool: db}, Publisher: pub}).Run(ctx)
+	svc := &OutboxService{Store: &pgstore.Store{Pool: db}, Publisher: pub}
+	go func() { _ = svc.Run(ctx) }()
 
 	deadline := time.Now().Add(10 * time.Second)
 	for {
