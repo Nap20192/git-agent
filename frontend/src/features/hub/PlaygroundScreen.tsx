@@ -182,11 +182,11 @@ export function PlaygroundScreen() {
     act("sandbox", async () => { await api.killSandboxInstance(inst.sandboxInstanceId!); return `sandbox killed → ${inst.sandboxExternalId ?? `#${inst.sandboxInstanceId}`}`; });
   };
 
-  // timeline: events (●, click → replay on graph) + reports (→) + activity lines (⚙), newest first
+  // timeline: events (●, click → replay on graph) + reports (→) + activity lines (⚙; node frames stay on the graph), newest first
   const timeline = [
     ...events.map((e) => ({ t: new Date(e.receivedAt), glyph: "●", color: graphEventId === e.id ? "var(--accent)" : "var(--text-muted)", title: e.action, meta: `${shortRef(e.ref)} @ ${sha(e.commitSha)}${reportFor(e) ? "" : running ? " · no report yet" : " · unfinished"}`, body: "", eventId: e.id })),
     ...reports.map((r) => ({ t: new Date(r.createdAt), glyph: "→", color: "var(--accent)", title: "report", meta: r.eventId != null ? `for event #${r.eventId}` : "", body: r.summary, eventId: null })),
-    ...[...local, ...frames.flatMap((f) => { const text = activityLine(f); return text ? [{ at: f.ts ? new Date(f.ts) : new Date(), text }] : []; })].map((l) => ({ t: l.at, glyph: "⚙", color: "var(--text-comment)", title: "", meta: l.text, body: "", eventId: null })),
+    ...[...local, ...frames.filter((f) => f.kind !== "node").flatMap((f) => { const text = activityLine(f); return text ? [{ at: f.ts ? new Date(f.ts) : new Date(), text }] : []; })].map((l) => ({ t: l.at, glyph: "⚙", color: "var(--text-comment)", title: "", meta: l.text, body: "", eventId: null })),
   ].sort((a, b) => b.t.getTime() - a.t.getTime());
 
   const saList = graph.tasks;

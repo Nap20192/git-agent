@@ -162,7 +162,7 @@ export function RepoScreen() {
             </div>
           </Panel>
 
-          <Panel label="journal" dim={`${events.length} events`} className="col" >
+          <Panel label="journal" dim={`${events.length} events`} className="col" style={{ flex: 1, minHeight: 160 }}>
             <div className="thead" style={{ "--cols": JCOLS, background: "transparent", padding: "10px 12px 6px" } as React.CSSProperties}>
               <span>action</span><span>ref</span><span>commit</span><span>received</span>
             </div>

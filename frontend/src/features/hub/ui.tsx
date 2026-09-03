@@ -49,9 +49,9 @@ export function Drawer({ open, title, onClose, children }: { open: boolean; titl
 }
 
 /* ── panel with floating label ────────────────────────────────────── */
-export function Panel({ label, dim, className = "", children }: { label: ReactNode; dim?: ReactNode; className?: string; children: ReactNode }) {
+export function Panel({ label, dim, className = "", style, children }: { label: ReactNode; dim?: ReactNode; className?: string; style?: React.CSSProperties; children: ReactNode }) {
   return (
-    <div className={`panel ${className}`}>
+    <div className={`panel ${className}`} style={style}>
       <span className="plabel">
         {label}
         {dim != null && <span className="dim"> · {dim}</span>}

@@ -1,6 +1,6 @@
 /* git-agent hub — terminal-style UI. Tokens: vk-colors.css (verbatim), font: Fira Code.
    Visual authority: docs/design/git-agent-hub.dc.html. No radii, no shadows. */
-@import "./vk-fonts.css";
+/* fonts are linked from index.html: a slow Google Fonts @import must not block this sheet */
 @import "./vk-colors.css";
 
 [data-theme="dark"] {
@@ -80,7 +80,7 @@ b {
 
 /* ── frame ─────────────────────────────────────────────────────────── */
 .app {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--bg);
@@ -105,6 +105,7 @@ b {
   cursor: pointer;
 }
 .barbtn {
+  text-decoration: none;
   font: inherit;
   font-size: 13px;
   background: transparent;
@@ -147,6 +148,7 @@ b {
   flex-direction: column;
   padding: 20px 20px 5px;
   min-height: 0;
+  overflow: auto;
 }
 .statusbar {
   height: 22px;
