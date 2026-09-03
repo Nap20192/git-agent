@@ -139,11 +139,10 @@ tasks:
       - railway up
 
   relay:pull:
-    desc: Локальный пуллер вебхуков — relay → hub :8081 (RELAY_URL/RELAY_TOKEN из .env)
+    desc: Локальный пуллер вебхуков — relay → hub :8081 (RELAY_URL/RELAY_TOKEN из корневого .env)
     dir: tunnel
-    dotenv: [".env"]
     cmds:
-      - go run ./cmd/puller
+      - bash -c 'set -a; . ../.env; set +a; exec go run ./cmd/puller'
 
   front:
     desc: Фронтенд (vite dev, :5173) с http-адаптером к беку
