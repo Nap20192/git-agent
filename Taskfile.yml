@@ -91,6 +91,12 @@ tasks:
     cmds:
       - uv run uvicorn main:app --port 8080
 
+  runner:
+    desc: Раннер — консьюмер Событий RabbitMQ + HTTP API на :8081
+    dir: agent
+    cmds:
+      - uv run uvicorn runner:app --port 8081
+
   backend:build:
     desc: Собрать Go-бекенд (hub)
     dir: backend
