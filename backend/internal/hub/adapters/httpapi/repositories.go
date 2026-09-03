@@ -23,7 +23,7 @@ type RepositoriesHandler struct {
 func (h *RepositoriesHandler) List(w http.ResponseWriter, r *http.Request) {
 	list, err := h.Store.Repositories(r.Context(), userID(r))
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mapSlice(list, toRepositoryDTO))
@@ -40,12 +40,12 @@ func (h *RepositoriesHandler) Connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.IdentityID == 0 || req.ExternalID == "" {
-		http.Error(w, `{"error":"identityId and externalId are required"}`, http.StatusBadRequest)
+		errorJSON(w, http.StatusBadRequest, "identityId and externalId are required")
 		return
 	}
 	repo, err := h.Service.Connect(r.Context(), userID(r), req.IdentityID, req.ExternalID, req.BuildID)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, toRepositoryDTO(*repo))
@@ -65,28 +65,27 @@ func (h *RepositoriesHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.BuildID == nil {
-		http.Error(w, `{"error":"deprecated route: manage subscriptions via /api/repositories/{id}/subscriptions"}`,
-			http.StatusBadRequest)
+		errorJSON(w, http.StatusBadRequest, "deprecated route: manage subscriptions via /api/repositories/{id}/subscriptions")
 		return
 	}
 	repo, err := h.Store.Repository(r.Context(), id, userID(r))
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	if repo == nil {
-		writeError(w, domain.ErrNotFound)
+		writeError(w, r, domain.ErrNotFound)
 		return
 	}
 	if _, err := h.Subs.UpsertSubscription(r.Context(), &domain.BuildSubscription{
 		BuildID: *req.BuildID, RepositoryID: id,
 	}); err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	repo, err = h.Store.Repository(r.Context(), id, userID(r))
 	if err != nil || repo == nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, toRepositoryDTO(*repo))
@@ -99,7 +98,7 @@ func (h *RepositoriesHandler) Disconnect(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := h.Service.Disconnect(r.Context(), id, userID(r)); err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -119,16 +118,16 @@ func (h *RepositoriesHandler) Trigger(w http.ResponseWriter, r *http.Request) {
 		Mode      string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		http.Error(w, `{"error":"bad json"}`, http.StatusBadRequest)
+		errorJSON(w, http.StatusBadRequest, "bad json")
 		return
 	}
 	if req.Mode != "" && req.Mode != "manual" && req.Mode != "full" {
-		http.Error(w, `{"error":"mode must be manual or full"}`, http.StatusBadRequest)
+		errorJSON(w, http.StatusBadRequest, "mode must be manual or full")
 		return
 	}
 	res, err := h.Service.Trigger(r.Context(), userID(r), id, req.Ref, req.CommitSHA, req.Mode)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, triggerResultDTO{
@@ -152,16 +151,16 @@ func (h *RepositoriesHandler) Events(w http.ResponseWriter, r *http.Request) {
 	}
 	repo, err := h.Store.Repository(r.Context(), id, userID(r))
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	if repo == nil {
-		writeError(w, domain.ErrNotFound)
+		writeError(w, r, domain.ErrNotFound)
 		return
 	}
 	events, err := h.Store.Events(r.Context(), id, eventsPageLimit)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mapSlice(events, func(e domain.EventRecord) eventDTO {

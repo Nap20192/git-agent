@@ -15,13 +15,14 @@ type SandboxInstancesHandler struct {
 	Connections domain.ConnectionStore
 	Sandboxes   domain.SandboxLifecycle
 	Secrets     *secrets.Box
+	Defaults    domain.Defaults
 }
 
 // List — GET /api/sandbox-instances.
 func (h *SandboxInstancesHandler) List(w http.ResponseWriter, r *http.Request) {
 	list, err := h.Store.SandboxInstances(r.Context())
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mapSlice(list, toSandboxInstanceDTO))
@@ -38,39 +39,40 @@ func (h *SandboxInstancesHandler) Create(w http.ResponseWriter, r *http.Request)
 	}
 	conn, err := h.Connections.SandboxConnection(r.Context(), req.SandboxConnectionID)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	if conn == nil {
-		writeError(w, domain.ErrNotFound)
+		writeError(w, r, domain.ErrNotFound)
 		return
 	}
+	conn.ApplyDefaults(h.Defaults) // старые подключения без image → SANDBOX_IMAGE
 	if conn.Image == nil || *conn.Image == "" {
-		http.Error(w, `{"error":"sandbox connection has no image configured"}`, http.StatusBadRequest)
+		errorJSON(w, http.StatusBadRequest, "sandbox connection has no image configured (set SANDBOX_IMAGE in .env)")
 		return
 	}
 	apiKey := ""
 	if conn.APIKeyEnc != nil {
 		key, err := h.Secrets.Decrypt(conn.APIKeyEnc)
 		if err != nil {
-			writeError(w, err)
+			writeError(w, r, err)
 			return
 		}
 		apiKey = string(key)
 	}
 	externalID, err := h.Sandboxes.CreateSandbox(r.Context(), conn.Domain, apiKey, *conn.Image)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	id, err := h.Store.CreateSandboxInstance(r.Context(), externalID, conn.ID)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	si, err := h.Store.SandboxInstance(r.Context(), id)
 	if err != nil || si == nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, toSandboxInstanceDTO(*si))
@@ -85,17 +87,17 @@ func (h *SandboxInstancesHandler) Kill(w http.ResponseWriter, r *http.Request) {
 	}
 	si, err := h.Store.SandboxInstance(r.Context(), id)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	if si == nil {
-		writeError(w, domain.ErrNotFound)
+		writeError(w, r, domain.ErrNotFound)
 		return
 	}
 	if si.Status != "dead" {
 		conn, err := h.Connections.SandboxConnection(r.Context(), si.SandboxConnectionID)
 		if err != nil {
-			writeError(w, err)
+			writeError(w, r, err)
 			return
 		}
 		apiKey := ""
@@ -109,11 +111,11 @@ func (h *SandboxInstancesHandler) Kill(w http.ResponseWriter, r *http.Request) {
 			domainAddr = conn.Domain
 		}
 		if err := h.Sandboxes.DeleteSandbox(r.Context(), domainAddr, apiKey, si.ExternalID); err != nil {
-			writeError(w, err)
+			writeError(w, r, err)
 			return
 		}
 		if err := h.Store.MarkSandboxInstanceDead(r.Context(), id); err != nil {
-			writeError(w, err)
+			writeError(w, r, err)
 			return
 		}
 	}
@@ -134,7 +136,7 @@ func (h *SandboxInstancesHandler) Link(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Store.LinkInstanceSandbox(r.Context(), id, req.SandboxInstanceID, userID(r)); err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

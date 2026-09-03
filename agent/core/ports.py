@@ -10,6 +10,10 @@ if TYPE_CHECKING:
     from core.runtime.schemas import LeaseRenewal, StatusFinalization, SubmitDisposition
 
 
+class SandboxUnreachableError(RuntimeError):
+    """Песочница не отвечает (транспорт/контейнер мёртв) — команда не исполнялась."""
+
+
 class SandboxCommandError(RuntimeError):
     def __init__(self, command: str, exit_code: int | None, stderr: str) -> None:
         super().__init__(f"sandbox command failed (exit {exit_code}): {command}\n{stderr}")

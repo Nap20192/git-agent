@@ -32,7 +32,16 @@ class ActivityCollector:
 
     def __init__(self) -> None:
         self.findings = 0
+        self.model_calls = 0
         self._tasks: dict[str, str] = {}  # task_id -> status кадра
+
+    def stats(self) -> dict[str, int]:
+        """Итог хода для лога: сколько вызовов модели, Сабагентов, Находок."""
+        return {
+            "model_calls": self.model_calls,
+            "subagents": len(self._tasks),
+            "findings": self.findings,
+        }
 
     def _frame(self, kind: str, **fields: Any) -> dict[str, Any]:
         return {"kind": kind, "ts": _now(), **{k: v for k, v in fields.items() if v is not None}}
@@ -93,6 +102,8 @@ class ActivityCollector:
     def _updates(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         frames: list[dict[str, Any]] = []
         for node, update in data.items():
+            if node == "model":
+                self.model_calls += 1
             messages = update.get("messages") if isinstance(update, dict) else None
             for msg in messages or []:
                 if not isinstance(msg, dict):

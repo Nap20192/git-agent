@@ -1,25 +1,25 @@
 /** Playground — live view of one agent Экземпляр. Header (status, thread,
  *  sandbox, runner) + actions (attach sandbox, stop turn / resume, raise,
  *  run agent, full scan), then tabs: timeline (events + reports + activity
- *  log, build/counts/sandbox cards), graph («Лид → Сабагенты» over the
- *  activity SSE, click a timeline event to replay its ход), findings, chat,
- *  subagents (folded from task_* frames), terminal. Entity lists poll at 5s;
+ *  log, build/counts/sandbox cards), agents (lead + Сабагенты folded from the
+ *  activity SSE; click a timeline event to replay its ход), findings, chat,
+ *  terminal. Entity lists poll at 5s;
  *  only activity streams. Chat and terminal stay mounted across tabs. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useHubApi, type Finding, type RepoEvent, type Report } from "@/api/hub";
 import { useBuilds, useHubRepositories, useInstance, useInstanceFindings, useInstanceReports, useInstances, useLlmConnections, useRepoEvents, useRunners, useSandboxConnections, useSandboxInstancesHub } from "@/hooks";
-import { activityLine, duration, foldActivity, useInstanceActivity, type SubagentNode } from "./activity.ts";
+import { activityLine, foldActivity, useInstanceActivity } from "./activity.ts";
+import { InstanceAgentsPanel } from "./InstanceAgentsPanel.tsx";
 import { InstanceChatPanel } from "./InstanceChatPanel.tsx";
-import { InstanceGraphPanel, STATUS_COLOR, Status, SubagentDetail } from "./InstanceGraphPanel.tsx";
+import { Clamp, Rich } from "./rich.tsx";
 import { InstanceTerminalPanel } from "./InstanceTerminalPanel.tsx";
 import { Dot, Panel, ago, errMsg, sha, shortRef, useScreenCtx, useShell } from "./ui.tsx";
 
 const POLL_MS = 5000;
-const TABS = ["timeline", "graph", "findings", "chat", "subagents", "terminal"] as const;
+const TABS = ["timeline", "agents", "findings", "chat", "terminal"] as const;
 type Tab = (typeof TABS)[number];
 const FCOLS = "70px 100px 1.2fr 1.4fr 1.4fr";
-const SCOLS = "2ch 1fr 80px 70px 70px";
 const SEV_COLOR: Record<string, string> = { critical: "var(--error)", crit: "var(--error)", high: "var(--error)", medium: "var(--warning)", med: "var(--warning)", low: "var(--text-muted)" };
 
 interface Line {
@@ -51,8 +51,8 @@ export function FindingsTable({ rows, loading }: { rows: Finding[]; loading?: bo
           <span style={{ fontWeight: 700, color: SEV_COLOR[f.severity.toLowerCase()] ?? "var(--text)" }}>{f.severity}</span>
           <span className="comment">{f.cwe ?? f.cve ?? "—"}</span>
           <span style={{ textDecoration: "underline", wordBreak: "break-all" }}>{loc(f)}</span>
-          <span className="comment" style={{ fontStyle: "italic", wordBreak: "break-all" }}>{f.evidence ?? ""}</span>
-          <span className="pretty">{f.remediation ?? ""}</span>
+          <span className="comment"><Clamp lines={6}><Rich>{f.evidence ?? ""}</Rich></Clamp></span>
+          <span><Clamp lines={6}><Rich>{f.remediation ?? ""}</Rich></Clamp></span>
         </div>
       ))}
       {rows.length === 0 && <div className="empty">{loading ? "loading…" : "no findings filed by this instance."}</div>}
@@ -81,7 +81,7 @@ export function PlaygroundScreen() {
 
   const [tab, setTab] = useState<Tab>("timeline");
   const [local, setLocal] = useState<Line[]>([]);
-  // null = follow the live/latest ход; a Событие id pins the graph to its replay
+  // null = follow the live/latest ход; a Событие id pins the agents tab to its replay
   const [graphEventId, setGraphEventId] = useState<number | null>(null);
   const { frames, done: turnDone } = useInstanceActivity(id, graphEventId);
   const [busy, setBusy] = useState<string | null>(null);
@@ -191,8 +191,8 @@ export function PlaygroundScreen() {
 
   const saList = graph.tasks;
   const saRunning = saList.filter((x) => x.status === "working").length;
-  const saCur: SubagentNode | undefined = saList.find((x) => x.taskId === saSel) ?? saList.find((x) => x.status === "working") ?? saList[saList.length - 1];
-  const tabLabel = (t: Tab) => (t === "findings" && findings.length ? `findings ${findings.length}` : t === "subagents" && saRunning ? `subagents ● ${saRunning}` : t);
+  const turnReport = graphEventId != null ? reports.find((r) => r.eventId === graphEventId) : reports[0];
+  const tabLabel = (t: Tab) => (t === "findings" && findings.length ? `findings ${findings.length}` : t === "agents" && saRunning ? `agents ● ${saRunning}` : t);
 
   return (
     <div className="screen">
@@ -249,15 +249,15 @@ export function PlaygroundScreen() {
               <div
                 key={i}
                 style={{ display: "grid", gridTemplateColumns: "120px 3ch 1fr", padding: "8px 12px", borderBottom: "1px solid var(--border)", alignItems: "baseline", cursor: it.eventId != null ? "pointer" : undefined, background: it.eventId != null && it.eventId === graphEventId ? "var(--bg-cursorline)" : undefined }}
-                title={it.eventId != null ? "show this event's turn on the graph" : undefined}
-                onClick={it.eventId != null ? () => { setGraphEventId(graphEventId === it.eventId ? null : it.eventId); setTab("graph"); } : undefined}
+                title={it.eventId != null ? "show this event's turn on the agents tab" : undefined}
+                onClick={it.eventId != null ? () => { setGraphEventId(graphEventId === it.eventId ? null : it.eventId); setTab("agents"); } : undefined}
               >
                 <span className="small muted">{ago(it.t.toISOString())}</span>
                 <span style={{ color: it.color }}>{it.glyph}</span>
                 <div style={{ minWidth: 0 }}>
                   {it.title && <span style={{ fontWeight: 700 }}>{it.title} </span>}
                   <span className="comment">{it.meta}</span>
-                  {it.body && <div className="pretty" style={{ marginTop: 2 }}>{it.body}</div>}
+                  {it.body && <div style={{ marginTop: 4 }}><Clamp lines={6}><Rich>{it.body}</Rich></Clamp></div>}
                 </div>
               </div>
             ))}
@@ -297,8 +297,27 @@ export function PlaygroundScreen() {
         </div>
       )}
 
-      {tab === "graph" && (
-        <InstanceGraphPanel frames={frames} done={turnDone} live={graphEventId == null} turnLabel={graphEventId != null ? `event #${graphEventId}` : "live"} onBackToLive={() => setGraphEventId(null)} />
+      {tab === "agents" && (
+        <>
+          <div className="small muted" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {graphEventId == null ? (
+              <span>{turnActive ? <span className="accent pulse">● live turn</span> : "last turn"}</span>
+            ) : (
+              <>
+                <span className="accent">event #{graphEventId}</span>
+                <button className="btn xs" onClick={() => setGraphEventId(null)}>→ live</button>
+              </>
+            )}
+          </div>
+          <InstanceAgentsPanel
+            graph={graph}
+            leadName={build?.name ?? "instance"}
+            report={turnReport}
+            selected={saSel}
+            onSelect={setSaSel}
+            footer={`${saList.length} spawned · ${saRunning} running · ${saList.filter((x) => x.status === "done").length} done · ${saList.filter((x) => x.status === "failed" || x.status === "timeout").length} failed · ${limitsText(build?.limits)}`}
+          />
+        </>
       )}
 
       {tab === "findings" && <FindingsTable rows={[...findings].reverse()} loading={findingsQ.loading && findingsQ.data === undefined} />}
@@ -306,34 +325,6 @@ export function PlaygroundScreen() {
       <div className="box" hidden={tab !== "chat"} style={{ display: tab === "chat" ? "flex" : undefined, flexDirection: "column", flex: 1, minHeight: 420 }}>
         <InstanceChatPanel instanceId={inst.id} empty={`thread ${inst.threadId ?? "—"} · nothing said yet.`} onStatusChange={() => { instQ.reload(); instancesQ.reload(); }} onActivity={log} />
       </div>
-
-      {tab === "subagents" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 16, flex: 1, minHeight: 0 }}>
-          <div className="box" style={{ display: "flex", flexDirection: "column" }}>
-            <div className="thead" style={{ "--cols": SCOLS } as React.CSSProperties}>
-              <span></span><span>task</span><span>status</span><span>time</span><span>findings</span>
-            </div>
-            {saList.map((a) => (
-              <div key={a.taskId} className={`trow click${a.taskId === saCur?.taskId ? " sel" : ""}`} style={{ "--cols": SCOLS, padding: "8px 12px" } as React.CSSProperties} onClick={() => setSaSel(a.taskId)}>
-                <Status s={a.status} />
-                <span className="comment ellip">{a.description ?? a.taskId}</span>
-                <span style={{ color: STATUS_COLOR[a.status] }}>{a.status}</span>
-                <span className="small muted">{duration(a.startedAt, a.finishedAt) ?? "—"}</span>
-                <span className="small muted">{a.findingsCount ?? "—"}</span>
-              </div>
-            ))}
-            {saList.length === 0 && <div className="empty">no subagents in this turn — trigger a run; the lead fans out per build limits.</div>}
-            <div className="small muted" style={{ marginTop: "auto", padding: "6px 12px", borderTop: "1px solid var(--border)" }}>
-              {saList.length} spawned · {saRunning} running · {saList.filter((x) => x.status === "done").length} done · {saList.filter((x) => x.status === "failed" || x.status === "timeout").length} failed · {limitsText(build?.limits)}
-            </div>
-          </div>
-          <Panel label={saCur ? saCur.taskId.slice(-6) : "subagent"} dim={saCur ? saCur.status : undefined} className="elev col">
-            <div style={{ padding: "20px 12px 12px", display: "flex", flexDirection: "column", gap: 8, overflow: "auto" }}>
-              {saCur ? <SubagentDetail t={saCur} /> : <span className="small muted">select a subagent to read its log.</span>}
-            </div>
-          </Panel>
-        </div>
-      )}
 
       <div hidden={tab !== "terminal"} style={{ display: tab === "terminal" ? "flex" : undefined, flexDirection: "column", flex: 1, minHeight: 0 }}>
         <InstanceTerminalPanel instanceId={inst.id} running={running} hasSandbox={sandboxAlive} sandboxLabel={inst.sandboxExternalId ?? "none"} />

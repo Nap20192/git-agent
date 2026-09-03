@@ -24,15 +24,15 @@ func NewRabbitMQConn(rabbitMqURL RabbitMQConnStr) (*amqp.Connection, error) {
 	for {
 		connection, err := amqp.Dial(string(rabbitMqURL))
 		if err == nil {
-			slog.Info("📫 connected to rabbitmq 🎉")
+			slog.Info("rabbitmq: connected")
 			return connection, nil
 		}
 		counts++
 		if counts > _retryTimes {
-			slog.Error("failed to retry rabbitmq connection", "err", err)
+			slog.Error("rabbitmq: connect failed, giving up", "err", err)
 			return nil, ErrCannotConnectRabbitMQ
 		}
-		slog.Info("failed to connect to rabbitmq, backing off...", "seconds", _backOffSeconds, "err", err)
+		slog.Warn("rabbitmq: connect failed, backing off", "seconds", _backOffSeconds, "err", err)
 		time.Sleep(_backOffSeconds * time.Second)
 	}
 }

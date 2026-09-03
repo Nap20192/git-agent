@@ -42,7 +42,7 @@ func (s *OutboxService) drain(ctx context.Context) {
 	for {
 		batch, err := s.Store.Unpublished(ctx, outboxBatchSize)
 		if err != nil {
-			slog.Error("outbox: poll failed", "err", err)
+			slog.ErrorContext(ctx, "outbox: poll failed", "err", err)
 			return
 		}
 		if len(batch) == 0 {
@@ -50,11 +50,11 @@ func (s *OutboxService) drain(ctx context.Context) {
 		}
 		for _, m := range batch {
 			if err := s.Publisher.Publish(ctx, m.RoutingKey, m.Payload); err != nil {
-				slog.Warn("outbox: publish failed, will retry", "outboxId", m.ID, "err", err)
+				slog.WarnContext(ctx, "outbox: publish failed, will retry", "outboxId", m.ID, "err", err)
 				return
 			}
 			if err := s.Store.MarkPublished(ctx, m.ID); err != nil {
-				slog.Error("outbox: mark published failed (duplicate delivery possible)", "outboxId", m.ID, "err", err)
+				slog.ErrorContext(ctx, "outbox: mark published failed (duplicate delivery possible)", "outboxId", m.ID, "err", err)
 				return
 			}
 		}

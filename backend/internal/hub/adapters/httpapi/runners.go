@@ -3,7 +3,6 @@ package httpapi
 import (
 	"crypto/subtle"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -21,7 +20,7 @@ type RunnersHandler struct {
 func (h *RunnersHandler) List(w http.ResponseWriter, r *http.Request) {
 	list, err := h.Store.Runners(r.Context())
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mapSlice(list, func(run domain.Runner) runnerDTO {
@@ -34,7 +33,7 @@ func (h *RunnersHandler) Auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		got := r.Header.Get("X-Runner-Token")
 		if subtle.ConstantTimeCompare([]byte(got), []byte(h.Token)) != 1 {
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			errorJSON(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		next(w, r)
@@ -50,18 +49,20 @@ func (h *RunnersHandler) Register(w http.ResponseWriter, r *http.Request) {
 		Slots   int    `json:"slots"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.Address == "" || req.Slots < 1 {
-		http.Error(w, `{"error":"name, address and slots >= 1 are required"}`, http.StatusBadRequest)
+		errorJSON(w, http.StatusBadRequest, "name, address and slots >= 1 are required")
 		return
 	}
 	id, err := h.Store.Upsert(r.Context(), domain.Runner{Name: req.Name, Address: req.Address, Slots: req.Slots})
 	if err != nil {
-		slog.Error("runners: register failed", "name", req.Name, "err", err)
-		http.Error(w, `{"error":"internal"}`, http.StatusInternalServerError)
+		writeError(w, r, err)
 		return
 	}
 	run, err := h.Store.Runner(r.Context(), id)
-	if err != nil || run == nil {
-		writeError(w, err)
+	if err == nil && run == nil {
+		err = domain.ErrNotFound
+	}
+	if err != nil {
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, runnerDTO(*run))
@@ -71,17 +72,16 @@ func (h *RunnersHandler) Register(w http.ResponseWriter, r *http.Request) {
 func (h *RunnersHandler) Heartbeat(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"bad id"}`, http.StatusBadRequest)
+		errorJSON(w, http.StatusBadRequest, "bad id")
 		return
 	}
 	ok, err := h.Store.Heartbeat(r.Context(), id)
 	if err != nil {
-		slog.Error("runners: heartbeat failed", "id", id, "err", err)
-		http.Error(w, `{"error":"internal"}`, http.StatusInternalServerError)
+		writeError(w, r, err)
 		return
 	}
 	if !ok {
-		http.Error(w, `{"error":"unknown runner"}`, http.StatusNotFound)
+		errorJSON(w, http.StatusNotFound, "unknown runner")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

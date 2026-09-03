@@ -12,15 +12,15 @@ import (
 )
 
 var (
-	_ domain.IdentityStore     = (*Store)(nil)
-	_ domain.RepositoryAdmin   = (*Store)(nil)
-	_ domain.BuildStore        = (*Store)(nil)
-	_ domain.ConnectionStore   = (*Store)(nil)
+	_ domain.IdentityStore        = (*Store)(nil)
+	_ domain.RepositoryAdmin      = (*Store)(nil)
+	_ domain.BuildStore           = (*Store)(nil)
+	_ domain.ConnectionStore      = (*Store)(nil)
 	_ domain.InstanceStore        = (*Store)(nil)
 	_ domain.SandboxInstanceStore = (*Store)(nil)
-	_ domain.StaleRequeuer     = (*Store)(nil)
-	_ domain.SubscriptionStore = (*Store)(nil)
-	_ domain.AuthStore         = (*Store)(nil)
+	_ domain.StaleRequeuer        = (*Store)(nil)
+	_ domain.SubscriptionStore    = (*Store)(nil)
+	_ domain.AuthStore            = (*Store)(nil)
 )
 
 func nilIfNoRows[T any](v *T, err error) (*T, error) {

@@ -38,7 +38,7 @@ func (s *Session) Wrap(next http.HandlerFunc) http.HandlerFunc {
 			userID, ok = s.DevUserID, true
 		}
 		if !ok {
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			errorJSON(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), userIDKey, userID)))
@@ -53,7 +53,7 @@ func (s *Session) currentUser(r *http.Request) (int64, bool) {
 	}
 	userID, ok, err := s.Store.SessionUser(r.Context(), c.Value)
 	if err != nil {
-		slog.Error("auth: session lookup failed", "err", err)
+		slog.ErrorContext(r.Context(), "auth: session lookup failed", "err", err)
 		return 0, false
 	}
 	return userID, ok
@@ -96,26 +96,26 @@ func (h *AuthHandler) redirectURI(r *http.Request, provider string) string {
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
 	if provider != "github" && provider != "gitlab" {
-		http.Error(w, `{"error":"unknown provider"}`, http.StatusBadRequest)
+		errorJSON(w, http.StatusBadRequest, "unknown provider")
 		return
 	}
 	stateBytes := make([]byte, 16)
 	if _, err := rand.Read(stateBytes); err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	state := hex.EncodeToString(stateBytes)
 
 	authURL, err := h.Service.LoginURL(provider, h.redirectURI(r, provider), state)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: stateCookie, Value: state, Path: "/api/auth",
-		MaxAge: 600, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		MaxAge: 600, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
 	})
-	http.Redirect(w, r, authURL, http.StatusFound)
+	http.Redirect(w, r, authURL, http.StatusFound) //nolint:gosec // URL провайдера из конфига, не из запроса
 }
 
 // Callback — GET /api/auth/{provider}/callback: state-проверка (anti-CSRF),
@@ -126,10 +126,10 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	stateC, err := r.Cookie(stateCookie)
 	if code == "" || state == "" || err != nil || stateC.Value != state {
-		http.Error(w, `{"error":"invalid oauth state"}`, http.StatusBadRequest)
+		errorJSON(w, http.StatusBadRequest, "invalid oauth state")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: stateCookie, Path: "/api/auth", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: stateCookie, Path: "/api/auth", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
 
 	var currentUser *int64
 	if id, ok := h.Session.currentUser(r); ok {
@@ -137,13 +137,12 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 	token, expires, err := h.Service.HandleCallback(r.Context(), provider, code, h.redirectURI(r, provider), currentUser)
 	if err != nil {
-		slog.Error("auth: oauth callback failed", "provider", provider, "err", err)
-		writeError(w, err)
+		writeError(w, r, fmt.Errorf("oauth callback %s: %w", provider, err))
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: token, Path: "/",
-		Expires: expires, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		Expires: expires, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
 	})
 	http.Redirect(w, r, h.FrontendURL, http.StatusFound)
 }
@@ -152,11 +151,11 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
 		if err := h.Service.Logout(r.Context(), c.Value); err != nil {
-			writeError(w, err)
+			writeError(w, r, err)
 			return
 		}
 	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Path: "/", MaxAge: -1, HttpOnly: true})
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -171,12 +170,12 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	uid := userID(r)
 	name, err := h.Store.UserDisplayName(r.Context(), uid)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	idents, err := h.Identities.Identities(r.Context(), uid)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, meDTO{ID: uid, DisplayName: name, Identities: mapSlice(idents, toIdentityDTO)})

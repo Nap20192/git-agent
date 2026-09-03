@@ -1,5 +1,6 @@
 """OpenSandbox — адаптер порта core.ports.Sandbox."""
 
+import time
 from datetime import timedelta
 
 from opensandbox.config import ConnectionConfig
@@ -7,7 +8,10 @@ from opensandbox.models.execd import RunCommandOpts
 from opensandbox.sandbox import Sandbox as _OpenSandbox
 
 from core.config import settings
-from core.ports import SandboxCommandError
+from core.ports import SandboxCommandError, SandboxUnreachableError
+from pkg.logger import get_logger
+
+log = get_logger(__name__)
 
 
 class OpenSandboxAdapter:
@@ -26,7 +30,21 @@ class OpenSandboxAdapter:
             if timeout_seconds is not None
             else None
         )
-        execution = await self._sandbox.commands.run(command, opts=opts)
+        started = time.monotonic()
+        try:
+            execution = await self._sandbox.commands.run(command, opts=opts)
+        except Exception as exc:  # SDK-исключение → одна строка с причиной для верхнего уровня
+            raise SandboxUnreachableError(
+                f"sandbox {self.id} unreachable after {time.monotonic() - started:.1f}s: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+        log.debug(
+            "sandbox cmd",
+            sandbox=self.id,
+            cmd=command[:80],
+            exit=execution.exit_code,
+            duration_s=round(time.monotonic() - started, 2),
+        )
         stdout = "\n".join(line.text.rstrip("\n") for line in execution.logs.stdout)
         stderr = "\n".join(line.text.rstrip("\n") for line in execution.logs.stderr)
         if execution.exit_code not in (0, None):
@@ -40,9 +58,7 @@ class OpenSandboxAdapter:
         await self._sandbox.destroy()
 
 
-def _connection_config(
-    domain: str | None = None, api_key: str | None = None
-) -> ConnectionConfig:
+def _connection_config(domain: str | None = None, api_key: str | None = None) -> ConnectionConfig:
     return ConnectionConfig(
         domain=domain or settings.opensandbox_domain,
         api_key=api_key or settings.opensandbox_api_key or None,

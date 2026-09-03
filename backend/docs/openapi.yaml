@@ -603,10 +603,15 @@ components:
         receivedAt: { type: string, format: date-time }
     AgentBuildInput:
       type: object
+      description: >-
+        Пустые llmConnectionId/sandboxConnectionId — первое подключение пользователя;
+        недостающие ключи limits дописываются дефолтами раннера
+        (maxSubagents 3, maxTotalSubagents 6, subagentTimeout 600, queueTimeout 300);
+        первая Сборка пользователя становится default.
       properties:
         name: { type: string }
-        llmConnectionId: { type: integer }
-        sandboxConnectionId: { type: integer }
+        llmConnectionId: { type: integer, description: "пусто → первое llm-подключение пользователя" }
+        sandboxConnectionId: { type: integer, description: "пусто → первое sandbox-подключение" }
         prompt: { type: [string, "null"] }
         memoryPreset: { type: [string, "null"] }
         limits: { type: object }

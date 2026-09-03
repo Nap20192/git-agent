@@ -93,11 +93,11 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 		Identities:    &httpapi.IdentitiesHandler{Store: store, Provider: providerClient, Auth: auth},
 		Repositories:  &httpapi.RepositoriesHandler{Store: store, Subs: store, Service: repositories},
 		Subscriptions: &httpapi.SubscriptionsHandler{Store: store, Repos: store},
-		Builds:        &httpapi.BuildsHandler{Store: store},
-		Connections:   &httpapi.ConnectionsHandler{Store: store, Secrets: box},
+		Builds:        &httpapi.BuildsHandler{Store: store, Connections: store},
+		Connections:   &httpapi.ConnectionsHandler{Store: store, Secrets: box, Defaults: cfg.Defaults},
 		Instances:     &httpapi.InstancesHandler{Store: store, Service: instances},
 		Sandboxes: &httpapi.SandboxInstancesHandler{
-			Store: store, Connections: store, Sandboxes: sandboxClient, Secrets: box,
+			Store: store, Connections: store, Sandboxes: sandboxClient, Secrets: box, Defaults: cfg.Defaults,
 		},
 	})
 
@@ -111,7 +111,14 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 		Repositories: repositories,
 		Instances:    instances,
 		Heartbeat:    heartbeat,
-		Server:       &http.Server{Addr: cfg.Addr, Handler: mux},
+		Server: &http.Server{
+			Addr:              cfg.Addr,
+			Handler:           httpapi.Wrap(mux),
+			ReadHeaderTimeout: 10 * time.Second, // slowloris
+			IdleTimeout:       120 * time.Second,
+			// WriteTimeout нет: SSE (/activity, /chat) живёт долго
+			ErrorLog: slog.NewLogLogger(slog.Default().Handler(), slog.LevelError),
+		},
 	}, nil
 }
 
@@ -137,7 +144,12 @@ func (c *Container) Run(ctx context.Context) error {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		return c.Server.Shutdown(shutdownCtx)
+		if err := c.Server.Shutdown(shutdownCtx); err != nil {
+			// долгие SSE не отпускают Shutdown — рвём принудительно, это штатно
+			slog.Warn("hub: shutdown timeout, closing connections", "err", err)
+			return c.Server.Close()
+		}
+		return nil
 	})
 
 	return g.Wait()

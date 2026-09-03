@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
+	"github.com/vnkjd/git-agent/backend/pkg/logger"
 )
 
 // MaskKey — инвариант redaction (зеркало agent/infra/server/wire.py::mask_key):
@@ -30,26 +31,53 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
-func writeError(w http.ResponseWriter, err error) {
+// errorJSON — единый формат ошибки наружу: {"error": msg} с правильным Content-Type.
+func errorJSON(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// writeError — маппинг доменных ошибок в статус. Всё неизвестное — 500 с
+// requestId в теле (для корреляции с логом) и записью в лог; обрыв клиента
+// (context.Canceled) — не ошибка сервера.
+func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
-		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+		errorJSON(w, http.StatusNotFound, "not found")
 	case errors.Is(err, domain.ErrConflict):
-		http.Error(w, `{"error":"conflict"}`, http.StatusConflict)
+		errorJSON(w, http.StatusConflict, "conflict")
 	case errors.Is(err, domain.ErrUnavailable):
 		// понятный текст: без OAuth-ключей провайдер недоступен, сервис жив
-		http.Error(w, `{"error":"provider is not configured (set *_OAUTH_CLIENT_ID/SECRET in .env)"}`, http.StatusServiceUnavailable)
+		errorJSON(w, http.StatusServiceUnavailable, "provider is not configured (set *_OAUTH_CLIENT_ID/SECRET in .env)")
+	case errors.Is(err, domain.ErrUnauthorized):
+		errorJSON(w, http.StatusBadGateway, "provider rejected the token (reconnect the identity)")
 	case errors.Is(err, domain.ErrTimeout):
-		http.Error(w, `{"error":"runner did not start streaming in time (queued too long)"}`, http.StatusGatewayTimeout)
+		errorJSON(w, http.StatusGatewayTimeout, "runner did not start streaming in time (queued too long)")
+	case r.Context().Err() != nil:
+		// клиент ушёл (или сервер гасится) — любая ошибка после этого не наша;
+		// 499 — соглашение nginx, чтобы access-log не показывал status 0
+		w.WriteHeader(statusClientClosedRequest)
 	default:
-		slog.Error("httpapi: internal error", "err", err)
-		http.Error(w, `{"error":"internal"}`, http.StatusInternalServerError)
+		slog.ErrorContext(r.Context(), "httpapi: internal error", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "internal", "requestId": logger.RequestID(r.Context()),
+		})
 	}
 }
 
+const statusClientClosedRequest = 499
+
+// maxJSONBody — потолок JSON-тела API (вебхуки — свой лимит в webhook.go).
+const maxJSONBody = 1 << 20
+
 func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		http.Error(w, `{"error":"bad json"}`, http.StatusBadRequest)
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			errorJSON(w, http.StatusRequestEntityTooLarge, "body too large")
+			return false
+		}
+		errorJSON(w, http.StatusBadRequest, "bad json")
 		return false
 	}
 	return true

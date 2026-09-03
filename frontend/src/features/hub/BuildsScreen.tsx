@@ -243,19 +243,19 @@ function BuildDrawer({ open, build, llms, sandboxes, onClose, reload }: { open: 
       <div className="grid2">
         <Field label="llm connection">
           <select className="select" value={f.llm} onChange={(e) => setF({ ...f, llm: e.target.value })}>
-            <option value="">—</option>
+            <option value="">— first connection</option>
             {llms.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
           </select>
         </Field>
         <Field label="sandbox connection">
           <select className="select" value={f.sbx} onChange={(e) => setF({ ...f, sbx: e.target.value })}>
-            <option value="">—</option>
+            <option value="">— first connection</option>
             {sandboxes.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
           </select>
         </Field>
       </div>
       <Field label="memory preset"><input className="input" value={f.memory} onChange={(e) => setF({ ...f, memory: e.target.value })} placeholder="prod_v2" /></Field>
-      <div className="flabel">limits · empty = runner default</div>
+      <div className="flabel">limits · empty = default (3 subagents · 6 total · no budget · 600s · 300s)</div>
       <div className="grid3">
         {LIMIT_FIELDS.map((x) => (
           <Field key={x.key} label={x.label}><input className="input" type="number" value={lim[x.key] ?? ""} onChange={(e) => setLim({ ...lim, [x.key]: e.target.value })} placeholder={x.ph} /></Field>
@@ -273,7 +273,7 @@ function LlmDrawer({ open, onClose, reload }: { open: boolean; onClose: () => vo
   const [f, setF] = useState({ name: "", base: "", model: "", key: "" });
   const [busy, setBusy] = useState(false);
   const submit = async () => {
-    if (!f.name.trim() || !f.key || !f.base.trim() || !f.model.trim()) return say("name, api base, model and api key are required");
+    if (!f.name.trim() || !f.key) return say("name and api key are required");
     setBusy(true);
     try {
       await api.createLlmConnection({ name: f.name.trim(), apiBase: f.base.trim(), apiKey: f.key, model: f.model.trim() });
@@ -290,8 +290,8 @@ function LlmDrawer({ open, onClose, reload }: { open: boolean; onClose: () => vo
   return (
     <Drawer open={open} title="new llm connection" onClose={onClose}>
       <Field label="name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="openrouter" /></Field>
-      <Field label="api base"><input className="input" value={f.base} onChange={(e) => setF({ ...f, base: e.target.value })} placeholder="https://openrouter.ai/api/v1" /></Field>
-      <Field label="model"><input className="input" value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} placeholder="anthropic/claude-sonnet-4" /></Field>
+      <Field label="api base · empty = LLM_API_BASE from .env"><input className="input" value={f.base} onChange={(e) => setF({ ...f, base: e.target.value })} placeholder="https://openrouter.ai/api/v1" /></Field>
+      <Field label="model · empty = LLM_MODEL from .env"><input className="input" value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} placeholder="anthropic/claude-sonnet-4" /></Field>
       <Field label="api key · stored masked, never returned"><input className="input" type="password" value={f.key} onChange={(e) => setF({ ...f, key: e.target.value })} placeholder="sk-…" /></Field>
       <button className="btn lg primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={submit}>❯ add connection</button>
     </Drawer>
@@ -304,7 +304,7 @@ function SbxDrawer({ open, onClose, reload }: { open: boolean; onClose: () => vo
   const [f, setF] = useState({ name: "", domain: "", image: "", key: "" });
   const [busy, setBusy] = useState(false);
   const submit = async () => {
-    if (!f.name.trim() || !f.domain.trim()) return say("name and domain are required");
+    if (!f.name.trim()) return say("name is required");
     setBusy(true);
     try {
       await api.createSandboxConnection({ name: f.name.trim(), domain: f.domain.trim(), apiKey: f.key.trim() || undefined, image: f.image.trim() || undefined });
@@ -321,9 +321,9 @@ function SbxDrawer({ open, onClose, reload }: { open: boolean; onClose: () => vo
   return (
     <Drawer open={open} title="new sandbox connection" onClose={onClose}>
       <Field label="name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="local-opensandbox" /></Field>
-      <Field label="domain"><input className="input" value={f.domain} onChange={(e) => setF({ ...f, domain: e.target.value })} placeholder="http://localhost:8090" /></Field>
-      <Field label="image"><input className="input" value={f.image} onChange={(e) => setF({ ...f, image: e.target.value })} placeholder="opensandbox/base" /></Field>
-      <Field label="api key · optional"><input className="input" type="password" value={f.key} onChange={(e) => setF({ ...f, key: e.target.value })} /></Field>
+      <Field label="domain · empty = OPENSANDBOX_DOMAIN from .env"><input className="input" value={f.domain} onChange={(e) => setF({ ...f, domain: e.target.value })} placeholder="http://localhost:8090" /></Field>
+      <Field label="image · empty = SANDBOX_IMAGE from .env"><input className="input" value={f.image} onChange={(e) => setF({ ...f, image: e.target.value })} placeholder="opensandbox/base" /></Field>
+      <Field label="api key · empty = OPENSANDBOX_API_KEY from .env"><input className="input" type="password" value={f.key} onChange={(e) => setF({ ...f, key: e.target.value })} /></Field>
       <button className="btn lg primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={submit}>❯ add connection</button>
     </Drawer>
   );

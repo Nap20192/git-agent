@@ -15,9 +15,14 @@ from core.runner.ports import (
     InstanceStore,
     SandboxNotProvisionedError,
 )
-from pkg.logger import get_logger
+from pkg.logger import bound, get_logger
 
 log = get_logger(__name__)
+
+
+def _since(started: float) -> float:
+    return round(time.monotonic() - started, 1)
+
 
 HEARTBEAT_INTERVAL_SECONDS = 10.0
 IDLE_SCAN_INTERVAL_SECONDS = 30.0
@@ -156,6 +161,10 @@ class RunnerService:
         Исключение исполнения пробрасывается (processed_at не ставится — Событие
         доисполнит ре-публикация backend'а).
         """
+        with bound(instance_id=event.instance_id, event_id=event.event_id, turn="event"):
+            return await self._handle_event(event)
+
+    async def _handle_event(self, event: Event) -> str:
         # ponytail: чужое Событие тоже проходит через ожидание слота (слот берётся до
         # клейма); peek держателя без слота — если задержка форварда станет проблемой
         raised = await self._raise(event.instance_id)
@@ -193,6 +202,7 @@ class RunnerService:
                     await turn.emit(frame)
 
             await turn.emit(collector.run_started())
+            started = time.monotonic()
             exec_task = asyncio.create_task(
                 self._executor.process_event(ctx, event, on_chunk=on_chunk)
             )
@@ -206,23 +216,24 @@ class RunnerService:
                 # штатный стоп хода: processed_at не ставится — «Продолжить»
                 # доисполнит Событие с чекпоинта (готовые шаги сохранены)
                 log.warning(
-                    "turn cancelled by stop",
-                    instance_id=event.instance_id,
-                    event_id=event.event_id,
+                    "turn cancelled by stop", duration_s=_since(started), **collector.stats()
                 )
                 await turn.emit(collector.run_failed("ход остановлен"))
                 return "cancelled"
             except SandboxNotProvisionedError as exc:
                 # песочницу создаёт юзер в UI; без неё Событие не обрабатываем
                 # (processed_at не ставится — ре-публикация доисполнит после создания)
-                log.warning("sandbox not provisioned, event dropped", reason=str(exc))
+                log.warning("sandbox not provisioned, event dropped", error=str(exc))
                 await turn.emit(collector.run_failed(f"sandbox not provisioned: {exc}"))
                 return "dropped"
             except Exception as exc:
+                # единственная запись о падении хода: причина одной строкой + трейсбек
+                log.exception("turn failed", duration_s=_since(started), **collector.stats())
                 await turn.emit(collector.run_failed(exc))
                 raise
             else:
                 await turn.emit(collector.run_finished())
+                log.info("turn finished", duration_s=_since(started), **collector.stats())
             finally:
                 raised.turn_task = None
                 turn.close()
@@ -232,6 +243,11 @@ class RunnerService:
 
     async def chat(self, instance_id: int, message: str):
         """Ход чата в тред Экземпляра; поднимает его при необходимости."""
+        with bound(instance_id=instance_id, turn="chat"):
+            async for item in self._chat(instance_id, message):
+                yield item
+
+    async def _chat(self, instance_id: int, message: str):
         raised = await self._raise(instance_id)
         if isinstance(raised, ClaimResult):
             raise RuntimeError(f"instance {instance_id} unavailable: {raised.outcome}")
@@ -243,16 +259,19 @@ class RunnerService:
             turn = self._begin_turn(instance_id, None)  # event_id NULL — ход чата
             collector = ActivityCollector()
             await turn.emit(collector.run_started())
+            started = time.monotonic()
             try:
                 async for mode, data in self._executor.chat_stream(ctx, message):
                     for frame in collector.frames(mode, data):
                         await turn.emit(frame)
                     yield mode, data
             except Exception as exc:
+                log.exception("chat failed", duration_s=_since(started), **collector.stats())
                 await turn.emit(collector.run_failed(exc))
                 raise
             else:
                 await turn.emit(collector.run_finished())
+                log.info("chat finished", duration_s=_since(started), **collector.stats())
             finally:
                 turn.close()
             raised.touch()
@@ -262,9 +281,7 @@ class RunnerService:
 
         async def persist(seq: int, frame: dict) -> None:
             try:
-                await self._store.add_activity(
-                    instance_id, event_id=event_id, seq=seq, frame=frame
-                )
+                await self._store.add_activity(instance_id, event_id=event_id, seq=seq, frame=frame)
             except Exception:
                 log.warning("activity persist failed", instance_id=instance_id, exc_info=True)
 
@@ -285,6 +302,10 @@ class RunnerService:
 
     async def terminal(self, instance_id: int, command: str) -> tuple[str, int | None, str | None]:
         """Команда стрим-консоли в песочнице Экземпляра; поднимает его при необходимости."""
+        with bound(instance_id=instance_id, turn="terminal"):
+            return await self._terminal(instance_id, command)
+
+    async def _terminal(self, instance_id: int, command: str) -> tuple[str, int | None, str | None]:
         raised = await self._raise(instance_id)
         if isinstance(raised, ClaimResult):
             raise RuntimeError(f"instance {instance_id} unavailable: {raised.outcome}")
@@ -293,7 +314,11 @@ class RunnerService:
             ctx = await self._store.load_context(instance_id)
             if ctx is None:
                 raise RuntimeError(f"instance {instance_id} context missing")
+            started = time.monotonic()
             output, code, new_cwd = await self._executor.terminal(ctx, command, raised.term_cwd)
+            log.info(
+                "terminal cmd", cmd=command[:80], exit=code, cwd=new_cwd, duration_s=_since(started)
+            )
             if new_cwd:
                 raised.term_cwd = new_cwd
             raised.touch()

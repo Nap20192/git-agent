@@ -109,7 +109,7 @@ func (s *InstanceService) Activity(ctx context.Context, id, userID int64, eventI
 			if err == nil {
 				return stream, nil
 			}
-			slog.Warn("instance: runner activity failed, replaying from db", "instanceId", inst.ID, "err", err)
+			slog.WarnContext(ctx, "instance: runner activity failed, replaying from db", "instanceId", inst.ID, "err", err)
 		}
 	}
 	frames, err := s.Instances.Activity(ctx, inst.ID, eventID)
@@ -146,7 +146,7 @@ func (s *InstanceService) Stop(ctx context.Context, id, userID int64) error {
 	if inst.RunnerID != nil {
 		if runner, err := s.Runners.Runner(ctx, *inst.RunnerID); err == nil && runner != nil {
 			if err := s.Client.Stop(ctx, runner.Address, inst.ID); err != nil {
-				slog.Warn("instance: runner stop failed, marking down anyway", "instanceId", inst.ID, "err", err)
+				slog.WarnContext(ctx, "instance: runner stop failed, marking down anyway", "instanceId", inst.ID, "err", err)
 			}
 		}
 	}

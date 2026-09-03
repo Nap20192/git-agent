@@ -11,8 +11,9 @@ import (
 // ConnectionsHandler — LLM/sandbox-подключения.
 // Инвариант redaction: ключи наружу ТОЛЬКО маской (MaskKey).
 type ConnectionsHandler struct {
-	Store   domain.ConnectionStore
-	Secrets *secrets.Box
+	Store    domain.ConnectionStore
+	Secrets  *secrets.Box
+	Defaults domain.Defaults
 }
 
 func (h *ConnectionsHandler) maskEnc(enc []byte) string {
@@ -30,7 +31,7 @@ func (h *ConnectionsHandler) maskEnc(enc []byte) string {
 func (h *ConnectionsHandler) ListLlm(w http.ResponseWriter, r *http.Request) {
 	list, err := h.Store.LlmConnections(r.Context(), userID(r))
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mapSlice(list, func(c domain.LlmConnection) llmConnectionDTO {
@@ -55,19 +56,21 @@ func (h *ConnectionsHandler) CreateLlm(w http.ResponseWriter, r *http.Request) {
 	// TrimSpace: ' localhost:8090' в домене превращается в 'http://%20…' — чистим на входе
 	req.Name, req.APIBase = strings.TrimSpace(req.Name), strings.TrimSpace(req.APIBase)
 	req.APIKey, req.Model = strings.TrimSpace(req.APIKey), strings.TrimSpace(req.Model)
-	if req.Name == "" || req.APIBase == "" || req.APIKey == "" || req.Model == "" {
-		http.Error(w, `{"error":"name, apiBase, apiKey and model are required"}`, http.StatusBadRequest)
+	c := &domain.LlmConnection{UserID: userID(r), Name: req.Name, APIBase: req.APIBase, Model: req.Model}
+	c.ApplyDefaults(h.Defaults)
+	if req.Name == "" || req.APIKey == "" || c.APIBase == "" || c.Model == "" {
+		errorJSON(w, http.StatusBadRequest, "name and apiKey are required; apiBase/model may be empty only with LLM_API_BASE/LLM_MODEL in .env")
 		return
 	}
 	enc, err := h.Secrets.Encrypt([]byte(req.APIKey))
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
-	c := &domain.LlmConnection{UserID: userID(r), Name: req.Name, APIBase: req.APIBase, APIKeyEnc: enc, Model: req.Model}
+	c.APIKeyEnc = enc
 	id, err := h.Store.CreateLlmConnection(r.Context(), c)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, llmConnectionDTO{
@@ -82,7 +85,7 @@ func (h *ConnectionsHandler) DeleteLlm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Store.DeleteLlmConnection(r.Context(), id, userID(r)); err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -92,7 +95,7 @@ func (h *ConnectionsHandler) DeleteLlm(w http.ResponseWriter, r *http.Request) {
 func (h *ConnectionsHandler) ListSandbox(w http.ResponseWriter, r *http.Request) {
 	list, err := h.Store.SandboxConnections(r.Context())
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mapSlice(list, func(c domain.SandboxConnection) sandboxConnectionDTO {
@@ -126,16 +129,21 @@ func (h *ConnectionsHandler) CreateSandbox(w http.ResponseWriter, r *http.Reques
 			req.Image = nil
 		}
 	}
-	if req.Name == "" || req.Domain == "" {
-		http.Error(w, `{"error":"name and domain are required"}`, http.StatusBadRequest)
+	if req.Name == "" {
+		errorJSON(w, http.StatusBadRequest, "name is required")
 		return
 	}
 	c := &domain.SandboxConnection{Name: req.Name, Domain: req.Domain, Image: req.Image}
+	c.ApplyDefaults(h.Defaults) // domain → OPENSANDBOX_DOMAIN, image → SANDBOX_IMAGE
+	if (req.APIKey == nil || *req.APIKey == "") && h.Defaults.SandboxAPIKey != "" {
+		key := h.Defaults.SandboxAPIKey // OPENSANDBOX_API_KEY
+		req.APIKey = &key
+	}
 	var masked *string
 	if req.APIKey != nil && *req.APIKey != "" {
 		enc, err := h.Secrets.Encrypt([]byte(*req.APIKey))
 		if err != nil {
-			writeError(w, err)
+			writeError(w, r, err)
 			return
 		}
 		c.APIKeyEnc = enc
@@ -144,7 +152,7 @@ func (h *ConnectionsHandler) CreateSandbox(w http.ResponseWriter, r *http.Reques
 	}
 	id, err := h.Store.CreateSandboxConnection(r.Context(), c)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, sandboxConnectionDTO{
@@ -159,7 +167,7 @@ func (h *ConnectionsHandler) DeleteSandbox(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := h.Store.DeleteSandboxConnection(r.Context(), id); err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

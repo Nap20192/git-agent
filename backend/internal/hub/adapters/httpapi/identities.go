@@ -19,7 +19,7 @@ type IdentitiesHandler struct {
 func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"bad id"}`, http.StatusBadRequest)
+		errorJSON(w, http.StatusBadRequest, "bad id")
 		return 0, false
 	}
 	return id, true
@@ -29,7 +29,7 @@ func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 func (h *IdentitiesHandler) List(w http.ResponseWriter, r *http.Request) {
 	list, err := h.Store.Identities(r.Context(), userID(r))
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mapSlice(list, toIdentityDTO))
@@ -42,7 +42,7 @@ func (h *IdentitiesHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Store.DeleteIdentity(r.Context(), id, userID(r)); err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -57,11 +57,11 @@ func (h *IdentitiesHandler) Repos(w http.ResponseWriter, r *http.Request) {
 	}
 	ident, err := h.Store.Identity(r.Context(), id, userID(r))
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	if ident == nil {
-		writeError(w, domain.ErrNotFound)
+		writeError(w, r, domain.ErrNotFound)
 		return
 	}
 	var repos []domain.ProviderRepo
@@ -71,8 +71,8 @@ func (h *IdentitiesHandler) Repos(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	if err != nil {
-		slog.Error("identities: provider repos failed", "identityId", id, "err", err)
-		http.Error(w, `{"error":"provider unavailable"}`, http.StatusBadGateway)
+		slog.ErrorContext(r.Context(), "identities: provider repos failed", "identityId", id, "err", err)
+		errorJSON(w, http.StatusBadGateway, "provider unavailable")
 		return
 	}
 	writeJSON(w, http.StatusOK, mapSlice(repos, func(p domain.ProviderRepo) providerRepoDTO {

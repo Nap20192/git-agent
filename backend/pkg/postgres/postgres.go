@@ -44,14 +44,14 @@ func NewPostgresDB(ctx context.Context, url DBConnString, opts ...Option) (DBEng
 			pg.pool.Close()
 		}
 		pg.connAttempts--
-		slog.Info("postgres is trying to connect", "attempts left", pg.connAttempts, "err", err)
+		slog.Warn("postgres: connect failed, retrying", "attemptsLeft", pg.connAttempts, "err", err)
 		time.Sleep(pg.connTimeout)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	slog.Info("📰 connected to postgresdb 🎉")
+	slog.Info("postgres: connected")
 	return pg, nil
 }
 

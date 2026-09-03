@@ -1,5 +1,5 @@
-/** Activity feed of one ход (ticket 012): SSE hook + frame folding for the
- *  run graph «Лид → Сабагенты» and the activity log. */
+/** Activity feed of one ход (ticket 012): SSE hook + frame folding into the
+ *  agents list «Лид + Сабагенты» and the activity log. */
 import { useEffect, useState } from "react";
 import { useHubApi, type ActivityEvent, type ActivityStatus } from "@/api/hub";
 
@@ -61,7 +61,13 @@ export function useInstanceActivity(instanceId: number, eventId: number | null) 
   return { frames, done };
 }
 
-export interface SubagentNode {
+export interface WorkFrame {
+  kind: "tool_call" | "tool_result" | "text";
+  text: string;
+  ts?: string;
+}
+
+export interface AgentNode {
   taskId: string;
   description?: string;
   status: ActivityStatus;
@@ -70,9 +76,13 @@ export interface SubagentNode {
   findingsCount?: number;
   /** Terminal error (timeout/failure reason). */
   error?: string;
-  /** Self-report text from the task_report frame — shown in the drawer. */
+  /** Self-report text from the task_report frame. */
   report?: string;
+  /** Work log (tool_call / tool_result / text frames), oldest first. */
+  work: WorkFrame[];
 }
+/** @deprecated alias — the star graph is gone, rows are AgentNode now. */
+export type SubagentNode = AgentNode;
 
 export interface TurnGraph {
   started: boolean;
@@ -83,7 +93,9 @@ export interface TurnGraph {
   startedAt?: string;
   finishedAt?: string;
   error?: string;
-  tasks: SubagentNode[];
+  tasks: AgentNode[];
+  /** The lead's own work log (frames without taskId). */
+  leadWork: WorkFrame[];
 }
 
 /** Folds the frame stream into the star: lead state + one node per Сабагент. */
@@ -94,8 +106,18 @@ export function foldActivity(frames: ActivityEvent[]): TurnGraph {
     failed: false,
     leadFindings: 0,
     tasks: [],
+    leadWork: [],
   };
-  const byId = new Map<string, SubagentNode>();
+  const byId = new Map<string, AgentNode>();
+  const node = (taskId: string): AgentNode => {
+    let task = byId.get(taskId);
+    if (!task) {
+      task = { taskId, status: "queued", work: [] };
+      byId.set(taskId, task);
+      graph.tasks.push(task);
+    }
+    return task;
+  };
   for (const f of frames) {
     if (f.findingsCount != null && f.kind !== "task_finished" && f.kind !== "task_failed") {
       graph.leadFindings = f.findingsCount;
@@ -120,12 +142,7 @@ export function foldActivity(frames: ActivityEvent[]): TurnGraph {
       case "task_failed":
       case "task_report": {
         if (!f.taskId) break;
-        let task = byId.get(f.taskId);
-        if (!task) {
-          task = { taskId: f.taskId, status: "queued" };
-          byId.set(f.taskId, task);
-          graph.tasks.push(task);
-        }
+        const task = node(f.taskId);
         if (f.kind === "task_report") {
           task.report = f.description ?? undefined;
           break;
@@ -138,6 +155,13 @@ export function foldActivity(frames: ActivityEvent[]): TurnGraph {
           if (f.findingsCount != null) task.findingsCount = f.findingsCount;
           if (f.description) task.error = f.description;
         }
+        break;
+      }
+      case "tool_call":
+      case "tool_result":
+      case "text": {
+        const w: WorkFrame = { kind: f.kind, text: f.description ?? "", ts: f.ts ?? undefined };
+        (f.taskId ? node(f.taskId).work : graph.leadWork).push(w);
         break;
       }
       default:
@@ -159,6 +183,8 @@ export function activityLine(f: ActivityEvent): string | null {
       return `ход упал — ${f.description ?? "error"}`;
     case "node":
       return `node ${f.description ?? "?"} ✓`;
+    case "tool_call":
+      return `${task || "lead"} ⚙ ${(f.description ?? "").slice(0, 80)}`;
     case "task_started":
       return f.status === "queued"
         ? `${task} queued — ${f.description ?? ""}`.trim()

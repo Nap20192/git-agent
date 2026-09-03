@@ -25,14 +25,14 @@ func (h *InstancesHandler) List(w http.ResponseWriter, r *http.Request) {
 	if q := r.URL.Query().Get("repositoryId"); q != "" {
 		id, err := strconv.ParseInt(q, 10, 64)
 		if err != nil {
-			http.Error(w, `{"error":"bad repositoryId"}`, http.StatusBadRequest)
+			errorJSON(w, http.StatusBadRequest, "bad repositoryId")
 			return
 		}
 		repoID = &id
 	}
 	list, err := h.Store.Instances(r.Context(), userID(r), repoID)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mapSlice(list, toInstanceDTO))
@@ -55,7 +55,7 @@ func (h *InstancesHandler) Reports(w http.ResponseWriter, r *http.Request) {
 	}
 	reports, err := h.Store.Reports(r.Context(), inst.ID)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mapSlice(reports, func(rep domain.Report) reportDTO {
@@ -71,7 +71,7 @@ func (h *InstancesHandler) Findings(w http.ResponseWriter, r *http.Request) {
 	}
 	findings, err := h.Store.Findings(r.Context(), inst.ID)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mapSlice(findings, func(f domain.Finding) findingDTO {
@@ -91,17 +91,17 @@ func (h *InstancesHandler) Activity(w http.ResponseWriter, r *http.Request) {
 	if q := r.URL.Query().Get("eventId"); q != "" {
 		v, err := strconv.ParseInt(q, 10, 64)
 		if err != nil {
-			http.Error(w, `{"error":"bad eventId"}`, http.StatusBadRequest)
+			errorJSON(w, http.StatusBadRequest, "bad eventId")
 			return
 		}
 		eventID = &v
 	}
 	stream, err := h.Service.Activity(r.Context(), id, userID(r), eventID)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
-	pipeSSE(w, stream, "activity", id)
+	pipeSSE(w, r, stream, "activity", id)
 }
 
 // Stop — POST /api/instances/{id}/stop.
@@ -111,7 +111,7 @@ func (h *InstancesHandler) Stop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Service.Stop(r.Context(), id, userID(r)); err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -127,7 +127,7 @@ func (h *InstancesHandler) Raise(w http.ResponseWriter, r *http.Request) {
 	}
 	queued, err := h.Service.Raise(r.Context(), id, userID(r))
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	if queued {
@@ -147,7 +147,7 @@ func (h *InstancesHandler) Resume(w http.ResponseWriter, r *http.Request) {
 	}
 	eventIDs, err := h.Service.Resume(r.Context(), id, userID(r))
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	if eventIDs == nil {
@@ -170,15 +170,15 @@ func (h *InstancesHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Message == "" {
-		http.Error(w, `{"error":"message is required"}`, http.StatusBadRequest)
+		errorJSON(w, http.StatusBadRequest, "message is required")
 		return
 	}
 	stream, err := h.Service.Chat(r.Context(), id, userID(r), req.Message)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
-	pipeSSE(w, stream, "chat", id)
+	pipeSSE(w, r, stream, "chat", id)
 }
 
 // Terminal — POST /api/instances/{id}/terminal: SSE-прокси стрим-консоли в
@@ -196,19 +196,19 @@ func (h *InstancesHandler) Terminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Command == "" {
-		http.Error(w, `{"error":"command is required"}`, http.StatusBadRequest)
+		errorJSON(w, http.StatusBadRequest, "command is required")
 		return
 	}
 	stream, err := h.Service.Terminal(r.Context(), id, userID(r), req.Command)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
-	pipeSSE(w, stream, "terminal", id)
+	pipeSSE(w, r, stream, "terminal", id)
 }
 
 // pipeSSE — прокинуть SSE-поток раннера клиенту как есть, с flush по-кадрово.
-func pipeSSE(w http.ResponseWriter, stream io.ReadCloser, label string, id int64) {
+func pipeSSE(w http.ResponseWriter, r *http.Request, stream io.ReadCloser, label string, id int64) {
 	defer stream.Close()
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -232,9 +232,9 @@ func pipeSSE(w http.ResponseWriter, stream io.ReadCloser, label string, id int64
 			if err != io.EOF {
 				// закрытая вкладка/переключение экрана — штатный обрыв SSE, не warning
 				if errors.Is(err, context.Canceled) {
-					slog.Info("instances: "+label+" stream closed by client", "instanceId", id)
+					slog.InfoContext(r.Context(), "instances: "+label+" stream closed by client", "instanceId", id)
 				} else {
-					slog.Warn("instances: "+label+" stream interrupted", "instanceId", id, "err", err)
+					slog.WarnContext(r.Context(), "instances: "+label+" stream interrupted", "instanceId", id, "err", err)
 				}
 			}
 			return
@@ -249,11 +249,11 @@ func (h *InstancesHandler) instance(w http.ResponseWriter, r *http.Request) (*do
 	}
 	inst, err := h.Store.Instance(r.Context(), id, userID(r))
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return nil, false
 	}
 	if inst == nil {
-		writeError(w, domain.ErrNotFound)
+		writeError(w, r, domain.ErrNotFound)
 		return nil, false
 	}
 	return inst, true

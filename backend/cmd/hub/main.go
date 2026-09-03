@@ -12,6 +12,7 @@ import (
 
 	"github.com/vnkjd/git-agent/backend/cmd/hub/config"
 	"github.com/vnkjd/git-agent/backend/internal/hub/container"
+	"github.com/vnkjd/git-agent/backend/pkg/logger"
 )
 
 func main() {
@@ -26,6 +27,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	logger.Setup(cfg.LogLevel, cfg.LogFormat)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

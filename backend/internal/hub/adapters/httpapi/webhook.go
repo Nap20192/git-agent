@@ -28,17 +28,17 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
 	repoID, err := strconv.ParseInt(r.PathValue("repositoryId"), 10, 64)
 	if (provider != "github" && provider != "gitlab") || err != nil {
-		slog.Info("webhook: dropped, bad path", "provider", provider)
+		slog.InfoContext(r.Context(), "webhook: dropped, bad path", "provider", provider)
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBody))
 	if err != nil {
-		slog.Info("webhook: dropped, body read", "err", err)
+		slog.InfoContext(r.Context(), "webhook: dropped, body read", "err", err)
 		return
 	}
 	e, ok := parseEvent(provider, r.Header, body)
 	if !ok {
-		slog.Info("webhook: dropped, unparseable event", "repositoryId", repoID, "provider", provider)
+		slog.InfoContext(r.Context(), "webhook: dropped, unparseable event", "repositoryId", repoID, "provider", provider)
 		return
 	}
 	auth := domain.WebhookAuth{

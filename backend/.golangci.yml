@@ -1,0 +1,41 @@
+# golangci-lint v2 — задача: ловить реальные баги и утечки, не спорить о стиле.
+# Запуск: task backend:lint (или golangci-lint run в backend/).
+version: "2"
+run:
+  timeout: 3m
+linters:
+  default: none
+  enable:
+    - govet         # стандартные проверки компилятора
+    - staticcheck   # баги, deprecated API, упрощения
+    - errcheck      # проигнорированные ошибки
+    - unused        # мёртвый код
+    - ineffassign   # присваивания без чтения
+    - bodyclose     # незакрытые resp.Body
+    - sqlclosecheck # незакрытые rows
+    - nilerr        # return nil при err != nil
+    - errorlint     # == вместо errors.Is/As, %v вместо %w
+    - noctx         # HTTP-запросы без контекста
+    - gosec         # SAST: слабое crypto, инъекции
+    - misspell
+  settings:
+    errcheck:
+      exclude-functions:
+        - (net/http.ResponseWriter).Write
+        - (*net/http.Server).Close
+        # Close на пути ошибки/в defer: вернуть нечего и некому
+        - (io.ReadCloser).Close
+        - (*github.com/rabbitmq/amqp091-go.Connection).Close
+        - (*github.com/rabbitmq/amqp091-go.Channel).Close
+        - (*github.com/jackc/pgx/v5.Conn).Close
+        - (github.com/jackc/pgx/v5.Tx).Rollback # defer после Commit — штатный ErrTxClosed
+    gosec:
+      excludes:
+        - G104 # дубль errcheck
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec, errcheck, bodyclose, noctx]
+formatters:
+  enable:
+    - gofmt

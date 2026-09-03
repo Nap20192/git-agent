@@ -27,7 +27,7 @@ func Setup(t *testing.T) *pgxpool.Pool {
 
 	base := os.Getenv("HUB_TEST_DATABASE_URL")
 	if base == "" {
-		base = "postgresql://git_agent:git_agent@localhost:5433/git_agent"
+		base = "postgresql://git_agent:git_agent@localhost:5433/git_agent" //nolint:gosec // dev-креды compose
 	}
 	admin, err := pgx.Connect(ctx, base)
 	if err != nil {
@@ -66,7 +66,7 @@ func Setup(t *testing.T) *pgxpool.Pool {
 	}
 	sort.Strings(files) // нумерованные SQL — применяются по порядку
 	for _, f := range files {
-		sql, err := os.ReadFile(f)
+		sql, err := os.ReadFile(f) //nolint:gosec // миграции из репо по glob
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -14,7 +14,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from core.runner import RunnerService, parse_event
+from pkg.logger import get_logger
 
+log = get_logger(__name__)
 api = APIRouter()
 
 
@@ -140,7 +142,10 @@ async def terminal(instance_id: int, request: Request):
 
         try:
             output, code, cwd = await service.terminal(instance_id, command)
-        except RuntimeError as exc:
+        except Exception as exc:
+            # генератор уже за заголовками: любое исключение здесь = пустой 200 клиенту,
+            # поэтому причину отдаём кадром и логируем одной строкой
+            log.warning("terminal failed", cmd=command[:80], error=f"{type(exc).__name__}: {exc}")
             yield frame({"kind": "output", "text": str(exc)})
             yield frame({"kind": "exit", "code": None, "cwd": None})
         else:

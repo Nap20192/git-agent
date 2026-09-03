@@ -57,6 +57,7 @@ def parse_terminal_output(raw: str) -> tuple[str, int | None, str | None]:
         return raw, None, None
     return head, code, cwd or None
 
+
 # подключение к УЖЕ созданной юзером песочнице Экземпляра (по external_id);
 # раннер песочницы не создаёт и не убивает — жизненным циклом рулит hub
 SandboxConnect = Callable[[dict[str, Any]], Awaitable[Sandbox]]

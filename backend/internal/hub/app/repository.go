@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"time"
 	"log/slog"
+	"time"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 	"github.com/vnkjd/git-agent/backend/pkg/secrets"
@@ -74,7 +74,7 @@ func (s *RepositoryService) Connect(ctx context.Context, userID, identityID int6
 			BuildID: *buildID, RepositoryID: repo.ID,
 		}); err != nil {
 			if delErr := s.Repos.DeleteRepository(ctx, repo.ID); delErr != nil {
-				slog.Error("repository: rollback after subscription failure", "repositoryId", repo.ID, "err", delErr)
+				slog.ErrorContext(ctx, "repository: rollback after subscription failure", "repositoryId", repo.ID, "err", delErr)
 			}
 			return nil, err
 		}
@@ -89,7 +89,7 @@ func (s *RepositoryService) Connect(ctx context.Context, userID, identityID int6
 	})
 	if err != nil {
 		if delErr := s.Repos.DeleteRepository(ctx, repo.ID); delErr != nil {
-			slog.Error("repository: rollback after hook failure", "repositoryId", repo.ID, "err", delErr)
+			slog.ErrorContext(ctx, "repository: rollback after hook failure", "repositoryId", repo.ID, "err", delErr)
 		}
 		return nil, fmt.Errorf("create provider hook: %w", err)
 	}
@@ -116,7 +116,7 @@ func (s *RepositoryService) Disconnect(ctx context.Context, id, userID int64) er
 				return s.Provider.DeleteHook(ctx, repo.Provider, token, repo, *repo.WebhookProviderID)
 			})
 			if err != nil {
-				slog.Warn("repository: provider hook removal failed, disconnecting anyway",
+				slog.WarnContext(ctx, "repository: provider hook removal failed, disconnecting anyway",
 					"repositoryId", id, "err", err)
 			}
 		}

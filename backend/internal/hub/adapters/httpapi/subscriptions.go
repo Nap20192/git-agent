@@ -41,11 +41,11 @@ func (h *SubscriptionsHandler) ownRepo(w http.ResponseWriter, r *http.Request) (
 	}
 	repo, err := h.Repos.Repository(r.Context(), id, userID(r))
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return 0, false
 	}
 	if repo == nil {
-		writeError(w, domain.ErrNotFound)
+		writeError(w, r, domain.ErrNotFound)
 		return 0, false
 	}
 	return id, true
@@ -59,7 +59,7 @@ func (h *SubscriptionsHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	subs, err := h.Store.SubscriptionsByRepo(r.Context(), repoID)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mapSlice(subs, toSubscriptionDTO))
@@ -80,7 +80,7 @@ func (h *SubscriptionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.BuildID == 0 {
-		http.Error(w, `{"error":"buildId is required"}`, http.StatusBadRequest)
+		errorJSON(w, http.StatusBadRequest, "buildId is required")
 		return
 	}
 	sub := &domain.BuildSubscription{
@@ -89,7 +89,7 @@ func (h *SubscriptionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := h.Store.UpsertSubscription(r.Context(), sub)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	sub.ID = id
@@ -103,7 +103,7 @@ func (h *SubscriptionsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Store.DeleteSubscription(r.Context(), id, userID(r)); err != nil {
-		writeError(w, err)
+		writeError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

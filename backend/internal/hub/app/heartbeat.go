@@ -31,11 +31,11 @@ func (s *HeartbeatService) Run(ctx context.Context) error {
 		case <-ticker.C:
 			downed, requeued, err := s.Store.RequeueStale(ctx, s.Timeout)
 			if err != nil {
-				slog.Error("heartbeat: requeue failed", "err", err)
+				slog.ErrorContext(ctx, "heartbeat: requeue failed", "err", err)
 				continue
 			}
 			if downed > 0 || requeued > 0 {
-				slog.Info("heartbeat: stale runners handled", "instancesDowned", downed, "eventsRequeued", requeued)
+				slog.InfoContext(ctx, "heartbeat: stale runners handled", "instancesDowned", downed, "eventsRequeued", requeued)
 			}
 		}
 	}

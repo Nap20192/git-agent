@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+
+	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 )
 
 type Config struct {
@@ -32,6 +34,13 @@ type Config struct {
 	OAuthRedirectBase string
 
 	ChatFirstByteTimeout time.Duration // ожидание первого байта SSE от раннера
+
+	// Defaults — чем заполнять пустые поля при создании подключений/сборок
+	// (LLM_API_BASE, LLM_MODEL, OPENSANDBOX_DOMAIN, OPENSANDBOX_API_KEY, SANDBOX_IMAGE).
+	Defaults domain.Defaults
+
+	LogLevel  string // LOG_LEVEL: debug|info|warn|error (дефолт info)
+	LogFormat string // LOG_FORMAT: json|text (дефолт json; text — для dev)
 
 	DevUserID int64 // DEV_USER_ID: dev-обход OAuth — запросы без сессии идут от этого user id; 0 = выключено
 }
@@ -57,6 +66,21 @@ func Load() (*Config, error) {
 		GitLabOAuthSecret: os.Getenv("GITLAB_OAUTH_CLIENT_SECRET"),
 		FrontendURL:       os.Getenv("FRONTEND_URL"),
 		OAuthRedirectBase: os.Getenv("OAUTH_REDIRECT_BASE"),
+		LogLevel:          os.Getenv("LOG_LEVEL"),
+		LogFormat:         os.Getenv("LOG_FORMAT"),
+		Defaults: domain.Defaults{
+			LlmAPIBase:    os.Getenv("LLM_API_BASE"),
+			LlmModel:      os.Getenv("LLM_MODEL"),
+			SandboxDomain: os.Getenv("OPENSANDBOX_DOMAIN"),
+			SandboxAPIKey: os.Getenv("OPENSANDBOX_API_KEY"),
+			SandboxImage:  os.Getenv("SANDBOX_IMAGE"),
+		},
+	}
+	if c.Defaults.SandboxDomain == "" {
+		c.Defaults.SandboxDomain = "localhost:8090" // зеркало agent/core/config.py
+	}
+	if c.Defaults.SandboxImage == "" {
+		c.Defaults.SandboxImage = "alpine/git:latest"
 	}
 	if c.Addr == "" {
 		c.Addr = ":8081"

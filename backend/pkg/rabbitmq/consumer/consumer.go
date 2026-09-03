@@ -150,6 +150,6 @@ func (c *consumer) createChannel() (*amqp.Channel, error) {
 	}
 
 	slog.Info("consumer bound to exchange",
-		"queue", queue.Name, "exchange", c.exchangeName, "binding_key", c.bindingKey, "consumer_tag", c.consumerTag)
+		"queue", queue.Name, "exchange", c.exchangeName, "bindingKey", c.bindingKey, "consumerTag", c.consumerTag)
 	return ch, nil
 }

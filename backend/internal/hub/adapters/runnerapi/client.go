@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
+	"github.com/vnkjd/git-agent/backend/pkg/logger"
 )
 
 type Client struct {
@@ -40,6 +41,19 @@ func (c *Client) http() *http.Client {
 	return &http.Client{Timeout: 60 * time.Second}
 }
 
+// newRequest — запрос к раннеру со сквозным X-Request-ID (hub-middleware кладёт
+// его в ctx; раннер привязывает к своим логам — один id на оба сервиса).
+func newRequest(ctx context.Context, method, url string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	if id := logger.RequestID(ctx); id != "" {
+		req.Header.Set("X-Request-ID", id)
+	}
+	return req, nil
+}
+
 func (c *Client) post(ctx context.Context, url string, body any) (*http.Response, error) {
 	var reqBody io.Reader
 	if body != nil {
@@ -49,7 +63,7 @@ func (c *Client) post(ctx context.Context, url string, body any) (*http.Response
 		}
 		reqBody = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", url, reqBody)
+	req, err := newRequest(ctx, "POST", url, reqBody)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +121,7 @@ func (c *Client) Chat(ctx context.Context, addr string, instanceID int64, messag
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(reqCtx, "POST",
+	req, err := newRequest(reqCtx, "POST",
 		fmt.Sprintf("%s/instances/%d/chat", addr, instanceID), bytes.NewReader(b))
 	if err != nil {
 		return fail(err)
@@ -142,7 +156,7 @@ func (c *Client) Chat(ctx context.Context, addr string, instanceID int64, messag
 // разумного таймаута — стримом управляет ctx.
 func (c *Client) Terminal(ctx context.Context, addr string, instanceID int64, command string) (io.ReadCloser, error) {
 	b, _ := json.Marshal(map[string]string{"command": command})
-	req, err := http.NewRequestWithContext(ctx, "POST",
+	req, err := newRequest(ctx, "POST",
 		fmt.Sprintf("%s/instances/%d/terminal", addr, instanceID), bytes.NewReader(b))
 	if err != nil {
 		return nil, err
@@ -170,7 +184,7 @@ func (c *Client) Activity(ctx context.Context, addr string, instanceID int64, ev
 	if eventID != nil {
 		url = fmt.Sprintf("%s?eventId=%d", url, *eventID)
 	}
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := newRequest(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}

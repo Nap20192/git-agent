@@ -189,7 +189,9 @@ export type ActivityStatus = "queued" | "working" | "done" | "failed" | "timeout
  * finished (description = node name); task_started — a Сабагент
  * (status queued → working); task_finished/task_failed — its terminal state
  * (description = error, findingsCount = its Находки); task_report — the
- * Сабагент's self-report text (description); done — stream closes.
+ * Сабагент's self-report text (description); tool_call / tool_result / text —
+ * work-log frames of an agent (taskId null = the lead; description = payload,
+ * proposed extension — the runner does not emit them yet); done — stream closes.
  */
 export interface ActivityEvent {
   kind:
@@ -199,6 +201,9 @@ export interface ActivityEvent {
     | "task_finished"
     | "task_failed"
     | "task_report"
+    | "tool_call"
+    | "tool_result"
+    | "text"
     | "run_finished"
     | "run_failed"
     | "done";

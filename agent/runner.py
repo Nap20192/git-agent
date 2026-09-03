@@ -19,9 +19,11 @@ async def _lifespan(app: FastAPI):
 
 
 def create_runner_app() -> FastAPI:
+    from infra.server.request_context import RequestContextMiddleware
     from infra.server.runner_api import api
 
     app = FastAPI(title="git-agent runner", lifespan=_lifespan)
+    app.add_middleware(RequestContextMiddleware)
     app.include_router(api)
     return app
 

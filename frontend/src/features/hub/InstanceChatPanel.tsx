@@ -4,6 +4,7 @@
  *  Renders log + prompt only — the host wraps it (panel or tab box). */
 import { useEffect, useRef, useState } from "react";
 import { useHubApi, type ChatEvent } from "@/api/hub";
+import { Rich } from "./rich.tsx";
 import { errMsg } from "./ui.tsx";
 
 interface Row {
@@ -76,7 +77,7 @@ export function InstanceChatPanel({
           m.role === "user" ? (
             <div key={i} className="chat-user"><span className="accent">❯ </span>{m.text}</div>
           ) : m.role === "agent" ? (
-            <div key={i} className="chat-agent">{m.text}{m.streaming && <span className="cursor">&nbsp;</span>}</div>
+            <div key={i} className="chat-agent"><Rich>{m.text}</Rich>{m.streaming && <span className="cursor">&nbsp;</span>}</div>
           ) : (
             <div key={i} className="chat-act">→ {m.text}</div>
           ),

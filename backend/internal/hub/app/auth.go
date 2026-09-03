@@ -139,7 +139,7 @@ func (s *AuthService) CallWithToken(ctx context.Context, ident *domain.Identity,
 	}
 	tok, refErr := s.OAuth.Refresh(ctx, ident.Provider, string(refresh))
 	if refErr != nil {
-		slog.Warn("auth: token refresh failed", "identityId", ident.ID, "err", refErr)
+		slog.WarnContext(ctx, "auth: token refresh failed", "identityId", ident.ID, "err", refErr)
 		return err
 	}
 	accessEnc, refreshEnc, encErr := s.encryptTokens(tok)
