@@ -40,7 +40,9 @@ func TestRequeueStale(t *testing.T) {
 		}
 		if _, err := db.Exec(ctx,
 			`INSERT INTO hub.outbox (event_id, routing_key, payload, published_at)
-			 VALUES ($1, 'github.1.push', jsonb_build_object('eventId', $1::bigint), now())`, eventID); err != nil {
+			 VALUES ($1, 'github.1.push',
+			         jsonb_build_object('eventId', $1::bigint, 'instanceId', $2::bigint), now())`,
+			eventID, instID); err != nil {
 			t.Fatal(err)
 		}
 		var processedAt any

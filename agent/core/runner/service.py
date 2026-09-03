@@ -21,6 +21,9 @@ log = get_logger(__name__)
 
 HEARTBEAT_INTERVAL_SECONDS = 10.0
 IDLE_SCAN_INTERVAL_SECONDS = 30.0
+# сколько raise ждёт слот, прежде чем ответить queued и поднимать фоном
+# (hub-прокси не готов ждать слот HTTP-запросом — прод-бага context deadline exceeded)
+RAISE_WAIT_SECONDS = 1.0
 
 
 @dataclass
@@ -31,6 +34,7 @@ class LocalInstance:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     last_activity: float = field(default_factory=time.monotonic)
     term_cwd: str | None = None  # рабочая директория стрим-консоли; живёт пока Экземпляр поднят
+    turn_task: asyncio.Task | None = None  # исполняющийся ход События; цель stop_instance
 
     def touch(self) -> None:
         self.last_activity = time.monotonic()
@@ -62,6 +66,7 @@ class RunnerService:
         )  # ponytail: один замок на все подъёмы; per-instance при contention
         self._runner_id: int | None = None
         self._activity = ActivityFeed()
+        self._pending_raises: set[asyncio.Task] = set()  # queued-подъёмы, ждущие слот фоном
 
     @property
     def busy(self) -> int:
@@ -116,14 +121,29 @@ class RunnerService:
             if not raised:
                 self._free.release()
 
-    async def raise_instance(self, instance_id: int) -> bool:
-        return isinstance(await self._raise(instance_id), LocalInstance)
+    async def raise_instance(self, instance_id: int) -> str:
+        """Быстрый подъём: running | queued | rejected.
+
+        Ответ не ждёт слот дольше RAISE_WAIT_SECONDS: занятые слоты — queued,
+        подъём продолжается фоном и завершится, когда слот освободится.
+        """
+        task = asyncio.create_task(self._raise(instance_id))
+        done, _ = await asyncio.wait({task}, timeout=RAISE_WAIT_SECONDS)
+        if not done:
+            self._pending_raises.add(task)
+            task.add_done_callback(self._pending_raises.discard)
+            return "queued"
+        return "running" if isinstance(task.result(), LocalInstance) else "rejected"
 
     async def stop_instance(self, instance_id: int) -> bool:
         instance = self._instances.pop(instance_id, None)
         if instance is None:
             return False
-        async with instance.lock:  # дождаться текущего хода
+        if instance.turn_task is not None:
+            # честный стоп: отменить исполняющийся ход; Событие остаётся
+            # незавершённым (processed_at NULL), чекпоинт хранит готовые шаги
+            instance.turn_task.cancel()
+        async with instance.lock:  # дождаться отмены/завершения текущего хода
             await self._store.release_instance(instance_id, runner_id=self.runner_id)
         self._free.release()
         log.info("instance released", instance_id=instance_id)
@@ -132,7 +152,7 @@ class RunnerService:
     async def handle_event(self, event: Event) -> str:
         """Обработать Событие: клейм → локально либо форвард держателю → дедуп → исполнение.
 
-        Возвращает исход: processed | duplicate | forwarded | dropped.
+        Возвращает исход: processed | duplicate | forwarded | dropped | cancelled.
         Исключение исполнения пробрасывается (processed_at не ставится — Событие
         доисполнит ре-публикация backend'а).
         """
@@ -173,8 +193,25 @@ class RunnerService:
                     await turn.emit(frame)
 
             await turn.emit(collector.run_started())
+            exec_task = asyncio.create_task(
+                self._executor.process_event(ctx, event, on_chunk=on_chunk)
+            )
+            raised.turn_task = exec_task
             try:
-                await self._executor.process_event(ctx, event, on_chunk=on_chunk)
+                await exec_task
+            except asyncio.CancelledError:
+                if not exec_task.cancelled():  # отменили нас (shutdown) — погасить ход
+                    exec_task.cancel()
+                    raise
+                # штатный стоп хода: processed_at не ставится — «Продолжить»
+                # доисполнит Событие с чекпоинта (готовые шаги сохранены)
+                log.warning(
+                    "turn cancelled by stop",
+                    instance_id=event.instance_id,
+                    event_id=event.event_id,
+                )
+                await turn.emit(collector.run_failed("ход остановлен"))
+                return "cancelled"
             except SandboxNotProvisionedError as exc:
                 # песочницу создаёт юзер в UI; без неё Событие не обрабатываем
                 # (processed_at не ставится — ре-публикация доисполнит после создания)
@@ -187,6 +224,7 @@ class RunnerService:
             else:
                 await turn.emit(collector.run_finished())
             finally:
+                raised.turn_task = None
                 turn.close()
             await self._store.mark_processed(event.instance_id, event.dedup_key)
             raised.touch()

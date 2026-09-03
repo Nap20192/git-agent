@@ -31,11 +31,40 @@ func (s *InstanceService) Chat(ctx context.Context, id, userID int64, message st
 	if inst == nil {
 		return nil, domain.ErrNotFound
 	}
-	runner, err := s.ensureRunning(ctx, inst)
+	runner, _, err := s.ensureRunning(ctx, inst)
 	if err != nil {
 		return nil, err
 	}
+	// queued игнорируем: чат сам встаёт в очередь на раннере (first-byte таймаут)
 	return s.Client.Chat(ctx, runner.Address, inst.ID, message)
+}
+
+// Raise — явный подъём Экземпляра: queued=true — раннер поставил подъём в
+// очередь за слотом (202 наружу), фронт показывает «в очереди за слотом».
+func (s *InstanceService) Raise(ctx context.Context, id, userID int64) (bool, error) {
+	inst, err := s.Instances.Instance(ctx, id, userID)
+	if err != nil {
+		return false, err
+	}
+	if inst == nil {
+		return false, domain.ErrNotFound
+	}
+	_, queued, err := s.ensureRunning(ctx, inst)
+	return queued, err
+}
+
+// Resume — «Продолжить»: незавершённые События Экземпляра — снова в outbox
+// (механика heartbeat-ре-публикации); раннер поднимет Экземпляр сам, получив
+// Событие из очереди. Возвращает пере-опубликованные eventId (пусто = нечего).
+func (s *InstanceService) Resume(ctx context.Context, id, userID int64) ([]int64, error) {
+	inst, err := s.Instances.Instance(ctx, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	if inst == nil {
+		return nil, domain.ErrNotFound
+	}
+	return s.Instances.RequeueInstance(ctx, inst.ID)
 }
 
 // Terminal — команда стрим-консоли в песочнице Экземпляра (SSE-поток раннера,
@@ -125,32 +154,37 @@ func (s *InstanceService) Stop(ctx context.Context, id, userID int64) error {
 }
 
 // ensureRunning — running-Экземпляр возвращает его Раннер; down — выбирает
-// свободный живой Раннер, просит raise и фиксирует single-running в БД.
+// живой Раннер и просит raise. Раннер отвечает быстро: running — фиксируем
+// single-running в БД; queued — слот занят, раннер поднимет фоном и сам
+// зафиксирует running (клейм CAS), статус в БД не трогаем.
 // ponytail: два конкурентных чата могут поднять дважды — гонка закрывается
 // advisory-lock по id Экземпляра, когда станет реальной проблемой.
-func (s *InstanceService) ensureRunning(ctx context.Context, inst *domain.AgentInstance) (*domain.Runner, error) {
+func (s *InstanceService) ensureRunning(ctx context.Context, inst *domain.AgentInstance) (*domain.Runner, bool, error) {
 	if inst.Status == "running" && inst.RunnerID != nil {
 		runner, err := s.Runners.Runner(ctx, *inst.RunnerID)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if runner != nil {
-			return runner, nil
+			return runner, false, nil
 		}
 	}
-	// занятый раннер сам ставит raise/chat в очередь — слоты не фильтруем
 	runner, err := s.Runners.AliveRunner(ctx, s.RunnersAlive)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if runner == nil {
-		return nil, fmt.Errorf("no alive runner: %w", domain.ErrConflict)
+		return nil, false, fmt.Errorf("no alive runner: %w", domain.ErrConflict)
 	}
-	if err := s.Client.Raise(ctx, runner.Address, inst.ID); err != nil {
-		return nil, fmt.Errorf("raise instance on runner %s: %w", runner.Name, err)
+	queued, err := s.Client.Raise(ctx, runner.Address, inst.ID)
+	if err != nil {
+		return nil, false, fmt.Errorf("raise instance on runner %s: %w", runner.Name, err)
+	}
+	if queued {
+		return runner, true, nil
 	}
 	if err := s.Instances.SetInstanceRunning(ctx, inst.ID, runner.ID); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return runner, nil
+	return runner, false, nil
 }

@@ -424,9 +424,50 @@ paths:
               schema: { $ref: "#/components/schemas/ActivityEvent" }
   /api/instances/{id}/stop:
     post:
-      summary: Опустить Экземпляр (через раннер)
+      summary: Опустить Экземпляр (через раннер) — «Остановить ход»
+      description: >
+        Раннер отменяет исполняющийся ход События (asyncio cancel + ожидание),
+        Событие остаётся незавершённым (processed_at NULL), чекпоинт хранит
+        уже завершённые шаги — точка «Продолжить». Экземпляр running → down.
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses: { "204": { description: ok } }
+  /api/instances/{id}/raise:
+    post:
+      summary: Поднять Экземпляр (через раннер; быстрый ответ)
+      description: >
+        Раннер отвечает сразу: слот есть — 200 running; слоты заняты — 202
+        queued (hub пробрасывает как есть), раннер поднимет Экземпляр фоном,
+        когда слот освободится, и сам зафиксирует running.
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: object, required: [status], properties: { status: { type: string, enum: [running] } } }
+        "202":
+          description: слоты раннера заняты — подъём в очереди
+          content:
+            application/json:
+              schema: { type: object, required: [status], properties: { status: { type: string, enum: [queued] } } }
+        "409": { description: нет живого Раннера / Экземпляр держит другой раннер }
+  /api/instances/{id}/resume:
+    post:
+      summary: Продолжить — пере-опубликовать незавершённые События Экземпляра
+      description: >
+        Незавершённые События (instance_events без processed_at) уходят снова
+        в outbox (та же механика, что heartbeat-ре-публикация для мёртвых
+        раннеров); раннер, получив Событие, поднимет Экземпляр сам и доисполнит
+        ход с LangGraph-чекпоинта. Пустой список — нечего продолжать.
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [eventIds]
+                properties:
+                  eventIds: { type: array, items: { type: integer } }
   /api/instances/{id}/sandbox:
     post:
       summary: Привязать Экземпляр Агента к Экземпляру Сэндбокса

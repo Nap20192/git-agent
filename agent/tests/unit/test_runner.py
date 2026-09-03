@@ -308,6 +308,58 @@ def test_slot_waiter_does_not_block_raised_instances():
     asyncio.run(run())
 
 
+def test_stop_cancels_running_turn():
+    """Стоп посреди хода: ход отменён, processed_at NULL, слот свободен, экземпляр down."""
+
+    async def run():
+        store = MemStore()
+        seed(store)
+        turn_started = asyncio.Event()
+
+        class BlockingExecutor(FakeExecutor):
+            async def process_event(self, ctx, event, on_chunk=None):
+                turn_started.set()
+                await asyncio.Event().wait()  # висим до отмены
+
+        service = await started(make_service(store, executor=BlockingExecutor()))
+        handling = asyncio.ensure_future(service.handle_event(parse_event(WIRE)))
+        await asyncio.wait_for(turn_started.wait(), 1)
+        assert await service.stop_instance(3)
+        assert await asyncio.wait_for(handling, 1) == "cancelled"
+        assert store.journal[(3, "abc123")] is False  # Событие осталось незавершённым
+        assert store.instances[3] == {"status": "down", "runner_id": None}
+        assert service.busy == 0
+        # слот свободен — новый подъём проходит
+        assert await service.raise_instance(3) == "running"
+
+    asyncio.run(run())
+
+
+def test_raise_queued_when_slots_busy(monkeypatch):
+    """raise при занятых слотах — мгновенный queued; слот освободился — running фоном."""
+
+    async def run():
+        from core.runner import service as service_mod
+
+        monkeypatch.setattr(service_mod, "RAISE_WAIT_SECONDS", 0.01)
+        store = MemStore()
+        seed(store, instance_id=3)
+        seed(store, instance_id=4)
+        service = await started(make_service(store, slots=1))
+        assert await service.raise_instance(3) == "running"
+        assert await service.raise_instance(4) == "queued"
+        assert store.instances[4]["status"] == "down"  # ещё ждёт слот
+        await service.stop_instance(3)
+        for _ in range(100):
+            if store.instances[4]["status"] == "running":
+                break
+            await asyncio.sleep(0.01)
+        assert store.instances[4] == {"status": "running", "runner_id": 1}
+        assert service.busy == 1
+
+    asyncio.run(run())
+
+
 def test_idle_reap_releases_instance():
     async def run():
         store = MemStore()

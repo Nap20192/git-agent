@@ -279,6 +279,121 @@ func TestTerminalRequiresRunningInstance(t *testing.T) {
 	}
 }
 
+// Раннер отвечает на raise 202 (слоты заняты): Raise отдаёт queued=true и
+// НЕ фиксирует running в БД — running появится, когда раннер поднимет фоном.
+func TestRaiseQueuedKeepsInstanceDown(t *testing.T) {
+	db := testdb.Setup(t)
+	userID, instID := seedInstance(t, db)
+
+	var code atomic.Int64
+	code.Store(http.StatusAccepted)
+	fakeRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(int(code.Load()))
+	}))
+	defer fakeRunner.Close()
+
+	store := &pgstore.Store{Pool: db}
+	if _, err := store.Upsert(t.Context(),
+		domain.Runner{Name: "r1", Address: fakeRunner.URL, Slots: 1}); err != nil {
+		t.Fatal(err)
+	}
+	svc := &InstanceService{
+		Instances: store, Runners: store, Client: &runnerapi.Client{},
+		RunnersAlive: 30 * time.Second,
+	}
+
+	queued, err := svc.Raise(t.Context(), instID, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !queued {
+		t.Error("want queued=true on 202")
+	}
+	var status string
+	if err := db.QueryRow(t.Context(),
+		`SELECT status FROM hub.agent_instances WHERE id = $1`, instID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "down" {
+		t.Errorf("queued raise must not mark running, got %s", status)
+	}
+
+	// слот есть: 200 — фиксируем running
+	code.Store(http.StatusOK)
+	queued, err = svc.Raise(t.Context(), instID, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued {
+		t.Error("want queued=false on 200")
+	}
+	if err := db.QueryRow(t.Context(),
+		`SELECT status FROM hub.agent_instances WHERE id = $1`, instID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "running" {
+		t.Errorf("after 200 raise: %s", status)
+	}
+}
+
+// «Продолжить»: незавершённое Событие — снова в outbox (список eventId),
+// обработанное — нет; Экземпляр без незавершённых — пустой список.
+func TestResumeRepublishesUnprocessed(t *testing.T) {
+	db := testdb.Setup(t)
+	ctx := context.Background()
+	userID, instID := seedInstance(t, db)
+
+	seedEvent := func(delivery, dedup string, processed bool) int64 {
+		var eventID int64
+		if err := db.QueryRow(ctx,
+			`INSERT INTO hub.events (provider, delivery_id, repository_id, action, payload)
+			 SELECT 'github', $1, repository_id, 'push', '{}' FROM hub.agent_instances WHERE id = $2
+			 RETURNING id`, delivery, instID).Scan(&eventID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(ctx,
+			`INSERT INTO hub.outbox (event_id, routing_key, payload, published_at)
+			 VALUES ($1, 'github.1.push',
+			         jsonb_build_object('eventId', $1::bigint, 'instanceId', $2::bigint), now())`,
+			eventID, instID); err != nil {
+			t.Fatal(err)
+		}
+		var processedAt any
+		if processed {
+			processedAt = time.Now()
+		}
+		if _, err := db.Exec(ctx,
+			`INSERT INTO hub.instance_events (instance_id, event_id, dedup_key, processed_at)
+			 VALUES ($1, $2, $3, $4)`, instID, eventID, dedup, processedAt); err != nil {
+			t.Fatal(err)
+		}
+		return eventID
+	}
+	unprocessedID := seedEvent("d-1", "sha-unprocessed", false)
+	seedEvent("d-2", "sha-processed", true)
+
+	store := &pgstore.Store{Pool: db}
+	svc := &InstanceService{
+		Instances: store, Runners: store, Client: &runnerapi.Client{},
+		RunnersAlive: 30 * time.Second,
+	}
+	eventIDs, err := svc.Resume(ctx, instID, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(eventIDs) != 1 || eventIDs[0] != unprocessedID {
+		t.Fatalf("eventIds = %v, want [%d]", eventIDs, unprocessedID)
+	}
+	var unpublished int
+	if err := db.QueryRow(ctx,
+		`SELECT count(*) FROM hub.outbox WHERE published_at IS NULL`).Scan(&unpublished); err != nil {
+		t.Fatal(err)
+	}
+	if unpublished != 1 {
+		t.Errorf("unpublished outbox rows: %d, want 1", unpublished)
+	}
+}
+
 // down-Экземпляр: hub реплеит activity-кадры из hub.activity сам, без раннера;
 // eventId выбирает ход, без него — последний (включая NULL-группу чата).
 func TestActivityReplayForDownInstance(t *testing.T) {

@@ -68,12 +68,15 @@ func (c *Client) post(ctx context.Context, url string, body any) (*http.Response
 	return resp, nil
 }
 
-func (c *Client) Raise(ctx context.Context, addr string, instanceID int64) error {
+// Raise — быстрый подъём: 200 = running, 202 = queued (раннер поднимет фоном,
+// когда освободится слот) — прокси не ждёт слот HTTP-запросом.
+func (c *Client) Raise(ctx context.Context, addr string, instanceID int64) (bool, error) {
 	resp, err := c.post(ctx, fmt.Sprintf("%s/instances/%d/raise", addr, instanceID), nil)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return resp.Body.Close()
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusAccepted, nil
 }
 
 func (c *Client) Stop(ctx context.Context, addr string, instanceID int64) error {

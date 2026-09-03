@@ -474,6 +474,41 @@ export function createMockHubApi(): HubApi {
       inst.runnerId = null;
       inst.updatedAt = new Date().toISOString();
     },
+    async raiseInstance(id) {
+      await delay(300);
+      const inst = instances.find((i) => i.id === id);
+      if (!inst) throw new Error("404 instance not found");
+      inst.status = "running";
+      inst.runnerId = 1;
+      inst.updatedAt = new Date().toISOString();
+      return { status: "running" as const };
+    },
+    async resumeInstance(id) {
+      await delay(300);
+      const inst = instances.find((i) => i.id === id);
+      if (!inst) throw new Error("404 instance not found");
+      // незавершённое Событие = Событие репозитория без Отчёта этого Экземпляра
+      const unfinished = (events[inst.repositoryId] ?? []).filter(
+        (e) => !(reports[inst.id] ?? []).some((r) => r.eventId === e.id),
+      );
+      if (unfinished.length > 0) {
+        // раннер получает Событие из очереди, поднимает Экземпляр и доисполняет ход
+        inst.status = "running";
+        inst.runnerId = 1;
+        inst.updatedAt = new Date().toISOString();
+        const eventId = unfinished[0].id;
+        setTimeout(() => {
+          (reports[inst.id] ??= []).unshift({
+            id: nextId++,
+            instanceId: inst.id,
+            eventId,
+            summary: "Resumed from checkpoint: finished the interrupted ход.",
+            createdAt: new Date().toISOString(),
+          });
+        }, 8_000);
+      }
+      return { eventIds: unfinished.map((e) => e.id) };
+    },
     async listInstanceReports(id) {
       await delay();
       return [...(reports[id] ?? [])];

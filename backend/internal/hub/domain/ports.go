@@ -140,6 +140,10 @@ type InstanceStore interface {
 	// Activity — реплей activity-кадров хода из hub.activity (payload jsonb
 	// как есть, порядок seq); eventID nil = последний ход Экземпляра.
 	Activity(ctx context.Context, instanceID int64, eventID *int64) ([][]byte, error)
+	// RequeueInstance — «Продолжить»: незавершённые События Экземпляра — снова
+	// в outbox (механика heartbeat-ре-публикации); возвращает eventId, пусто =
+	// нечего продолжать.
+	RequeueInstance(ctx context.Context, instanceID int64) ([]int64, error)
 }
 
 // StaleRequeuer — надзор за протухшими Раннерами (тикеты 004/005):
@@ -186,7 +190,9 @@ type ProviderClient interface {
 
 // RunnerClient — API Раннера (тикет 004): поднять/опустить Экземпляр, чат, терминал.
 type RunnerClient interface {
-	Raise(ctx context.Context, addr string, instanceID int64) error
+	// Raise отвечает быстро: queued=true — слоты заняты, раннер поднимет
+	// Экземпляр фоном, когда слот освободится (202 от раннера).
+	Raise(ctx context.Context, addr string, instanceID int64) (queued bool, err error)
 	Stop(ctx context.Context, addr string, instanceID int64) error
 	// Chat возвращает SSE-поток раннера (кадры ChatEvent); закрывает вызывающий.
 	Chat(ctx context.Context, addr string, instanceID int64, message string) (io.ReadCloser, error)

@@ -89,7 +89,12 @@ export interface HubApi {
   // Экземпляры
   listInstances(repositoryId?: number): Promise<AgentInstance[]>;
   getInstance(id: number): Promise<AgentInstance>;
+  /** «Остановить ход»: runner cancels the executing ход (Событие stays unprocessed — resumable). */
   stopInstance(id: number): Promise<void>;
+  /** Fast raise: "queued" = runner slots busy, it will raise in background. */
+  raiseInstance(id: number): Promise<{ status: "running" | "queued" }>;
+  /** «Продолжить»: republish unprocessed События; empty list = nothing to resume. */
+  resumeInstance(id: number): Promise<{ eventIds: number[] }>;
   listInstanceReports(id: number): Promise<Report[]>;
   listInstanceFindings(id: number): Promise<Finding[]>;
   /** Streams the agent's reply; resolves when the stream ends. */

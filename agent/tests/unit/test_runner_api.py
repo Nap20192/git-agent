@@ -28,15 +28,15 @@ class FakeService:
 
     def __init__(self):
         self.busy = 0
-        self.raise_ok = True
+        self.raise_status = "running"
         self.stop_ok = True
         self.events: list[Event] = []
         self.chats: list[tuple[int, str]] = []
         self.terminals: list[tuple[int, str]] = []
         self.terminal_result: tuple[str, int | None, str | None] | Exception = ("ok", 0, "/repo")
 
-    async def raise_instance(self, instance_id: int) -> bool:
-        return self.raise_ok
+    async def raise_instance(self, instance_id: int) -> str:
+        return self.raise_status
 
     async def stop_instance(self, instance_id: int) -> bool:
         return self.stop_ok
@@ -91,9 +91,13 @@ def test_503_before_lifespan():
     assert TestClient(app).get("/health").status_code == 503
 
 
-def test_raise_ok_and_conflict(client, service):
+def test_raise_ok_queued_and_conflict(client, service):
     assert client.post("/instances/3/raise").json() == {"status": "running"}
-    service.raise_ok = False
+    service.raise_status = "queued"
+    response = client.post("/instances/3/raise")
+    assert response.status_code == 202
+    assert response.json() == {"status": "queued"}
+    service.raise_status = "rejected"
     assert client.post("/instances/3/raise").status_code == 409
 
 
