@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -189,7 +191,12 @@ func pipeSSE(w http.ResponseWriter, stream io.ReadCloser, label string, id int64
 		}
 		if err != nil {
 			if err != io.EOF {
-				slog.Warn("instances: "+label+" stream interrupted", "instanceId", id, "err", err)
+				// закрытая вкладка/переключение экрана — штатный обрыв SSE, не warning
+				if errors.Is(err, context.Canceled) {
+					slog.Info("instances: "+label+" stream closed by client", "instanceId", id)
+				} else {
+					slog.Warn("instances: "+label+" stream interrupted", "instanceId", id, "err", err)
+				}
 			}
 			return
 		}
