@@ -17,6 +17,7 @@ import type {
   Report,
   Repository,
   Runner,
+  TerminalEvent,
   TriggerResult,
   SandboxConnection,
   Subscription,
@@ -79,6 +80,8 @@ export interface HubApi {
   listInstanceFindings(id: number): Promise<Finding[]>;
   /** Streams the agent's reply; resolves when the stream ends. */
   chat(instanceId: number, message: string, onEvent: (e: ChatEvent) => void): Promise<void>;
+  /** Runs one stream-console command in the Экземпляр's sandbox (running only). */
+  terminal(instanceId: number, command: string, onEvent: (e: TerminalEvent) => void): Promise<void>;
 
   // Раннеры (UI/debug view)
   listRunners(): Promise<Runner[]>;

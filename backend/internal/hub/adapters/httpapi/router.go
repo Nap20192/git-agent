@@ -66,6 +66,7 @@ func NewMux(h Handlers) *http.ServeMux {
 	mux.HandleFunc("GET /api/instances/{id}/findings", s(h.Instances.Findings))
 	mux.HandleFunc("POST /api/instances/{id}/stop", s(h.Instances.Stop))
 	mux.HandleFunc("POST /api/instances/{id}/chat", s(h.Instances.Chat))
+	mux.HandleFunc("POST /api/instances/{id}/terminal", s(h.Instances.Terminal))
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

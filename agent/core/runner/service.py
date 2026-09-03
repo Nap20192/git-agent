@@ -24,6 +24,7 @@ class LocalInstance:
     id: int
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     last_activity: float = field(default_factory=time.monotonic)
+    term_cwd: str | None = None  # рабочая директория стрим-консоли; живёт пока Экземпляр поднят
 
     def touch(self) -> None:
         self.last_activity = time.monotonic()
@@ -175,6 +176,22 @@ class RunnerService:
             async for item in self._executor.chat_stream(ctx, message):
                 yield item
             raised.touch()
+
+    async def terminal(self, instance_id: int, command: str) -> tuple[str, int | None, str | None]:
+        """Команда стрим-консоли в песочнице Экземпляра; поднимает его при необходимости."""
+        raised = await self._raise(instance_id)
+        if isinstance(raised, ClaimResult):
+            raise RuntimeError(f"instance {instance_id} unavailable: {raised.outcome}")
+        async with raised.lock:
+            raised.touch()
+            ctx = await self._store.load_context(instance_id)
+            if ctx is None:
+                raise RuntimeError(f"instance {instance_id} context missing")
+            output, code, new_cwd = await self._executor.terminal(ctx, command, raised.term_cwd)
+            if new_cwd:
+                raised.term_cwd = new_cwd
+            raised.touch()
+            return output, code, new_cwd
 
     async def heartbeat_loop(self) -> None:
         while True:

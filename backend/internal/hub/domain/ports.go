@@ -162,10 +162,12 @@ type ProviderClient interface {
 	BranchHead(ctx context.Context, provider, token string, repo *Repository, ref string) (string, error)
 }
 
-// RunnerClient — API Раннера (тикет 004): поднять/опустить Экземпляр, чат.
+// RunnerClient — API Раннера (тикет 004): поднять/опустить Экземпляр, чат, терминал.
 type RunnerClient interface {
 	Raise(ctx context.Context, addr string, instanceID int64) error
 	Stop(ctx context.Context, addr string, instanceID int64) error
 	// Chat возвращает SSE-поток раннера (кадры ChatEvent); закрывает вызывающий.
 	Chat(ctx context.Context, addr string, instanceID int64, message string) (io.ReadCloser, error)
+	// Terminal — SSE-поток стрим-консоли (кадры TerminalEvent); закрывает вызывающий.
+	Terminal(ctx context.Context, addr string, instanceID int64, command string) (io.ReadCloser, error)
 }

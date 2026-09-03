@@ -462,5 +462,17 @@ export function createMockHubApi(): HubApi {
       }
       onEvent({ kind: "done" });
     },
+
+    async terminal(instanceId, command, onEvent) {
+      authed();
+      const inst = instances.find((i) => i.id === instanceId);
+      if (!inst) throw new Error("404 instance not found");
+      if (inst.status !== "running") throw new Error("409 instance is down — raise the agent first");
+      await delay(300);
+      const cd = command.match(/^cd\s+(\S+)/);
+      if (!cd) onEvent({ kind: "output", text: `mock sandbox: ran \`${command}\`` });
+      onEvent({ kind: "exit", code: 0, cwd: cd ? `/repo/${cd[1]}` : "/repo" });
+      onEvent({ kind: "done" });
+    },
   };
 }

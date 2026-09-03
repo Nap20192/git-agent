@@ -136,11 +136,18 @@ class FakeExecutor:
     def __init__(self, error: Exception | None = None):
         self.error = error
         self.processed: list[Event] = []
+        self.terminal_calls: list[tuple[str, str | None]] = []
 
     async def process_event(self, ctx, event):
         if self.error:
             raise self.error
         self.processed.append(event)
+
+    async def terminal(self, ctx, command, cwd=None):
+        self.terminal_calls.append((command, cwd))
+        if command.startswith("cd "):
+            return "", 0, command.removeprefix("cd ")
+        return "out", 0, cwd or "/repo"
 
 
 def make_service(store, hub=None, executor=None, *, slots=2, idle=900.0) -> RunnerService:
@@ -286,5 +293,28 @@ def test_missing_instance_dropped():
         service = await started(make_service(store))
         assert await service.handle_event(parse_event(WIRE)) == "dropped"
         assert service.busy == 0
+
+    asyncio.run(run())
+
+
+def test_terminal_carries_cwd_between_commands():
+    async def run():
+        store = MemStore()
+        seed(store)
+        executor = FakeExecutor()
+        service = await started(make_service(store, executor=executor))
+        # первый вызов поднимает Экземпляр, cwd ещё не задана
+        assert await service.terminal(3, "ls") == ("out", 0, "/repo")
+        assert await service.terminal(3, "cd /repo/sub") == ("", 0, "/repo/sub")
+        await service.terminal(3, "ls")
+        assert executor.terminal_calls == [
+            ("ls", None),
+            ("cd /repo/sub", "/repo"),
+            ("ls", "/repo/sub"),
+        ]
+        # stop сбрасывает консоль вместе с Экземпляром
+        await service.stop_instance(3)
+        await service.terminal(3, "ls")
+        assert executor.terminal_calls[-1] == ("ls", None)
 
     asyncio.run(run())

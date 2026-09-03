@@ -217,3 +217,64 @@ func TestChatNoFreeRunner(t *testing.T) {
 		t.Fatal("expected error without runners")
 	}
 }
+
+// Терминал connect-only: down-Экземпляр — 409 без raise; running —
+// SSE-поток раннера проксируется как есть.
+func TestTerminalRequiresRunningInstance(t *testing.T) {
+	db := testdb.Setup(t)
+	userID, instID := seedInstance(t, db)
+
+	var raised atomic.Int64
+	fakeRunner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case fmt.Sprintf("/instances/%d/raise", instID):
+			raised.Add(1)
+			w.WriteHeader(http.StatusOK)
+		case fmt.Sprintf("/instances/%d/terminal", instID):
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {\"kind\":\"output\",\"text\":\"file.txt\"}\n\n")
+			fmt.Fprint(w, "data: {\"kind\":\"exit\",\"code\":0,\"cwd\":\"/repo\"}\n\n")
+			fmt.Fprint(w, "data: {\"kind\":\"done\"}\n\n")
+		default:
+			t.Errorf("unexpected runner call: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer fakeRunner.Close()
+
+	store := &pgstore.Store{Pool: db}
+	runnerID, err := store.Upsert(t.Context(),
+		domain.Runner{Name: "r1", Address: fakeRunner.URL, Slots: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := &InstanceService{
+		Instances: store, Runners: store, Client: &runnerapi.Client{},
+		RunnersAlive: 30 * time.Second,
+	}
+
+	// down: терминал не поднимает Экземпляр и не трогает раннер
+	if _, err := svc.Terminal(t.Context(), instID, userID, "ls"); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("want ErrConflict for down instance, got %v", err)
+	}
+	if raised.Load() != 0 {
+		t.Errorf("terminal must not raise, raise calls: %d", raised.Load())
+	}
+
+	// running: прокси потока
+	if err := store.SetInstanceRunning(t.Context(), instID, runnerID); err != nil {
+		t.Fatal(err)
+	}
+	stream, err := svc.Terminal(t.Context(), instID, userID, "ls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	body, err := io.ReadAll(stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "\"kind\":\"exit\"") || !strings.Contains(string(body), "\"kind\":\"done\"") {
+		t.Errorf("stream: %q", body)
+	}
+}

@@ -150,6 +150,19 @@ export interface ChatEvent {
 }
 
 /**
+ * One SSE frame of POST /api/instances/{id}/terminal (openapi.yaml,
+ * TerminalEvent). kind=output — command output (stdout+stderr merged);
+ * kind=exit — command finished (code/cwd null when the shell never reached
+ * the marker); kind=done — terminal frame, stream closes.
+ */
+export interface TerminalEvent {
+  kind: "output" | "exit" | "done";
+  text?: string | null;
+  code?: number | null;
+  cwd?: string | null;
+}
+
+/**
  * Подписка Сборки на События Репозитория (ticket 011). Empty actions = all
  * actions; null refMask = any ref (mask is a glob over the short ref, e.g.
  * "release/*"). A repo with no subscriptions is served by the default Сборка.

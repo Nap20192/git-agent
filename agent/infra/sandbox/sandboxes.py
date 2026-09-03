@@ -99,3 +99,24 @@ async def provision_hub_sandbox(
         ctx["id"], external_id=sandbox.id, sandbox_connection_id=ctx["sandbox_connection_id"]
     )
     return sandbox, False
+
+
+async def connect_hub_sandbox(
+    store: InstanceStore,
+    ctx: dict[str, Any],
+    decrypt: Callable[[bytes | None], str | None],
+) -> Sandbox:
+    """Connect-only к живой песочнице Экземпляра (терминал): песочницу создаёт
+    пользователь в UI, здесь НИЧЕГО не создаётся — нет живой ⇒ ошибка."""
+    if not (ctx.get("sandbox_external_id") and ctx.get("sandbox_status") == "alive"):
+        raise RuntimeError("no live sandbox — create one in the UI or raise the agent")
+    try:
+        return await connect_sandbox(
+            ctx["sandbox_external_id"],
+            domain=ctx["sandbox_domain"],
+            api_key=decrypt(ctx["sandbox_api_key_enc"]),
+        )
+    except Exception as exc:
+        log.warning("hub sandbox connect failed", external_id=ctx["sandbox_external_id"])
+        await store.mark_sandbox_dead(ctx["sandbox_instance_id"])
+        raise RuntimeError("sandbox is dead — create a new one in the UI") from exc
