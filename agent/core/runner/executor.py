@@ -5,6 +5,7 @@ from __future__ import annotations
 import shlex
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from typing import Any
 
 from langchain_core.messages import HumanMessage
@@ -12,9 +13,11 @@ from langchain_core.messages import HumanMessage
 from core.agents.llm import make_model
 from core.ports import Sandbox, SandboxCommandError
 from core.runner.events import Event
+from core.runner.history import repair_dangling_tool_calls
 from core.runner.ports import InstanceStore
 from core.tracing import TurnTracer, inject_langfuse_metadata
 from pkg import trace
+from pkg.errors import describe
 from pkg.logger import get_logger
 
 log = get_logger(__name__)
@@ -171,6 +174,24 @@ class EventExecutor:
         )
         return graph, profile
 
+    @asynccontextmanager
+    async def _repaired_thread(self, graph: Any, config: dict[str, Any]) -> AsyncIterator[None]:
+        """Тред без висящих tool_calls: санация ДО хода (обязательна — иначе
+        провайдер отвергнет историю) и best-effort сразу после отмены/краха хода,
+        чтобы тред чинился в момент стопа, а не следующего хода (core/runner/history.py)."""
+        if self._checkpointer is None:  # без чекпоинтера треда нет (тесты/демо)
+            yield
+            return
+        await repair_dangling_tool_calls(graph, config)
+        try:
+            yield
+        except BaseException:
+            try:
+                await repair_dangling_tool_calls(graph, config)
+            except Exception as exc:  # best-effort: ход уже сорван, чинить будем перед следующим
+                log.warning("post-cancel thread repair failed", error=describe(exc))
+            raise
+
     async def process_event(
         self,
         ctx: dict[str, Any],
@@ -195,13 +216,14 @@ class EventExecutor:
                 log.info("repo advanced", duration_ms=_ms(started), commit=event.commit_sha)
             graph, profile = self._graph(ctx, sandbox, event.event_id)
             config = self._run_config(ctx, profile, tracer, turn="event")
-            async for mode, chunk in graph.astream(
-                {"messages": [HumanMessage(content=_event_prompt(ctx, event))]},
-                config=config,
-                stream_mode=profile.stream_modes,
-            ):
-                if on_chunk is not None:
-                    await on_chunk(mode, serialize(chunk, mode=mode))
+            async with self._repaired_thread(graph, config):
+                async for mode, chunk in graph.astream(
+                    {"messages": [HumanMessage(content=_event_prompt(ctx, event))]},
+                    config=config,
+                    stream_mode=profile.stream_modes,
+                ):
+                    if on_chunk is not None:
+                        await on_chunk(mode, serialize(chunk, mode=mode))
         finally:
             log.info("turn summary", **tracer.summary())
             await sandbox.close()
@@ -242,12 +264,13 @@ class EventExecutor:
         try:
             graph, profile = self._graph(ctx, sandbox, None)
             config = self._run_config(ctx, profile, tracer, turn="chat")
-            async for mode, chunk in graph.astream(
-                {"messages": [HumanMessage(content=message)]},
-                config=config,
-                stream_mode=profile.stream_modes,
-            ):
-                yield mode, serialize(chunk, mode=mode)
+            async with self._repaired_thread(graph, config):
+                async for mode, chunk in graph.astream(
+                    {"messages": [HumanMessage(content=message)]},
+                    config=config,
+                    stream_mode=profile.stream_modes,
+                ):
+                    yield mode, serialize(chunk, mode=mode)
         finally:
             log.info("turn summary", **tracer.summary())
             await sandbox.close()
