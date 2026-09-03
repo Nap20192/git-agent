@@ -388,6 +388,31 @@ def test_stop_cancels_running_turn():
     asyncio.run(run())
 
 
+def test_terminal_does_not_wait_for_running_turn():
+    """Ход висит (Лид думает) — команда консоли выполняется сразу, не ждёт lock хода."""
+
+    async def run():
+        store = MemStore()
+        seed(store)
+        turn_started = asyncio.Event()
+
+        class BlockingExecutor(FakeExecutor):
+            async def process_event(self, ctx, event, on_chunk=None):
+                turn_started.set()
+                await asyncio.Event().wait()
+
+        service = await started(make_service(store, executor=BlockingExecutor()))
+        handling = asyncio.ensure_future(service.handle_event(parse_event(WIRE)))
+        await asyncio.wait_for(turn_started.wait(), 1)
+        assert await asyncio.wait_for(service.terminal(3, "ls"), 0.5) == ("out", 0, "/repo")
+        # консоль не опускает Экземпляр из-под хода и не завершает его
+        assert not handling.done()
+        assert await service.stop_instance(3)
+        assert await asyncio.wait_for(handling, 1) == "cancelled"
+
+    asyncio.run(run())
+
+
 def test_raise_queued_when_slots_busy(monkeypatch):
     """raise при занятых слотах — мгновенный queued; слот освободился — running фоном."""
 
