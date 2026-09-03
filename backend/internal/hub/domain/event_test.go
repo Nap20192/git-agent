@@ -22,7 +22,7 @@ func TestDedupKey(t *testing.T) {
 	if got := DedupKey(5, Event{}); got != "5" {
 		t.Errorf("commitless event: got %q", got)
 	}
-	if got := DedupKey(5, Event{Action: "full_scan", CommitSHA: "abc"}); got != "full-abc" {
+	if got := DedupKey(5, Event{Action: "full_scan", CommitSHA: "abc"}); got != "full-5" { // full не привязан к коммиту: ключ по id События
 		t.Errorf("full_scan event: got %q", got)
 	}
 }

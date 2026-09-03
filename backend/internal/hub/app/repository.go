@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"time"
 	"log/slog"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
@@ -168,12 +169,16 @@ func (s *RepositoryService) Trigger(ctx context.Context, userID, id int64, ref, 
 		}
 	}
 
-	action, prefix := "manual", "manual"
+	// manual идемпотентен по коммиту (детерминированный delivery_id);
+	// full НЕ привязан к коммиту — каждый запуск отдельный прогон.
+	action := "manual"
+	deliveryID := fmt.Sprintf("manual-%d-%s", repo.ID, commitSHA)
 	if mode == "full" {
-		action, prefix = "full_scan", "full"
+		action = "full_scan"
+		deliveryID = fmt.Sprintf("full-%d-%s-%d", repo.ID, commitSHA, time.Now().UnixNano())
 	}
 	e := domain.Event{
-		DeliveryID: fmt.Sprintf("%s-%d-%s", prefix, repo.ID, commitSHA),
+		DeliveryID: deliveryID,
 		Action:     action,
 		CommitSHA:  commitSHA,
 		Ref:        ref,
