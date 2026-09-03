@@ -47,9 +47,13 @@ export function RepoScreen() {
     setBusy(true);
     try {
       const res = await api.triggerRepository(repo.id, mode ? { mode } : undefined);
-      say(`${mode === "full" ? "full scan" : "manual run"} @ ${sha(res.event.commitSha)} → ${res.instances.length} instance(s) raised`);
-      const target = res.instances.find((i) => i.id === chatInst?.id) ?? res.instances[0];
-      if (target) navigate(`/instances/${target.id}`);
+      if (res.duplicate) {
+        say(`already ran @ ${sha(res.commitSha)} — nothing new to do`);
+        return;
+      }
+      say(`${mode === "full" ? "full scan" : "manual run"} @ ${sha(res.commitSha)} → ${res.instanceIds.length} instance(s) raised`);
+      const target = res.instanceIds.find((id) => id === chatInst?.id) ?? res.instanceIds[0];
+      if (target !== undefined) navigate(`/instances/${target}`);
       else {
         eventsQ.reload();
         instancesQ.reload();

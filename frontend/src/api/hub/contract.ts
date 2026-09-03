@@ -118,12 +118,13 @@ export interface AgentInstance {
 
 /**
  * 202 body of POST /api/repositories/{id}/trigger — manual agent run, same
- * path as a webhook push. Shape agreed verbally; re-check against
- * backend/docs/openapi.yaml once the backend commit lands.
+ * path as a webhook push (backend/docs/openapi.yaml). `duplicate` — this
+ * commit was already triggered in this mode (manual only; full is never a dup).
  */
 export interface TriggerResult {
-  event: RepoEvent;
-  instances: AgentInstance[];
+  commitSha: string;
+  duplicate: boolean;
+  instanceIds: number[];
 }
 
 /** Раннер — a worker host that raises Экземпляры (slots = capacity). */

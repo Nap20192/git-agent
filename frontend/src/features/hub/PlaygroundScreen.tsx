@@ -145,7 +145,8 @@ export function PlaygroundScreen() {
     act("trigger", async () => {
       const res = await api.triggerRepository(inst.repositoryId, mode ? { mode } : undefined);
       setGraphEventId(null);
-      return `${mode === "full" ? "full scan" : "manual trigger"} → event #${res.event.id} @ ${sha(res.event.commitSha)}`;
+      if (res.duplicate) return `already ran @ ${sha(res.commitSha)} — nothing new to do`;
+      return `${mode === "full" ? "full scan" : "manual trigger"} @ ${sha(res.commitSha)} → ${res.instanceIds.length} instance(s)`;
     });
   };
   // «Остановить ход»: the runner cancels the executing turn; the Событие stays unprocessed → «Продолжить» resumes from the checkpoint.

@@ -321,7 +321,7 @@ export function createMockHubApi(): HubApi {
           });
         }, 12_000);
       }
-      return { event, instances: raised.map(withSandbox) };
+      return { commitSha: sha, duplicate: false, instanceIds: raised.map((i) => i.id) };
     },
 
     async listSubscriptions(repositoryId) {
