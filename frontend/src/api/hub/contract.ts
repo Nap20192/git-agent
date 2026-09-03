@@ -287,3 +287,14 @@ export interface Subscription {
   refMask?: string | null;
   createdAt?: string;
 }
+
+/** GET /api/defaults — what the hub fills into empty fields on create (mirror
+ *  of .env); forms show these up front. Keys never cross the wire — only a flag. */
+export interface HubDefaults {
+  llmApiBase: string;
+  llmModel: string;
+  sandboxDomain: string;
+  sandboxImage: string;
+  sandboxApiKeySet: boolean;
+  limits: Record<string, number>;
+}

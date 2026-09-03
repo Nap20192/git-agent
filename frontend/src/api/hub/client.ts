@@ -25,6 +25,7 @@ import type {
   SandboxConnection,
   SandboxInstance,
   Subscription,
+  HubDefaults,
 } from "./contract.ts";
 
 /** Thrown by me() (and any authed call) on 401 — HubGate turns it into sign-in. */
@@ -82,6 +83,7 @@ export interface HubApi {
   createLlmConnection(input: { name: string; apiBase: string; apiKey: string; model: string }): Promise<LlmConnection>;
   deleteLlmConnection(id: number): Promise<void>;
   listSandboxConnections(): Promise<SandboxConnection[]>;
+  getDefaults(): Promise<HubDefaults>;
   createSandboxConnection(input: { name: string; domain: string; apiKey?: string; image?: string }): Promise<SandboxConnection>;
   deleteSandboxConnection(id: number): Promise<void>;
 

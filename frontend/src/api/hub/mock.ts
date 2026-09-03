@@ -488,6 +488,10 @@ export function createMockHubApi(): HubApi {
       authed();
       return [...sandboxConnections];
     },
+    async getDefaults() {
+      await delay();
+      return { llmApiBase: "http://localhost:8080/v1", llmModel: "qwen3-coder", sandboxDomain: "localhost:8090", sandboxImage: "git-agent/sandbox:strix", sandboxApiKeySet: true, limits: { maxSubagents: 3, maxTotalSubagents: 6, subagentTimeout: 600, queueTimeout: 300 } };
+    },
     async createSandboxConnection({ name, domain, apiKey, image }) {
       await delay();
       const c: SandboxConnection = { id: nextId++, name, domain, apiKeyMasked: apiKey ? mask(apiKey) : null, image: image ?? null };

@@ -3,7 +3,7 @@
  *  (no ttl, killed only on command) + runners. Row click → edit drawer. */
 import { useState } from "react";
 import { useHubApi, type AgentBuild, type LlmConnection, type SandboxConnection } from "@/api/hub";
-import { useBuilds, useInstances, useLlmConnections, useRunners, useSandboxConnections, useSandboxInstancesHub } from "@/hooks";
+import { useBuilds, useDefaults, useInstances, useLlmConnections, useRunners, useSandboxConnections, useSandboxInstancesHub } from "@/hooks";
 import { limitsText } from "./PlaygroundScreen.tsx";
 import { Dot, Drawer, ago, useScreenCtx, useShell } from "./ui.tsx";
 
@@ -176,7 +176,7 @@ export function BuildsScreen() {
         </div>
       </div>
 
-      <BuildDrawer open={drawer === "build"} build={editing} llms={llms} sandboxes={sbxs} onClose={() => setDrawer(null)} reload={buildsQ.reload} />
+      <BuildDrawer open={drawer === "build"} build={editing} llms={llms} sandboxes={sbxs} first={builds.length === 0} onClose={() => setDrawer(null)} reload={buildsQ.reload} />
       <LlmDrawer open={drawer === "llm"} onClose={() => setDrawer(null)} reload={llmQ.reload} />
       <SbxDrawer open={drawer === "sbx"} onClose={() => setDrawer(null)} reload={sbxQ.reload} />
     </div>
@@ -192,9 +192,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function BuildDrawer({ open, build, llms, sandboxes, onClose, reload }: { open: boolean; build: AgentBuild | null; llms: LlmConnection[]; sandboxes: SandboxConnection[]; onClose: () => void; reload: () => void }) {
+function BuildDrawer({ open, build, llms, sandboxes, first, onClose, reload }: { open: boolean; build: AgentBuild | null; llms: LlmConnection[]; sandboxes: SandboxConnection[]; first: boolean; onClose: () => void; reload: () => void }) {
   const api = useHubApi();
   const { say, fail } = useShell();
+  const dflt = useDefaults().data;
   const [f, setF] = useState({ name: "", llm: "", sbx: "", prompt: "", memory: "", isDefault: false });
   const [lim, setLim] = useState<Record<string, string>>({});
   // unknown keys of an existing limits object are kept as-is, never dropped
@@ -206,8 +207,10 @@ function BuildDrawer({ open, build, llms, sandboxes, onClose, reload }: { open: 
   const seedKey = build?.id ?? null;
   if (open && seeded !== seedKey) {
     setSeeded(seedKey);
-    setF({ name: build?.name ?? "", llm: build?.llmConnectionId != null ? String(build.llmConnectionId) : "", sbx: build?.sandboxConnectionId != null ? String(build.sandboxConnectionId) : "", prompt: build?.prompt ?? "", memory: build?.memoryPreset ?? "", isDefault: build?.isDefault ?? false });
+    // new build: prefilled name, default limits, first build becomes the default one
+    setF({ name: build?.name ?? (first ? "default" : ""), llm: build?.llmConnectionId != null ? String(build.llmConnectionId) : "", sbx: build?.sandboxConnectionId != null ? String(build.sandboxConnectionId) : "", prompt: build?.prompt ?? "", memory: build?.memoryPreset ?? "", isDefault: build?.isDefault ?? first });
     const vals: Record<string, string> = {};
+    if (!build) for (const [k, v] of Object.entries(dflt?.limits ?? {})) vals[k] = String(v);
     const ex: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(build?.limits ?? {})) {
       if (LIMIT_FIELDS.some((x) => x.key === k)) vals[k] = String(v);
@@ -274,15 +277,18 @@ function BuildDrawer({ open, build, llms, sandboxes, onClose, reload }: { open: 
 function LlmDrawer({ open, onClose, reload }: { open: boolean; onClose: () => void; reload: () => void }) {
   const api = useHubApi();
   const { say, fail } = useShell();
-  const [f, setF] = useState({ name: "", base: "", model: "", key: "" });
+  const dflt = useDefaults().data;
+  // undefined = not touched → the hub default is shown and sent
+  const [f, setF] = useState<{ name?: string; base?: string; model?: string; key: string }>({ key: "" });
+  const v = { name: f.name ?? (dflt?.llmModel || "default"), base: f.base ?? dflt?.llmApiBase ?? "", model: f.model ?? dflt?.llmModel ?? "" };
   const [busy, setBusy] = useState(false);
   const submit = async () => {
-    if (!f.name.trim() || !f.key) return fail(new Error("name and api key are required"), "");
+    if (!v.name.trim() || !f.key) return fail(new Error("name and api key are required"), "");
     setBusy(true);
     try {
-      await api.createLlmConnection({ name: f.name.trim(), apiBase: f.base.trim(), apiKey: f.key, model: f.model.trim() });
-      say(`added llm connection ${f.name.trim()}`);
-      setF({ name: "", base: "", model: "", key: "" });
+      await api.createLlmConnection({ name: v.name.trim(), apiBase: v.base.trim(), apiKey: f.key, model: v.model.trim() });
+      say(`added llm connection ${v.name.trim()}`);
+      setF({ key: "" });
       reload();
       onClose();
     } catch (e) {
@@ -293,9 +299,9 @@ function LlmDrawer({ open, onClose, reload }: { open: boolean; onClose: () => vo
   };
   return (
     <Drawer open={open} title="new llm connection" onClose={onClose}>
-      <Field label="name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="openrouter" /></Field>
-      <Field label="api base · empty = LLM_API_BASE from .env"><input className="input" value={f.base} onChange={(e) => setF({ ...f, base: e.target.value })} placeholder="https://openrouter.ai/api/v1" /></Field>
-      <Field label="model · empty = LLM_MODEL from .env"><input className="input" value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} placeholder="anthropic/claude-sonnet-4" /></Field>
+      <Field label="name"><input className="input" value={v.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="openrouter" /></Field>
+      <Field label="api base · prefilled from LLM_API_BASE in .env"><input className="input" value={v.base} onChange={(e) => setF({ ...f, base: e.target.value })} placeholder="https://openrouter.ai/api/v1" /></Field>
+      <Field label="model · prefilled from LLM_MODEL in .env"><input className="input" value={v.model} onChange={(e) => setF({ ...f, model: e.target.value })} placeholder="anthropic/claude-sonnet-4" /></Field>
       <Field label="api key · stored masked, never returned"><input className="input" type="password" value={f.key} onChange={(e) => setF({ ...f, key: e.target.value })} placeholder="sk-…" /></Field>
       <button className="btn lg primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={submit}>❯ add connection</button>
     </Drawer>
@@ -305,15 +311,18 @@ function LlmDrawer({ open, onClose, reload }: { open: boolean; onClose: () => vo
 function SbxDrawer({ open, onClose, reload }: { open: boolean; onClose: () => void; reload: () => void }) {
   const api = useHubApi();
   const { say, fail } = useShell();
-  const [f, setF] = useState({ name: "", domain: "", image: "", key: "" });
+  const dflt = useDefaults().data;
+  // undefined = not touched → the hub default is shown and sent
+  const [f, setF] = useState<{ name?: string; domain?: string; image?: string; key: string }>({ key: "" });
+  const v = { name: f.name ?? "local-opensandbox", domain: f.domain ?? dflt?.sandboxDomain ?? "", image: f.image ?? dflt?.sandboxImage ?? "" };
   const [busy, setBusy] = useState(false);
   const submit = async () => {
-    if (!f.name.trim()) return fail(new Error("name is required"), "");
+    if (!v.name.trim()) return fail(new Error("name is required"), "");
     setBusy(true);
     try {
-      await api.createSandboxConnection({ name: f.name.trim(), domain: f.domain.trim(), apiKey: f.key.trim() || undefined, image: f.image.trim() || undefined });
-      say(`added sandbox connection ${f.name.trim()}`);
-      setF({ name: "", domain: "", image: "", key: "" });
+      await api.createSandboxConnection({ name: v.name.trim(), domain: v.domain.trim(), apiKey: f.key.trim() || undefined, image: v.image.trim() || undefined });
+      say(`added sandbox connection ${v.name.trim()}`);
+      setF({ key: "" });
       reload();
       onClose();
     } catch (e) {
@@ -325,10 +334,10 @@ function SbxDrawer({ open, onClose, reload }: { open: boolean; onClose: () => vo
   return (
     <Drawer open={open} title="new sandbox connection" onClose={onClose}>
       <div className="small comment pretty">an opensandbox endpoint and the image to start. the hub creates one sandbox instance (live container) per agent from it, automatically, on the first run.</div>
-      <Field label="name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="local-opensandbox" /></Field>
-      <Field label="domain · empty = OPENSANDBOX_DOMAIN from .env"><input className="input" value={f.domain} onChange={(e) => setF({ ...f, domain: e.target.value })} placeholder="http://localhost:8090" /></Field>
-      <Field label="image · empty = SANDBOX_IMAGE from .env"><input className="input" value={f.image} onChange={(e) => setF({ ...f, image: e.target.value })} placeholder="opensandbox/base" /></Field>
-      <Field label="api key · empty = OPENSANDBOX_API_KEY from .env"><input className="input" type="password" value={f.key} onChange={(e) => setF({ ...f, key: e.target.value })} /></Field>
+      <Field label="name"><input className="input" value={v.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="local-opensandbox" /></Field>
+      <Field label="domain · prefilled from OPENSANDBOX_DOMAIN in .env"><input className="input" value={v.domain} onChange={(e) => setF({ ...f, domain: e.target.value })} placeholder="localhost:8090" /></Field>
+      <Field label="image · prefilled from SANDBOX_IMAGE in .env"><input className="input" value={v.image} onChange={(e) => setF({ ...f, image: e.target.value })} placeholder="git-agent/sandbox:strix" /></Field>
+      <Field label={`api key · empty = OPENSANDBOX_API_KEY from .env${dflt?.sandboxApiKeySet ? " (set)" : " (not set)"}`}><input className="input" type="password" value={f.key} onChange={(e) => setF({ ...f, key: e.target.value })} placeholder={dflt?.sandboxApiKeySet ? "leave empty to use .env key" : ""} /></Field>
       <button className="btn lg primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={submit}>❯ add connection</button>
     </Drawer>
   );

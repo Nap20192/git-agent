@@ -332,6 +332,22 @@ paths:
       summary: Удалить LLM-подключение
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses: { "204": { description: ok } }
+  /api/defaults:
+    get:
+      summary: Дефолты пустых полей форм (зеркало .env; ключи — только факт наличия)
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  llmApiBase: { type: string }
+                  llmModel: { type: string }
+                  sandboxDomain: { type: string }
+                  sandboxImage: { type: string }
+                  sandboxApiKeySet: { type: boolean }
+                  limits: { type: object, additionalProperties: true }
   /api/connections/sandbox:
     get:
       summary: Sandbox-подключения (ключи маской)

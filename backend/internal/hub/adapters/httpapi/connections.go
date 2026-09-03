@@ -147,3 +147,16 @@ func (s *Server) deleteSandboxConnection(w http.ResponseWriter, r *http.Request)
 	}
 	return noContent(w)
 }
+
+// GET /api/defaults — чем hub заполняет пустые поля при создании (зеркало .env),
+// чтобы формы фронта показывали их заранее; ключ не отдаём, только факт наличия.
+func (s *Server) getDefaults(w http.ResponseWriter, _ *http.Request) error {
+	return respond(w, http.StatusOK, map[string]any{
+		"llmApiBase":       s.Defaults.LlmAPIBase,
+		"llmModel":         s.Defaults.LlmModel,
+		"sandboxDomain":    s.Defaults.SandboxDomain,
+		"sandboxImage":     s.Defaults.SandboxImage,
+		"sandboxApiKeySet": s.Defaults.SandboxAPIKey != "",
+		"limits":           domain.DefaultLimits,
+	})
+}

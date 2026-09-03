@@ -44,6 +44,10 @@ export function useSandboxConnections() {
   const api = useHubApi();
   return useAsync(() => api.listSandboxConnections(), []);
 }
+export function useDefaults() {
+  const api = useHubApi();
+  return useAsync(() => api.getDefaults(), []);
+}
 export function useInstances() {
   const api = useHubApi();
   return useAsync(() => api.listInstances(), []);
