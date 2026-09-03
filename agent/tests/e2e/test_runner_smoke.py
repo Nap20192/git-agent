@@ -157,13 +157,13 @@ def test_event_to_finding_end_to_end(monkeypatch):
         executor = EventExecutor(
             store=store,
             checkpointer=None,
-            provision_sandbox=lambda ctx: _provision(),
+            connect_sandbox=lambda ctx: _connect(),
             decrypt=lambda enc: "k" if enc is not None else None,
             make_model=lambda **kw: ToolFakeModel(messages=iter(script)),
         )
 
-        async def _provision():
-            return FakeSandbox(), False
+        async def _connect():
+            return FakeSandbox()
 
         service = RunnerService(
             store=store,

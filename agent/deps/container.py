@@ -78,7 +78,7 @@ async def runner_deps():
     from infra.db.postgres import close_async_pool, close_pool
     from infra.hub_client import HttpHubClient
     from infra.rabbit import consume_events
-    from infra.sandbox.sandboxes import provision_hub_sandbox
+    from infra.sandbox.sandboxes import connect_hub_sandbox
 
     store = HubInstanceStore()
     hub = HttpHubClient(hub_url=settings.hub_url, token=settings.runner_token)
@@ -91,7 +91,7 @@ async def runner_deps():
         executor=EventExecutor(
             store=store,
             checkpointer=checkpointer,
-            provision_sandbox=lambda ctx: provision_hub_sandbox(store, ctx, decrypt_key),
+            connect_sandbox=lambda ctx: connect_hub_sandbox(ctx, decrypt_key),
             decrypt=decrypt_key,
         ),
         name=settings.runner_name,

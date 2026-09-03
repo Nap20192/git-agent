@@ -8,7 +8,12 @@ from dataclasses import dataclass, field
 
 from core.runner.events import Event
 from core.runner.executor import EventExecutor
-from core.runner.ports import ClaimResult, HubClient, InstanceStore
+from core.runner.ports import (
+    ClaimResult,
+    HubClient,
+    InstanceStore,
+    SandboxNotProvisionedError,
+)
 from pkg.logger import get_logger
 
 log = get_logger(__name__)
@@ -157,7 +162,13 @@ class RunnerService:
             if ctx is None:
                 log.warning("instance context missing", instance_id=event.instance_id)
                 return "dropped"
-            await self._executor.process_event(ctx, event)
+            try:
+                await self._executor.process_event(ctx, event)
+            except SandboxNotProvisionedError as exc:
+                # песочницу создаёт юзер в UI; без неё Событие не обрабатываем
+                # (processed_at не ставится — ре-публикация доисполнит после создания)
+                log.warning("sandbox not provisioned, event dropped", reason=str(exc))
+                return "dropped"
             await self._store.mark_processed(event.instance_id, event.dedup_key)
             raised.touch()
         return "processed"

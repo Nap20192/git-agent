@@ -48,6 +48,8 @@ export function PlaygroundScreen() {
   const [activity, setActivity] = useState<ActivityLine[]>([]);
   const [triggering, setTriggering] = useState(false);
   const [triggerError, setTriggerError] = useState<string | null>(null);
+  const [sandboxBusy, setSandboxBusy] = useState(false);
+  const [sandboxError, setSandboxError] = useState<string | null>(null);
 
   // Poll everything the screen shows. reload identities change every render,
   // so the interval reads them through a ref instead of re-arming.
@@ -95,6 +97,43 @@ export function PlaygroundScreen() {
   const findings = [...(findingsQ.data ?? [])].reverse();
   const reportFor = (e: RepoEvent): Report | undefined => reports.find((r) => r.eventId === e.id);
   const running = inst.status === "running";
+
+  // Песочницу создаёт юзер: hub зовёт OpenSandbox (no-TTL) по подключению
+  // Сборки и привязывает Экземпляр; раннер только подключается по externalId.
+  const sandboxAlive = inst.sandboxInstanceId != null && inst.sandboxStatus === "alive";
+  const createSandbox = async () => {
+    const connId = build?.sandboxConnectionId;
+    if (connId == null) {
+      setSandboxError("Сборка has no sandbox connection — set one on the Builds screen.");
+      return;
+    }
+    setSandboxBusy(true);
+    setSandboxError(null);
+    try {
+      const si = await api.createSandboxInstance({ sandboxConnectionId: connId });
+      await api.setInstanceSandbox(inst.id, si.id);
+      setActivity((a) => [...a, { at: new Date(), text: `sandbox created → ${si.externalId}` }]);
+      instQ.reload();
+    } catch (err) {
+      setSandboxError(err instanceof Error ? err.message : "sandbox create failed");
+    } finally {
+      setSandboxBusy(false);
+    }
+  };
+  const killSandbox = async () => {
+    if (inst.sandboxInstanceId == null) return;
+    setSandboxBusy(true);
+    setSandboxError(null);
+    try {
+      await api.killSandboxInstance(inst.sandboxInstanceId);
+      setActivity((a) => [...a, { at: new Date(), text: `sandbox killed → ${inst.sandboxExternalId ?? `#${inst.sandboxInstanceId}`}` }]);
+      instQ.reload();
+    } catch (err) {
+      setSandboxError(err instanceof Error ? err.message : "sandbox kill failed");
+    } finally {
+      setSandboxBusy(false);
+    }
+  };
 
   const runAgent = async () => {
     setTriggering(true);
@@ -162,7 +201,14 @@ export function PlaygroundScreen() {
           <div className={styles.statusItem}>
             <span className={styles.statusLabel}>sandbox</span>
             <span className={styles.statusValue}>
-              {inst.sandboxInstanceId != null ? <span className={styles.mono}>#{inst.sandboxInstanceId}</span> : "none"}
+              {inst.sandboxInstanceId != null ? (
+                <>
+                  <span className={`${styles.presenceDot} ${sandboxAlive ? styles.awake : styles.asleep}`} />
+                  <span className={styles.mono}>{inst.sandboxExternalId ?? `#${inst.sandboxInstanceId}`}</span>
+                </>
+              ) : (
+                "none"
+              )}
             </span>
           </div>
           <div className={styles.statusItem}>
@@ -258,6 +304,46 @@ export function PlaygroundScreen() {
           </div>
 
           <div className={styles.rail}>
+            <Panel>
+              <PanelHeader
+                icon="▣"
+                title="ПЕСОЧНИЦА"
+                right={
+                  inst.sandboxInstanceId != null ? (
+                    <Badge tone={sandboxAlive ? "text" : "burnt"}>{inst.sandboxStatus ?? "?"}</Badge>
+                  ) : undefined
+                }
+              />
+              {instQ.loading && inst.sandboxInstanceId == null ? (
+                <div className={styles.panelEmpty}>loading…</div>
+              ) : sandboxAlive ? (
+                <div className={styles.panelBody}>
+                  <p className={styles.panelNote}>
+                    <span className={styles.mono}>{inst.sandboxExternalId}</span> — alive, no-TTL. The
+                    runner only connects to it; killing it stops Событие processing until a new one is
+                    created.
+                  </p>
+                  <Button disabled={sandboxBusy} onClick={killSandbox}>
+                    {sandboxBusy ? "Killing…" : "✕ Убить песочницу"}
+                  </Button>
+                </div>
+              ) : (
+                <div className={styles.panelBody}>
+                  <p className={styles.panelNote}>
+                    {inst.sandboxInstanceId != null
+                      ? `Previous sandbox ${inst.sandboxExternalId ?? ""} is dead. Событиям нужна живая песочница — create a new one.`
+                      : "No sandbox yet. The agent cannot process События until you create one (the runner never creates sandboxes itself)."}
+                  </p>
+                  <Button variant="primary" disabled={sandboxBusy} onClick={createSandbox}>
+                    {sandboxBusy
+                      ? "Creating…"
+                      : `+ Создать песочницу${build ? ` (connection #${build.sandboxConnectionId ?? "—"})` : ""}`}
+                  </Button>
+                </div>
+              )}
+              {sandboxError && <p className={styles.error}>{sandboxError}</p>}
+            </Panel>
+
             <InstanceChatPanel
               instanceId={inst.id}
               agentLabel={build?.name}

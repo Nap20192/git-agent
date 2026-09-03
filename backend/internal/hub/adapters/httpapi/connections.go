@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 	"github.com/vnkjd/git-agent/backend/pkg/secrets"
@@ -51,6 +52,9 @@ func (h *ConnectionsHandler) CreateLlm(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
+	// TrimSpace: ' localhost:8090' в домене превращается в 'http://%20…' — чистим на входе
+	req.Name, req.APIBase = strings.TrimSpace(req.Name), strings.TrimSpace(req.APIBase)
+	req.APIKey, req.Model = strings.TrimSpace(req.APIKey), strings.TrimSpace(req.Model)
 	if req.Name == "" || req.APIBase == "" || req.APIKey == "" || req.Model == "" {
 		http.Error(w, `{"error":"name, apiBase, apiKey and model are required"}`, http.StatusBadRequest)
 		return
@@ -111,6 +115,16 @@ func (h *ConnectionsHandler) CreateSandbox(w http.ResponseWriter, r *http.Reques
 	}
 	if !decodeBody(w, r, &req) {
 		return
+	}
+	req.Name, req.Domain = strings.TrimSpace(req.Name), strings.TrimSpace(req.Domain)
+	if req.APIKey != nil {
+		*req.APIKey = strings.TrimSpace(*req.APIKey)
+	}
+	if req.Image != nil {
+		*req.Image = strings.TrimSpace(*req.Image)
+		if *req.Image == "" {
+			req.Image = nil
+		}
 	}
 	if req.Name == "" || req.Domain == "" {
 		http.Error(w, `{"error":"name and domain are required"}`, http.StatusBadRequest)

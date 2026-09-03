@@ -17,6 +17,7 @@ import type {
   Repository,
   Runner,
   SandboxConnection,
+  SandboxInstance,
   Subscription,
 } from "./contract.ts";
 import { UnauthorizedError, type HubApi } from "./client.ts";
@@ -75,6 +76,16 @@ const events: Record<number, RepoEvent[]> = {
     { id: 1, provider: "github", action: "push", commitSha: "c0ffee123456", ref: "refs/heads/main", receivedAt: iso(60 * 20) },
   ],
   2: [{ id: 4, provider: "gitlab", action: "push", commitSha: "abc123def456", ref: "refs/heads/main", receivedAt: iso(60 * 2) }],
+};
+
+// Песочницы создаёт юзер (hub зовёт OpenSandbox, no-TTL); раннер только подключается.
+const sandboxInstances: SandboxInstance[] = [
+  { id: 11, externalId: "sbx-a1b2c3d4", sandboxConnectionId: 1, status: "alive", createdAt: iso(60 * 24), killedAt: null },
+];
+
+const withSandbox = (i: AgentInstance): AgentInstance => {
+  const si = sandboxInstances.find((s) => s.id === i.sandboxInstanceId);
+  return { ...i, sandboxExternalId: si?.externalId ?? null, sandboxStatus: si?.status ?? null };
 };
 
 const instances: AgentInstance[] = [
@@ -282,7 +293,6 @@ export function createMockHubApi(): HubApi {
       for (const inst of raised) {
         inst.status = "running";
         inst.runnerId = 1;
-        inst.sandboxInstanceId ??= nextId++;
         inst.updatedAt = new Date().toISOString();
         setTimeout(() => {
           if (Math.random() < 0.4) {
@@ -310,7 +320,7 @@ export function createMockHubApi(): HubApi {
           });
         }, 12_000);
       }
-      return { event, instances: raised.map((i) => ({ ...i })) };
+      return { event, instances: raised.map(withSandbox) };
     },
 
     async listSubscriptions(repositoryId) {
@@ -404,16 +414,56 @@ export function createMockHubApi(): HubApi {
       if (i >= 0) sandboxConnections.splice(i, 1);
     },
 
+    async listSandboxInstances() {
+      await delay();
+      authed();
+      return sandboxInstances.map((s) => ({ ...s }));
+    },
+    async createSandboxInstance({ sandboxConnectionId }) {
+      await delay(600);
+      authed();
+      if (!sandboxConnections.some((c) => c.id === sandboxConnectionId))
+        throw new Error("404 sandbox connection not found");
+      const si: SandboxInstance = {
+        id: nextId++,
+        externalId: `sbx-${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0")}`,
+        sandboxConnectionId,
+        status: "alive",
+        createdAt: new Date().toISOString(),
+        killedAt: null,
+      };
+      sandboxInstances.push(si);
+      return { ...si };
+    },
+    async killSandboxInstance(id) {
+      await delay(400);
+      const si = sandboxInstances.find((s) => s.id === id);
+      if (!si) throw new Error("404 sandbox instance not found");
+      si.status = "dead";
+      si.killedAt = new Date().toISOString();
+    },
+    async setInstanceSandbox(instanceId, sandboxInstanceId) {
+      await delay();
+      const inst = instances.find((i) => i.id === instanceId);
+      if (!inst) throw new Error("404 instance not found");
+      if (!sandboxInstances.some((s) => s.id === sandboxInstanceId))
+        throw new Error("409 unknown sandbox instance");
+      inst.sandboxInstanceId = sandboxInstanceId;
+      inst.updatedAt = new Date().toISOString();
+    },
+
     async listInstances(repositoryId) {
       await delay();
       authed();
-      return instances.filter((i) => repositoryId == null || i.repositoryId === repositoryId);
+      return instances
+        .filter((i) => repositoryId == null || i.repositoryId === repositoryId)
+        .map(withSandbox);
     },
     async getInstance(id) {
       await delay();
       const inst = instances.find((i) => i.id === id);
       if (!inst) throw new Error("404 instance not found");
-      return { ...inst };
+      return withSandbox(inst);
     },
     async stopInstance(id) {
       await delay(400);

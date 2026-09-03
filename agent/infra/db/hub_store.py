@@ -117,32 +117,6 @@ class HubInstanceStore:
         async with pool.connection() as conn:
             return await (await conn.execute(_CONTEXT_SQL, (instance_id,))).fetchone()
 
-    async def link_sandbox(
-        self, instance_id: int, *, external_id: str, sandbox_connection_id: int
-    ) -> None:
-        pool = await get_async_pool()
-        async with pool.connection() as conn:
-            row = await (
-                await conn.execute(
-                    "INSERT INTO hub.sandbox_instances (external_id, sandbox_connection_id)"
-                    " VALUES (%s, %s) RETURNING id",
-                    (external_id, sandbox_connection_id),
-                )
-            ).fetchone()
-            await conn.execute(
-                "UPDATE hub.agent_instances SET sandbox_instance_id = %s, updated_at = now()"
-                " WHERE id = %s",
-                (row["id"], instance_id),
-            )
-
-    async def mark_sandbox_dead(self, sandbox_instance_id: int) -> None:
-        pool = await get_async_pool()
-        async with pool.connection() as conn:
-            await conn.execute(
-                "UPDATE hub.sandbox_instances SET status = 'dead', killed_at = now() WHERE id = %s",
-                (sandbox_instance_id,),
-            )
-
     async def add_report(self, instance_id: int, *, event_id: int | None, summary: str) -> int:
         pool = await get_async_pool()
         async with pool.connection() as conn:

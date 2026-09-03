@@ -24,8 +24,9 @@ log = get_logger(__name__)
 
 _HOSTS = {"github": "github.com", "gitlab": "gitlab.com"}
 
-# провижининг песочницы Экземпляра: (ctx) -> (sandbox, reused); собирается в deps
-SandboxProvision = Callable[[dict[str, Any]], Awaitable[tuple[Sandbox, bool]]]
+# подключение к УЖЕ созданной юзером песочнице Экземпляра (по external_id);
+# раннер песочницы не создаёт и не убивает — жизненным циклом рулит hub
+SandboxConnect = Callable[[dict[str, Any]], Awaitable[Sandbox]]
 
 
 def repo_url(ctx: dict[str, Any]) -> str:
@@ -102,13 +103,13 @@ class EventExecutor:
         *,
         store: InstanceStore,
         checkpointer: Any,
-        provision_sandbox: SandboxProvision,
+        connect_sandbox: SandboxConnect,
         decrypt: Callable[[bytes | None], str | None],
         make_model: Callable[..., Any] = make_model,
     ) -> None:
         self._store = store
         self._checkpointer = checkpointer
-        self._provision = provision_sandbox
+        self._connect = connect_sandbox
         self._decrypt = decrypt
         self._make_model = make_model
 
@@ -131,13 +132,13 @@ class EventExecutor:
         return graph, profile
 
     async def process_event(self, ctx: dict[str, Any], event: Event) -> None:
-        sandbox, reused = await self._provision(ctx)
+        sandbox = await self._connect(ctx)
         try:
-            from core.repo import advance_repo, prepare_repo
+            from core.repo import advance_repo, prepare_repo, repo_present
 
-            if not reused:
+            if not await repo_present(sandbox):
                 await prepare_repo(sandbox, repo_url(ctx), checkout_ref=event.commit_sha)
-            elif event.commit_sha:  # reuse: без переклона, только продвинуть на коммит
+            elif event.commit_sha:  # репо уже есть: без переклона, только продвинуть
                 await advance_repo(sandbox, event.commit_sha)
             graph, profile = self._graph(ctx, sandbox, event.event_id)
             config = {"configurable": {"thread_id": ctx["thread_id"]}, **profile.run_config}
@@ -153,7 +154,7 @@ class EventExecutor:
         """Ход чата в тред Экземпляра; yield (mode, serialized chunk)."""
         from core.runtime.serialization import serialize
 
-        sandbox, _reused = await self._provision(ctx)
+        sandbox = await self._connect(ctx)
         try:
             graph, profile = self._graph(ctx, sandbox, None)
             config = {"configurable": {"thread_id": ctx["thread_id"]}, **profile.run_config}

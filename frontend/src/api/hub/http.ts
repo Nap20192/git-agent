@@ -70,6 +70,16 @@ export function createHttpHubApi(): HubApi {
     createSandboxConnection: (input) => req("/connections/sandbox", { method: "POST", body: JSON.stringify(input) }),
     deleteSandboxConnection: (id) => req(`/connections/sandbox/${id}`, { method: "DELETE" }),
 
+    listSandboxInstances: () => req("/sandbox-instances"),
+    createSandboxInstance: (input) =>
+      req("/sandbox-instances", { method: "POST", body: JSON.stringify(input) }),
+    killSandboxInstance: (id) => req(`/sandbox-instances/${id}`, { method: "DELETE" }),
+    setInstanceSandbox: (instanceId, sandboxInstanceId) =>
+      req(`/instances/${instanceId}/sandbox`, {
+        method: "POST",
+        body: JSON.stringify({ sandboxInstanceId }),
+      }),
+
     listInstances: (repositoryId) =>
       req(`/instances${repositoryId != null ? `?repositoryId=${repositoryId}` : ""}`),
     getInstance: (id) => req(`/instances/${id}`),

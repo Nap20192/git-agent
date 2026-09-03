@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 from core.ports import Sandbox
-from core.runner.ports import InstanceStore
+from core.runner.ports import SandboxNotProvisionedError
 from infra.db.postgres import get_pool
 from infra.sandbox.instances import (
     alive_instance_for_run,
@@ -69,33 +69,24 @@ async def provision_sandbox(
     return sandbox, False
 
 
-async def provision_hub_sandbox(
-    store: InstanceStore,
+async def connect_hub_sandbox(
     ctx: dict[str, Any],
     decrypt: Callable[[bytes | None], str | None],
-) -> tuple[Sandbox, bool]:
-    """Песочница Экземпляра Агента из sandbox connection Сборки (hub.*).
+) -> Sandbox:
+    """Подключиться к Экземпляру Сэндбокса, привязанному к Экземпляру Агента.
 
-    Reconnect к живому Экземпляру Сэндбокса, иначе новый + запись/линк в hub;
-    неудачный reconnect метит старый dead. decrypt — расшифровщик *_enc.
+    Песочницы создаёт и убивает hub по команде юзера; раннер ТОЛЬКО подключается
+    по external_id. Нет живого Экземпляра — SandboxNotProvisionedError, Событие
+    не обрабатывается. decrypt — расшифровщик *_enc.
     """
-    domain = ctx["sandbox_domain"]
-    api_key = decrypt(ctx["sandbox_api_key_enc"])
-    if ctx.get("sandbox_external_id") and ctx.get("sandbox_status") == "alive":
-        try:
-            sandbox = await connect_sandbox(
-                ctx["sandbox_external_id"], domain=domain, api_key=api_key
-            )
-            log.info("hub sandbox reused", external_id=ctx["sandbox_external_id"])
-            return sandbox, True
-        except Exception:
-            log.warning(
-                "hub sandbox reconnect failed, creating fresh",
-                external_id=ctx["sandbox_external_id"],
-            )
-            await store.mark_sandbox_dead(ctx["sandbox_instance_id"])
-    sandbox = await create_opensandbox(ctx.get("sandbox_image"), domain=domain, api_key=api_key)
-    await store.link_sandbox(
-        ctx["id"], external_id=sandbox.id, sandbox_connection_id=ctx["sandbox_connection_id"]
+    if not ctx.get("sandbox_external_id") or ctx.get("sandbox_status") != "alive":
+        raise SandboxNotProvisionedError(
+            f"instance {ctx['id']}: sandbox not provisioned (create it in the hub UI)"
+        )
+    sandbox = await connect_sandbox(
+        ctx["sandbox_external_id"],
+        domain=ctx["sandbox_domain"],
+        api_key=decrypt(ctx["sandbox_api_key_enc"]),
     )
-    return sandbox, False
+    log.info("hub sandbox connected", external_id=ctx["sandbox_external_id"])
+    return sandbox
