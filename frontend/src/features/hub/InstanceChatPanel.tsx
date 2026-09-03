@@ -15,12 +15,15 @@ export function InstanceChatPanel({
   instanceId,
   agentLabel,
   onStatusChange,
+  onActivity,
 }: {
   /** null → the repo has no agent yet; the panel explains instead of failing. */
   instanceId: number | null;
   /** Which watcher's agent this is (its Сборка name). */
   agentLabel?: string;
   onStatusChange?: () => void;
+  /** Fires per activity SSE frame — lets a host screen keep an activity log. */
+  onActivity?: (text: string) => void;
 }) {
   const api = useHubApi();
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -49,7 +52,10 @@ export function InstanceChatPanel({
           reply += e.text;
           setLive((l) => ({ activity: "", ...l, text: reply }));
         }
-        if (e.kind === "activity" && e.text) setLive((l) => ({ text: reply, ...l, activity: e.text! }));
+        if (e.kind === "activity" && e.text) {
+          setLive((l) => ({ text: reply, ...l, activity: e.text! }));
+          onActivity?.(e.text);
+        }
       });
       setTurns((t) => [...t, { role: "agent", text: reply }]);
       onStatusChange?.(); // chat may have woken a down instance

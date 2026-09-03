@@ -75,6 +75,8 @@ export function createHttpHubApi(): HubApi {
     listInstanceReports: (id) => req(`/instances/${id}/reports`),
     listInstanceFindings: (id) => req(`/instances/${id}/findings`),
 
+    listRunners: () => req("/runners"),
+
     async chat(instanceId, message, onEvent) {
       const res = await fetch(`${BASE}/instances/${instanceId}/chat`, {
         method: "POST",

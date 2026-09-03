@@ -109,6 +109,11 @@ export function RepoScreen() {
           <Badge tone={repo.provider === "github" ? "text" : "burnt"}>{repo.provider}</Badge>
           <AgentPresence instance={activeInstance} />
           <div style={{ flex: 1 }} />
+          {activeInstance && (
+            <Button variant="ghost" onClick={() => navigate(`/instances/${activeInstance.id}`)}>
+              Playground →
+            </Button>
+          )}
           {activeInstance?.status === "running" && (
             <Button variant="ghost" disabled={busy} onClick={putToSleep}>
               Put to sleep
@@ -388,7 +393,7 @@ function InstancePanels({ instance }: { instance: AgentInstance }) {
   );
 }
 
-function FindingRow({ finding: f }: { finding: Finding }) {
+export function FindingRow({ finding: f }: { finding: Finding }) {
   return (
     <div className={styles.findingItem}>
       <div className={styles.findingHead}>

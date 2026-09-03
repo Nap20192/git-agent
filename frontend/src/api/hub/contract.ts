@@ -97,6 +97,15 @@ export interface AgentInstance {
   updatedAt?: string;
 }
 
+/** Раннер — a worker host that raises Экземпляры (slots = capacity). */
+export interface Runner {
+  id: number;
+  name: string;
+  address: string;
+  slots: number;
+  lastHeartbeatAt?: string;
+}
+
 export interface Report {
   id: number;
   instanceId: number;

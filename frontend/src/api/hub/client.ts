@@ -16,6 +16,7 @@ import type {
   RepoEvent,
   Report,
   Repository,
+  Runner,
   SandboxConnection,
   Subscription,
 } from "./contract.ts";
@@ -75,4 +76,7 @@ export interface HubApi {
   listInstanceFindings(id: number): Promise<Finding[]>;
   /** Streams the agent's reply; resolves when the stream ends. */
   chat(instanceId: number, message: string, onEvent: (e: ChatEvent) => void): Promise<void>;
+
+  // Раннеры (UI/debug view)
+  listRunners(): Promise<Runner[]>;
 }

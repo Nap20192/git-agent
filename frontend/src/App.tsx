@@ -5,6 +5,7 @@ import { HubGate } from "@/features/hub/HubGate.tsx";
 import { AccountScreen } from "@/features/hub/AccountScreen.tsx";
 import { RepositoriesScreen } from "@/features/hub/RepositoriesScreen.tsx";
 import { RepoScreen } from "@/features/hub/RepoScreen.tsx";
+import { PlaygroundScreen } from "@/features/hub/PlaygroundScreen.tsx";
 import { BuildsScreen } from "@/features/hub/BuildsScreen.tsx";
 import { AppShell } from "@/components/layout/AppShell.tsx";
 import { DEFAULT_SCREEN } from "@/app/screens.ts";
@@ -36,6 +37,7 @@ const router = createBrowserRouter([
         children: [
           { path: "repos", element: <RepositoriesScreen /> },
           { path: "repos/:id", element: <RepoScreen /> },
+          { path: "instances/:id", element: <PlaygroundScreen /> },
           { path: "builds", element: <BuildsScreen /> },
           { path: "account", element: <AccountScreen /> },
         ],

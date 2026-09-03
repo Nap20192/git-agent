@@ -15,6 +15,7 @@ import type {
   RepoEvent,
   Report,
   Repository,
+  Runner,
   SandboxConnection,
   Subscription,
 } from "./contract.ts";
@@ -132,7 +133,45 @@ const findings: Record<number, Finding[]> = {
   2: [],
 };
 
+const runners: Runner[] = [
+  { id: 1, name: "runner-local", address: "127.0.0.1:9090", slots: 4, lastHeartbeatAt: iso(0) },
+];
+
 let nextId = 100;
+
+/* Живая лента: repo 1 gets a fresh push Событие every ~40s of wall time, and
+   its running agent files a report for it shortly after — so the Playground
+   timeline visibly moves on mocks. */
+let lastLiveAt = Date.now();
+function tickLiveFeed(): void {
+  const now = Date.now();
+  if (now - lastLiveAt < 40_000) return;
+  lastLiveAt = now;
+  const sha = Math.floor(Math.random() * 0xffffffffffff)
+    .toString(16)
+    .padStart(12, "0");
+  const event: RepoEvent = {
+    id: nextId++,
+    provider: "github",
+    action: "push",
+    commitSha: sha,
+    ref: "refs/heads/main",
+    receivedAt: new Date().toISOString(),
+  };
+  events[1] = [event, ...(events[1] ?? [])];
+  const inst = instances.find((i) => i.repositoryId === 1 && i.status === "running");
+  if (inst) {
+    setTimeout(() => {
+      (reports[inst.id] ??= []).unshift({
+        id: nextId++,
+        instanceId: inst.id,
+        eventId: event.id,
+        summary: `Push ${sha.slice(0, 7)}: reviewed, no new findings.`,
+        createdAt: new Date().toISOString(),
+      });
+    }, 15_000);
+  }
+}
 
 function authed(): void {
   if (!me) throw new UnauthorizedError();
@@ -213,6 +252,7 @@ export function createMockHubApi(): HubApi {
     },
     async listRepositoryEvents(id) {
       await delay();
+      tickLiveFeed();
       return [...(events[id] ?? [])];
     },
 
@@ -333,6 +373,12 @@ export function createMockHubApi(): HubApi {
     async listInstanceFindings(id) {
       await delay();
       return [...(findings[id] ?? [])];
+    },
+
+    async listRunners() {
+      await delay();
+      authed();
+      return runners.map((r) => ({ ...r, lastHeartbeatAt: new Date().toISOString() }));
     },
 
     async chat(instanceId, message, onEvent) {
