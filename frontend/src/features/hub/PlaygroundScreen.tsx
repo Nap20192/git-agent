@@ -16,7 +16,8 @@ import {
   useRepoEvents,
   useRunners,
 } from "@/hooks";
-import { Badge, Panel, PanelHeader } from "@/components/primitives";
+import { useHubApi } from "@/api/hub";
+import { Badge, Button, Panel, PanelHeader } from "@/components/primitives";
 import { InstanceChatPanel } from "./InstanceChatPanel.tsx";
 import { FindingRow } from "./RepoScreen.tsx";
 import styles from "./hub.module.css";
@@ -32,6 +33,7 @@ export function PlaygroundScreen() {
   const { id: idParam } = useParams();
   const id = Number(idParam);
   const navigate = useNavigate();
+  const api = useHubApi();
 
   const instQ = useInstance(id);
   const inst = instQ.data;
@@ -44,6 +46,8 @@ export function PlaygroundScreen() {
   const reportsQ = useInstanceReports(id);
 
   const [activity, setActivity] = useState<ActivityLine[]>([]);
+  const [triggering, setTriggering] = useState(false);
+  const [triggerError, setTriggerError] = useState<string | null>(null);
 
   // Poll everything the screen shows. reload identities change every render,
   // so the interval reads them through a ref instead of re-arming.
@@ -92,6 +96,23 @@ export function PlaygroundScreen() {
   const reportFor = (e: RepoEvent): Report | undefined => reports.find((r) => r.eventId === e.id);
   const running = inst.status === "running";
 
+  const runAgent = async () => {
+    setTriggering(true);
+    setTriggerError(null);
+    try {
+      const res = await api.triggerRepository(inst.repositoryId);
+      setActivity((a) => [
+        ...a,
+        { at: new Date(), text: `manual trigger → Событие #${res.event.id} @ ${res.event.commitSha?.slice(0, 8) ?? "HEAD"}` },
+      ]);
+      reloadRef.current();
+    } catch (err) {
+      setTriggerError(err instanceof Error ? err.message : "trigger failed");
+    } finally {
+      setTriggering(false);
+    }
+  };
+
   return (
     <div className={styles.screen}>
       <div className={styles.inner}>
@@ -104,7 +125,12 @@ export function PlaygroundScreen() {
             {build?.name ?? `Экземпляр #${inst.id}`}
           </h1>
           {repo && <Badge tone={repo.provider === "github" ? "text" : "burnt"}>{repo.provider}</Badge>}
+          <div style={{ flex: 1 }} />
+          <Button variant="primary" disabled={triggering} onClick={runAgent}>
+            {triggering ? "Triggering…" : "▶ Run agent"}
+          </Button>
         </div>
+        {triggerError && <p className={styles.error}>{triggerError}</p>}
         <p className={styles.blurb}>
           Live view of this agent: what arrives, what it does, what it finds. Everything refreshes on its own.
         </p>

@@ -17,6 +17,7 @@ import type {
   Report,
   Repository,
   Runner,
+  TriggerResult,
   SandboxConnection,
   Subscription,
 } from "./contract.ts";
@@ -45,6 +46,8 @@ export interface HubApi {
   setRepositoryBuild(id: number, buildId: number): Promise<Repository>;
   disconnectRepository(id: number): Promise<void>;
   listRepositoryEvents(id: number): Promise<RepoEvent[]>;
+  /** Manual agent run — same path as a webhook push. Empty input = HEAD of the default branch. */
+  triggerRepository(id: number, input?: { ref?: string; commitSha?: string }): Promise<TriggerResult>;
 
   // Подписки — which Сборки watch a repo (upsert per build+repo pair)
   listSubscriptions(repositoryId: number): Promise<Subscription[]>;

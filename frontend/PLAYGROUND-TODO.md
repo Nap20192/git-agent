@@ -24,5 +24,10 @@
    неточно, если раннер обслуживает чужих пользователей. Нужно поле
    `busySlots` (или аналог) в `GET /api/runners`.
 
-5. **Стрим статуса Экземпляра.** Вместо 5s-поллинга `GET /api/instances/{id}` —
+5. **Контракт trigger в openapi.yaml.** Фронт уже дёргает
+   `POST /api/repositories/{id}/trigger` (тело `{ref?, commitSha?}`, 202 →
+   `{event, instances}` — см. `TriggerResult` в contract.ts). Форма ответа
+   согласована устно — сверить с openapi.yaml, когда бэкенд-коммит приедет.
+
+6. **Стрим статуса Экземпляра.** Вместо 5s-поллинга `GET /api/instances/{id}` —
    SSE/WebSocket с переходами down↔running (+runnerId, sandboxInstanceId).

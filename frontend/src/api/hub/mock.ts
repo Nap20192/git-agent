@@ -256,6 +256,63 @@ export function createMockHubApi(): HubApi {
       return [...(events[id] ?? [])];
     },
 
+    async triggerRepository(id, input) {
+      await delay(300);
+      authed();
+      const repo = repositories.find((r) => r.id === id);
+      if (!repo) throw new Error("404 repository not found");
+      const sha =
+        input?.commitSha ??
+        Math.floor(Math.random() * 0xffffffffffff)
+          .toString(16)
+          .padStart(12, "0");
+      const event: RepoEvent = {
+        id: nextId++,
+        provider: repo.provider,
+        action: "manual_trigger",
+        commitSha: sha,
+        ref: `refs/heads/${input?.ref ?? repo.defaultBranch ?? "main"}`,
+        receivedAt: new Date().toISOString(),
+      };
+      events[id] = [event, ...(events[id] ?? [])];
+      // Same fan-out as a webhook push: wake the repo's Экземпляры, then a
+      // report (and sometimes a finding) lands a little later — the Playground
+      // poll picks the progress up.
+      const raised = instances.filter((i) => i.repositoryId === id);
+      for (const inst of raised) {
+        inst.status = "running";
+        inst.runnerId = 1;
+        inst.sandboxInstanceId ??= nextId++;
+        inst.updatedAt = new Date().toISOString();
+        setTimeout(() => {
+          if (Math.random() < 0.4) {
+            (findings[inst.id] ??= []).push({
+              id: nextId++,
+              instanceId: inst.id,
+              reportId: null,
+              severity: "low",
+              cwe: "CWE-117",
+              cve: null,
+              file: "pkg/logger.py",
+              lineStart: 12,
+              lineEnd: 12,
+              evidence: "logger.info(f\"user input: {raw}\")",
+              remediation: "Sanitize newlines before logging user-controlled input.",
+              createdAt: new Date().toISOString(),
+            });
+          }
+          (reports[inst.id] ??= []).unshift({
+            id: nextId++,
+            instanceId: inst.id,
+            eventId: event.id,
+            summary: `Manual run @ ${sha.slice(0, 7)}: reviewed the tree, see findings if any.`,
+            createdAt: new Date().toISOString(),
+          });
+        }, 12_000);
+      }
+      return { event, instances: raised.map((i) => ({ ...i })) };
+    },
+
     async listSubscriptions(repositoryId) {
       await delay();
       authed();
