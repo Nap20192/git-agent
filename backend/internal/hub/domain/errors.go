@@ -20,6 +20,9 @@ var (
 	ErrTimeout = errors.New("timeout")
 	// ErrInvalid — невалидный ввод: 400, текст обёртки уходит клиенту.
 	ErrInvalid = errors.New("invalid")
+	// ErrUnprocessable — ввод синтаксически верен, но неприменим: чужой репо
+	// приватен/не существует (тикет 015): 422, текст обёртки уходит клиенту.
+	ErrUnprocessable = errors.New("unprocessable")
 	// ErrUpstream — внешняя система (провайдер, Раннер, OpenSandbox) не
 	// ответила или ответила ошибкой: 502, текст обёртки уходит клиенту.
 	ErrUpstream = errors.New("upstream")

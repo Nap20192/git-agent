@@ -248,7 +248,7 @@ func (s *Store) Repository(ctx context.Context, id, userID int64) (*domain.Repos
 
 func (s *Store) CreateRepository(ctx context.Context, r *domain.Repository) (int64, error) {
 	return s.q().CreateRepository(ctx, db.CreateRepositoryParams{
-		UserID: r.UserID, IdentityID: r.IdentityID, Provider: r.Provider, ExternalID: r.ExternalID,
+		UserID: r.UserID, IdentityID: r.IdentityID, Mode: r.Mode, Provider: r.Provider, ExternalID: r.ExternalID,
 		Owner: r.Owner, Name: r.Name, DefaultBranch: r.DefaultBranch, WebhookSecretEnc: r.WebhookSecretEnc,
 	})
 }

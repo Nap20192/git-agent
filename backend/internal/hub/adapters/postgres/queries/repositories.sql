@@ -7,7 +7,7 @@ SELECT user_id, owner, name, webhook_secret_enc
 -- build_id — derived: Сборка первой подписки (deprecated wire-поле, тикет 011);
 -- LEFT JOIN на таблицу (не derived) — так sqlc выводит nullable *int64.
 -- name: Repositories :many
-SELECT r.id, r.user_id, r.identity_id, r.provider, r.external_id, r.owner, r.name,
+SELECT r.id, r.user_id, r.identity_id, r.mode, r.provider, r.external_id, r.owner, r.name,
        r.default_branch, r.webhook_provider_id, r.webhook_secret_enc, bs.build_id, r.connected_at
   FROM hub.repositories r
   LEFT JOIN hub.build_subscriptions bs
@@ -15,7 +15,7 @@ SELECT r.id, r.user_id, r.identity_id, r.provider, r.external_id, r.owner, r.nam
  WHERE r.user_id = @user_id ORDER BY r.id;
 
 -- name: Repository :one
-SELECT r.id, r.user_id, r.identity_id, r.provider, r.external_id, r.owner, r.name,
+SELECT r.id, r.user_id, r.identity_id, r.mode, r.provider, r.external_id, r.owner, r.name,
        r.default_branch, r.webhook_provider_id, r.webhook_secret_enc, bs.build_id, r.connected_at
   FROM hub.repositories r
   LEFT JOIN hub.build_subscriptions bs
@@ -24,8 +24,8 @@ SELECT r.id, r.user_id, r.identity_id, r.provider, r.external_id, r.owner, r.nam
 
 -- name: CreateRepository :one
 INSERT INTO hub.repositories
-  (user_id, identity_id, provider, external_id, owner, name, default_branch, webhook_secret_enc)
-VALUES (@user_id, @identity_id, @provider, @external_id, @owner, @name, @default_branch, @webhook_secret_enc)
+  (user_id, identity_id, mode, provider, external_id, owner, name, default_branch, webhook_secret_enc)
+VALUES (@user_id, @identity_id, @mode, @provider, @external_id, @owner, @name, @default_branch, @webhook_secret_enc)
 RETURNING id;
 
 -- name: SetWebhook :exec

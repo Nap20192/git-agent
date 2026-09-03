@@ -47,7 +47,8 @@ func (c *Client) http() *http.Client {
 	return &http.Client{Timeout: 30 * time.Second}
 }
 
-// do — запрос с Bearer-токеном связки; тело ответа декодируется в out (если не nil).
+// do — запрос с Bearer-токеном связки (пустой токен — публичный API без
+// авторизации, тикет 015); тело ответа декодируется в out (если не nil).
 func (c *Client) do(ctx context.Context, token, method, url string, body, out any) error {
 	var reqBody io.Reader
 	if body != nil {
@@ -64,7 +65,9 @@ func (c *Client) do(ctx context.Context, token, method, url string, body, out an
 	if id := trace.FromContext(ctx); id != "" {
 		req.Header.Set(trace.Header, id)
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -77,6 +80,10 @@ func (c *Client) do(ctx context.Context, token, method, url string, body, out an
 	if resp.StatusCode == http.StatusUnauthorized {
 		// сигнал refresh-флоу (тикет 003)
 		return fmt.Errorf("provider %s %s: token rejected (401): %w", method, url, domain.ErrUnauthorized)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		// репо/ветка/хук не существует или невидим без прав — 404 наружу, не 502
+		return fmt.Errorf("provider %s %s: not found (404): %w", method, url, domain.ErrNotFound)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
@@ -167,6 +174,28 @@ func (c *Client) Repo(ctx context.Context, providerName, token, externalID strin
 	case "gitlab":
 		var r gitlabRepo
 		if err := c.do(ctx, token, "GET", c.gitlab()+"/projects/"+url.PathEscape(externalID), nil, &r); err != nil {
+			return nil, err
+		}
+		repo := r.toDomain()
+		return &repo, nil
+	}
+	return nil, fmt.Errorf("unknown provider %q", providerName)
+}
+
+// RepoByPath — репо по owner/name (публичный API при пустом токене, тикет 015).
+func (c *Client) RepoByPath(ctx context.Context, providerName, token, owner, name string) (*domain.ProviderRepo, error) {
+	switch providerName {
+	case "github":
+		var r githubRepo
+		u := fmt.Sprintf("%s/repos/%s/%s", c.github(), url.PathEscape(owner), url.PathEscape(name))
+		if err := c.do(ctx, token, "GET", u, nil, &r); err != nil {
+			return nil, err
+		}
+		repo := r.toDomain()
+		return &repo, nil
+	case "gitlab":
+		var r gitlabRepo
+		if err := c.do(ctx, token, "GET", c.gitlab()+"/projects/"+url.PathEscape(owner+"/"+name), nil, &r); err != nil {
 			return nil, err
 		}
 		repo := r.toDomain()

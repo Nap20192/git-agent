@@ -12,14 +12,15 @@ import (
 
 const createRepository = `-- name: CreateRepository :one
 INSERT INTO hub.repositories
-  (user_id, identity_id, provider, external_id, owner, name, default_branch, webhook_secret_enc)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+  (user_id, identity_id, mode, provider, external_id, owner, name, default_branch, webhook_secret_enc)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING id
 `
 
 type CreateRepositoryParams struct {
 	UserID           int64
-	IdentityID       int64
+	IdentityID       *int64
+	Mode             string
 	Provider         string
 	ExternalID       string
 	Owner            string
@@ -32,6 +33,7 @@ func (q *Queries) CreateRepository(ctx context.Context, arg CreateRepositoryPara
 	row := q.db.QueryRow(ctx, createRepository,
 		arg.UserID,
 		arg.IdentityID,
+		arg.Mode,
 		arg.Provider,
 		arg.ExternalID,
 		arg.Owner,
@@ -170,7 +172,7 @@ func (q *Queries) FindRepository(ctx context.Context, arg FindRepositoryParams) 
 }
 
 const repositories = `-- name: Repositories :many
-SELECT r.id, r.user_id, r.identity_id, r.provider, r.external_id, r.owner, r.name,
+SELECT r.id, r.user_id, r.identity_id, r.mode, r.provider, r.external_id, r.owner, r.name,
        r.default_branch, r.webhook_provider_id, r.webhook_secret_enc, bs.build_id, r.connected_at
   FROM hub.repositories r
   LEFT JOIN hub.build_subscriptions bs
@@ -181,7 +183,8 @@ SELECT r.id, r.user_id, r.identity_id, r.provider, r.external_id, r.owner, r.nam
 type RepositoriesRow struct {
 	ID                int64
 	UserID            int64
-	IdentityID        int64
+	IdentityID        *int64
+	Mode              string
 	Provider          string
 	ExternalID        string
 	Owner             string
@@ -208,6 +211,7 @@ func (q *Queries) Repositories(ctx context.Context, userID int64) ([]Repositorie
 			&i.ID,
 			&i.UserID,
 			&i.IdentityID,
+			&i.Mode,
 			&i.Provider,
 			&i.ExternalID,
 			&i.Owner,
@@ -229,7 +233,7 @@ func (q *Queries) Repositories(ctx context.Context, userID int64) ([]Repositorie
 }
 
 const repository = `-- name: Repository :one
-SELECT r.id, r.user_id, r.identity_id, r.provider, r.external_id, r.owner, r.name,
+SELECT r.id, r.user_id, r.identity_id, r.mode, r.provider, r.external_id, r.owner, r.name,
        r.default_branch, r.webhook_provider_id, r.webhook_secret_enc, bs.build_id, r.connected_at
   FROM hub.repositories r
   LEFT JOIN hub.build_subscriptions bs
@@ -245,7 +249,8 @@ type RepositoryParams struct {
 type RepositoryRow struct {
 	ID                int64
 	UserID            int64
-	IdentityID        int64
+	IdentityID        *int64
+	Mode              string
 	Provider          string
 	ExternalID        string
 	Owner             string
@@ -264,6 +269,7 @@ func (q *Queries) Repository(ctx context.Context, arg RepositoryParams) (Reposit
 		&i.ID,
 		&i.UserID,
 		&i.IdentityID,
+		&i.Mode,
 		&i.Provider,
 		&i.ExternalID,
 		&i.Owner,

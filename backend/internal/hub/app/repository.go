@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
@@ -56,7 +58,8 @@ func (s *RepositoryService) Connect(ctx context.Context, userID, identityID int6
 
 	repo := &domain.Repository{
 		UserID:           userID,
-		IdentityID:       identityID,
+		IdentityID:       &identityID,
+		Mode:             "hook",
 		Provider:         ident.Provider,
 		ExternalID:       pr.ExternalID,
 		Owner:            pr.Owner,
@@ -101,6 +104,98 @@ func (s *RepositoryService) Connect(ctx context.Context, userID, identityID int6
 	return repo, nil
 }
 
+// ParseRepoURL — https://github.com/{owner}/{repo} | https://gitlab.com/{group}/{repo}
+// → (provider, owner, name); ErrInvalid на всё остальное. Вложенные группы
+// GitLab (a/b/c) — owner "a/b".
+func ParseRepoURL(raw string) (provider, owner, name string, err error) {
+	u, perr := url.Parse(strings.TrimSpace(raw))
+	if perr != nil || u.Scheme != "https" {
+		return "", "", "", domain.Invalid("url must be https://github.com/{owner}/{repo} or https://gitlab.com/{group}/{repo}")
+	}
+	switch u.Host {
+	case "github.com", "www.github.com":
+		provider = "github"
+	case "gitlab.com", "www.gitlab.com":
+		provider = "gitlab"
+	default:
+		return "", "", "", domain.Invalid("unsupported host " + u.Host + " (github.com or gitlab.com)")
+	}
+	path := strings.Trim(strings.TrimSuffix(strings.Trim(u.Path, "/"), ".git"), "/")
+	i := strings.LastIndex(path, "/")
+	if i <= 0 || i == len(path)-1 || (provider == "github" && strings.Count(path, "/") != 1) {
+		return "", "", "", domain.Invalid("url must point at a repository: https://" + u.Host + "/{owner}/{repo}")
+	}
+	return provider, path[:i], path[i+1:], nil
+}
+
+// ConnectPublic — режим watch (тикет 015): чужой публичный репо по URL,
+// проверка публичным API без токена, хука и связки нет — запуск только руками.
+// Приватный/несуществующий — ErrUnprocessable (422).
+func (s *RepositoryService) ConnectPublic(ctx context.Context, userID int64, rawURL string, buildID *int64) (*domain.Repository, error) {
+	providerName, owner, name, err := ParseRepoURL(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	pr, err := s.Provider.RepoByPath(ctx, providerName, "", owner, name)
+	if errors.Is(err, domain.ErrNotFound) || (err == nil && pr.Private) {
+		return nil, fmt.Errorf("repository is private or not found: %w", domain.ErrUnprocessable)
+	}
+	if err != nil {
+		return nil, err
+	}
+	repo := &domain.Repository{
+		UserID: userID, Mode: "watch", Provider: providerName,
+		ExternalID: pr.ExternalID, Owner: pr.Owner, Name: pr.Name, DefaultBranch: pr.DefaultBranch,
+	}
+	if repo.ID, err = s.Repos.CreateRepository(ctx, repo); err != nil {
+		return nil, err
+	}
+	if buildID != nil {
+		if _, err := s.Subs.UpsertSubscription(ctx, &domain.BuildSubscription{BuildID: *buildID, RepositoryID: repo.ID}); err != nil {
+			if delErr := s.Repos.DeleteRepository(ctx, repo.ID); delErr != nil {
+				trace.Logger(ctx).Errorw("repository: rollback after subscription failure", "repositoryId", repo.ID, "err", delErr)
+			}
+			return nil, err
+		}
+		repo.BuildID = buildID
+	}
+	return repo, nil
+}
+
+// identityFor — связка для вызовов провайдера от имени Репозитория: своя
+// (hook) либо любая связка юзера того же провайдера (watch — ради лимитов
+// API); nil — ходить публичным API без токена.
+func (s *RepositoryService) identityFor(ctx context.Context, repo *domain.Repository, userID int64) (*domain.Identity, error) {
+	if repo.IdentityID != nil {
+		ident, err := s.Identities.Identity(ctx, *repo.IdentityID, userID)
+		if err != nil || ident != nil {
+			return ident, err
+		}
+		if repo.Mode == "hook" {
+			return nil, fmt.Errorf("identity %d of the repository is gone: %w", *repo.IdentityID, domain.ErrNotFound)
+		}
+	}
+	list, err := s.Identities.Identities(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		if list[i].Provider == repo.Provider {
+			return &list[i], nil
+		}
+	}
+	return nil, nil
+}
+
+// callAs — fn с токеном связки (refresh-флоу внутри) либо с пустым токеном,
+// когда связки нет (публичный API).
+func (s *RepositoryService) callAs(ctx context.Context, ident *domain.Identity, fn func(token string) error) error {
+	if ident == nil {
+		return fn("")
+	}
+	return s.Auth.CallWithToken(ctx, ident, fn)
+}
+
 // Disconnect снимает хук у провайдера (best effort: хук мог уже исчезнуть —
 // подключение всё равно удаляем) и удаляет Репозиторий (События каскадом).
 func (s *RepositoryService) Disconnect(ctx context.Context, id, userID int64) error {
@@ -111,8 +206,8 @@ func (s *RepositoryService) Disconnect(ctx context.Context, id, userID int64) er
 	if repo == nil {
 		return domain.ErrNotFound
 	}
-	if repo.WebhookProviderID != nil {
-		if ident, err := s.Identities.Identity(ctx, repo.IdentityID, userID); err == nil && ident != nil {
+	if repo.WebhookProviderID != nil && repo.IdentityID != nil {
+		if ident, err := s.Identities.Identity(ctx, *repo.IdentityID, userID); err == nil && ident != nil {
 			err := s.Auth.CallWithToken(ctx, ident, func(token string) error {
 				return s.Provider.DeleteHook(ctx, repo.Provider, token, repo, *repo.WebhookProviderID)
 			})
@@ -154,14 +249,11 @@ func (s *RepositoryService) Trigger(ctx context.Context, userID, id int64, ref, 
 		if ref == "" {
 			return nil, fmt.Errorf("trigger: ref is required (default branch unknown): %w", domain.ErrConflict)
 		}
-		ident, err := s.Identities.Identity(ctx, repo.IdentityID, userID)
+		ident, err := s.identityFor(ctx, repo, userID)
 		if err != nil {
 			return nil, err
 		}
-		if ident == nil {
-			return nil, fmt.Errorf("identity %d of the repository is gone: %w", repo.IdentityID, domain.ErrNotFound)
-		}
-		if err := s.Auth.CallWithToken(ctx, ident, func(token string) error {
+		if err := s.callAs(ctx, ident, func(token string) error {
 			var err error
 			commitSHA, err = s.Provider.BranchHead(ctx, repo.Provider, token, repo, ref)
 			return err

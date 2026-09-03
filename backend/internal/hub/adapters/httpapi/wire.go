@@ -56,6 +56,7 @@ var errStatus = []struct {
 	{domain.ErrUnauthorized, http.StatusUnauthorized, "unauthorized", "unauthorized"},
 	{domain.ErrNotFound, http.StatusNotFound, "not_found", "not found"},
 	{domain.ErrConflict, http.StatusConflict, "conflict", "conflict"},
+	{domain.ErrUnprocessable, http.StatusUnprocessableEntity, "unprocessable", "unprocessable"},
 	{domain.ErrUpstream, http.StatusBadGateway, "upstream", "upstream service failed"},
 	{domain.ErrUnavailable, http.StatusServiceUnavailable, "unavailable", "provider is not configured (set *_OAUTH_CLIENT_ID/SECRET in .env)"},
 	{domain.ErrTimeout, http.StatusGatewayTimeout, "timeout", "runner did not start streaming in time (queued too long)"},

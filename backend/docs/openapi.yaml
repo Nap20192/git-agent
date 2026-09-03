@@ -87,16 +87,25 @@ paths:
             application/json:
               schema: { type: array, items: { $ref: "#/components/schemas/Repository" } }
     post:
-      summary: Подключить репозиторий (создаёт webhook у провайдера)
+      summary: Подключить репозиторий
+      description: |
+        Два способа (тикет 015):
+        - `{identityId, externalId}` — свой репо через связку, hub ставит webhook (`mode: hook`);
+        - `{url}` — чужой публичный репо по `https://github.com/{owner}/{repo}` /
+          `https://gitlab.com/{group}/{repo}`: проверка публичным API без токена,
+          хук не ставится, запуск только руками (`mode: watch`).
       requestBody:
         content:
           application/json:
             schema:
               type: object
-              required: [identityId, externalId]
+              oneOf:
+                - required: [identityId, externalId]
+                - required: [url]
               properties:
                 identityId: { type: integer }
                 externalId: { type: string }
+                url: { type: string, format: uri, description: "watch: URL публичного репозитория" }
                 buildId:
                   type: [integer, "null"]
                   deprecated: true
@@ -104,6 +113,8 @@ paths:
       responses:
         "201":
           content: { application/json: { schema: { $ref: "#/components/schemas/Repository" } } }
+        "400": { description: "ни одной формы тела / URL не github.com|gitlab.com/{owner}/{repo}" }
+        "422": { description: "watch: repository is private or not found" }
   /api/repositories/{id}:
     patch:
       summary: Привязать Сборку (deprecated — используй подписки)
@@ -142,7 +153,7 @@ paths:
         полный security-аудит) и прогоняет его тем же fan-out, что
         и вебхук (подписки → Экземпляры → outbox). commitSha не задан —
         резолвится HEAD ref (по умолчанию — default-ветки) через API
-        провайдера. Повторный запуск на том же коммите в том же режиме
+        провайдера (watch-репо без связки — публичным API без токена). Повторный запуск на том же коммите в том же режиме
         идемпотентен (duplicate=true, ничего не создаётся); dedup-ключ
         full-режима — "full-"+sha, полный скан возможен и на уже
         разобранном коммите.
@@ -597,10 +608,14 @@ components:
         private: { type: boolean }
     Repository:
       type: object
-      required: [id, provider, owner, name, identityId]
+      required: [id, mode, provider, owner, name, identityId]
       properties:
         id: { type: integer }
-        identityId: { type: integer }
+        identityId: { type: [integer, "null"], description: "null у watch-репо (связки нет)" }
+        mode:
+          type: string
+          enum: [hook, watch]
+          description: "hook — свой репо, webhook ставит hub; watch — чужой публичный, без хука, запуск руками (тикет 015)"
         provider: { type: string, enum: [github, gitlab] }
         externalId: { type: string }
         owner: { type: string }

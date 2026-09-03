@@ -23,7 +23,8 @@ type Event struct {
 type Repository struct {
 	ID                int64
 	UserID            int64
-	IdentityID        int64
+	IdentityID        *int64 // nil у watch-репо (тикет 015)
+	Mode              string // hook | watch
 	Provider          string
 	ExternalID        string
 	Owner             string

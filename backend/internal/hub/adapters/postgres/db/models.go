@@ -130,7 +130,7 @@ type HubReport struct {
 type HubRepository struct {
 	ID                int64
 	UserID            int64
-	IdentityID        int64
+	IdentityID        *int64
 	Provider          string
 	ExternalID        string
 	Owner             string
@@ -139,6 +139,7 @@ type HubRepository struct {
 	WebhookProviderID *string
 	WebhookSecretEnc  []byte
 	ConnectedAt       time.Time
+	Mode              string
 }
 
 type HubRunner struct {

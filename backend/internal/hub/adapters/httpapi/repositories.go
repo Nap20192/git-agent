@@ -13,7 +13,8 @@ const eventsPageLimit = 100
 
 type repositoryDTO struct {
 	ID            int64     `json:"id"`
-	IdentityID    int64     `json:"identityId"`
+	IdentityID    *int64    `json:"identityId"` // null у watch-репо
+	Mode          string    `json:"mode"`       // hook | watch (тикет 015)
 	Provider      string    `json:"provider"`
 	ExternalID    string    `json:"externalId"`
 	Owner         string    `json:"owner"`
@@ -25,7 +26,7 @@ type repositoryDTO struct {
 
 func toRepositoryDTO(r domain.Repository) repositoryDTO {
 	return repositoryDTO{
-		ID: r.ID, IdentityID: r.IdentityID, Provider: r.Provider, ExternalID: r.ExternalID,
+		ID: r.ID, IdentityID: r.IdentityID, Mode: r.Mode, Provider: r.Provider, ExternalID: r.ExternalID,
 		Owner: r.Owner, Name: r.Name, DefaultBranch: r.DefaultBranch,
 		BuildID: r.BuildID, ConnectedAt: r.ConnectedAt,
 	}
@@ -67,20 +68,28 @@ func (s *Server) listRepositories(w http.ResponseWriter, r *http.Request) error 
 	return respond(w, http.StatusOK, mapSlice(list, toRepositoryDTO))
 }
 
-// POST /api/repositories.
+// POST /api/repositories — {identityId, externalId} (mode=hook, хук ставит hub)
+// либо {url} (mode=watch: чужой публичный репо, без хука; тикет 015).
 func (s *Server) connectRepository(w http.ResponseWriter, r *http.Request) error {
 	var req struct {
 		IdentityID int64  `json:"identityId"`
 		ExternalID string `json:"externalId"`
+		URL        string `json:"url"`
 		BuildID    *int64 `json:"buildId"`
 	}
 	if err := decode(r, &req); err != nil {
 		return err
 	}
-	if req.IdentityID == 0 || req.ExternalID == "" {
-		return domain.Invalid("identityId and externalId are required")
+	var repo *domain.Repository
+	var err error
+	switch {
+	case req.URL != "":
+		repo, err = s.Repositories.ConnectPublic(r.Context(), userID(r), req.URL, req.BuildID)
+	case req.IdentityID != 0 && req.ExternalID != "":
+		repo, err = s.Repositories.Connect(r.Context(), userID(r), req.IdentityID, req.ExternalID, req.BuildID)
+	default:
+		return domain.Invalid("either {identityId, externalId} or {url} is required")
 	}
-	repo, err := s.Repositories.Connect(r.Context(), userID(r), req.IdentityID, req.ExternalID, req.BuildID)
 	if err != nil {
 		return err
 	}

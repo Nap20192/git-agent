@@ -182,10 +182,12 @@ type AuthStore interface {
 type ProviderClient interface {
 	Repos(ctx context.Context, provider, token string) ([]ProviderRepo, error)
 	Repo(ctx context.Context, provider, token, externalID string) (*ProviderRepo, error)
+	// RepoByPath — репо по owner/name; пустой token — публичный API без авторизации (тикет 015).
+	RepoByPath(ctx context.Context, provider, token, owner, name string) (*ProviderRepo, error)
 	// CreateHook вешает вебхук на все действия; возвращает id хука у провайдера.
 	CreateHook(ctx context.Context, provider, token string, repo ProviderRepo, url, secret string) (string, error)
 	DeleteHook(ctx context.Context, provider, token string, repo *Repository, hookID string) error
-	// BranchHead — sha HEAD-коммита ветки/тега (ручной запуск, тикет trigger).
+	// BranchHead — sha HEAD-коммита ветки/тега (ручной запуск); пустой token — публичный API.
 	BranchHead(ctx context.Context, provider, token string, repo *Repository, ref string) (string, error)
 }
 
