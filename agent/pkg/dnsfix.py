@@ -13,14 +13,18 @@ from functools import cache
 _orig_getaddrinfo = socket.getaddrinfo
 
 
-def _passthrough(host: object) -> bool:
+def _name(host: object) -> str | None:
+    """Имя для прямого резолва; None — отдать системному getaddrinfo (IP, localhost,
+    имя без точки). httpx/anyio передаёт host БАЙТАМИ (IDNA) — декодируем."""
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "ignore")
     if not isinstance(host, str) or not host or "." not in host or host == "localhost":
-        return True
+        return None
     try:
         ipaddress.ip_address(host)
-        return True
+        return None
     except ValueError:
-        return False
+        return host.rstrip(".")
 
 
 def install(server: str) -> None:
@@ -43,9 +47,10 @@ def install(server: str) -> None:
             return ()
 
     def getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        if _passthrough(host) or family not in (0, socket.AF_INET):
+        name = _name(host)
+        if name is None or family not in (0, socket.AF_INET):
             return _orig_getaddrinfo(host, port, family, type, proto, flags)
-        ips = _ips(host.rstrip("."))
+        ips = _ips(name)
         if not ips:
             return _orig_getaddrinfo(host, port, family, type, proto, flags)
         socktype = type or socket.SOCK_STREAM
