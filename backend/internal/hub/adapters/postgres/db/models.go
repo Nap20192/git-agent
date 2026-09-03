@@ -75,18 +75,31 @@ type HubEvent struct {
 }
 
 type HubFinding struct {
-	ID          int64
-	InstanceID  int64
-	ReportID    *int64
-	Severity    string
-	CWE         *string
-	CVE         *string
-	File        *string
-	LineStart   *int
-	LineEnd     *int
-	Evidence    *string
-	Remediation *string
-	CreatedAt   time.Time
+	ID                 int64
+	InstanceID         int64
+	ReportID           *int64
+	Severity           string
+	CWE                *string
+	CVE                *string
+	File               *string
+	LineStart          *int
+	LineEnd            *int
+	Evidence           *string
+	Remediation        *string
+	CreatedAt          time.Time
+	Title              *string
+	Description        *string
+	Impact             *string
+	Confidence         *string
+	Category           *string
+	References         json.RawMessage
+	BlameAuthor        *string
+	BlameEmail         *string
+	BlameCommit        *string
+	BlameDate          *time.Time
+	BlameCommitMessage *string
+	IntroducedBy       *string
+	EventID            *int64
 }
 
 type HubIdentity struct {
@@ -133,6 +146,7 @@ type HubReport struct {
 	EventID    *int64
 	Summary    string
 	CreatedAt  time.Time
+	Structured json.RawMessage
 }
 
 type HubRepository struct {

@@ -440,8 +440,8 @@ func (s *Store) Reports(ctx context.Context, instanceID int64) ([]domain.Report,
 	return mapRows(rows, err, func(r db.HubReport) domain.Report { return domain.Report(r) })
 }
 
-func (s *Store) Findings(ctx context.Context, instanceID int64) ([]domain.Finding, error) {
-	rows, err := s.q().Findings(ctx, instanceID)
+func (s *Store) Findings(ctx context.Context, f domain.FindingFilter) ([]domain.Finding, error) {
+	rows, err := s.q().Findings(ctx, db.FindingsParams(f))
 	return mapRows(rows, err, func(r db.HubFinding) domain.Finding { return domain.Finding(r) })
 }
 

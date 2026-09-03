@@ -27,6 +27,11 @@ sql:
           # changed_files — сырой JSON-массив путей, отдаётся в DTO как есть
           - column: "hub.events.changed_files"
             go_type: { import: "encoding/json", type: "RawMessage" }
+          # findings.references ([]string) и reports.structured — jsonb как есть
+          - column: "hub.findings.references"
+            go_type: { import: "encoding/json", type: "RawMessage" }
+          - column: "hub.reports.structured"
+            go_type: { import: "encoding/json", type: "RawMessage" }
           - db_type: "timestamptz"
             go_type: "time.Time"
           - db_type: "timestamptz"
