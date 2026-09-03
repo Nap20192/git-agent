@@ -31,6 +31,8 @@ func newLogger(level zapcore.Level) *zap.Logger {
 		cfg = zap.NewProductionConfig()
 	}
 	cfg.Level = zap.NewAtomicLevelAt(level)
+	// стек — у паник (Recover) и Fatal, не у каждой обработанной ошибки: иначе 502 выглядит как крэш
+	cfg.DisableStacktrace = true
 	return zap.Must(cfg.Build())
 }
 

@@ -166,7 +166,7 @@ func Logging(next http.Handler) http.Handler {
 		fields := []any{"method", r.Method, "path", r.URL.Path, "status", sw.status,
 			"duration_ms", time.Since(start).Milliseconds(), "remote", r.RemoteAddr}
 		if sw.status >= 500 {
-			log.Errorw("http", fields...)
+			log.Warnw("http", fields...) // причину уже залогировал хендлер — тут только факт 5xx
 		} else {
 			log.Infow("http", fields...)
 		}
