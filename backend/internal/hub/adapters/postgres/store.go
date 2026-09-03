@@ -44,10 +44,10 @@ func (s *Store) Find(ctx context.Context, id int64, provider string) (*domain.Re
 // + веер (тикет 011): upsert Экземпляра каждой Сборки из buildIDs, журнал
 // instance_events, строка outbox на каждый Экземпляр (контракт тикета 010 —
 // в сообщении готовые instanceId/threadId). Ноль Сборок — только журнал.
-func (s *Store) Ingest(ctx context.Context, repo *domain.Repository, e domain.Event, payload []byte, buildIDs []int64) (bool, error) {
+func (s *Store) Ingest(ctx context.Context, repo *domain.Repository, e domain.Event, payload []byte, buildIDs []int64) (bool, []int64, error) {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	defer tx.Rollback(ctx)
 
@@ -60,12 +60,13 @@ func (s *Store) Ingest(ctx context.Context, repo *domain.Repository, e domain.Ev
 		repo.Provider, e.DeliveryID, repo.ID, e.Action, e.CommitSHA, e.Ref, payload,
 	).Scan(&eventID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return true, nil
+		return true, nil, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("insert event: %w", err)
+		return false, nil, fmt.Errorf("insert event: %w", err)
 	}
 
+	var instanceIDs []int64
 	routingKey := domain.RoutingKey(repo.Provider, repo.ID, e.Action)
 	for _, buildID := range buildIDs {
 		var instanceID int64
@@ -78,23 +79,24 @@ func (s *Store) Ingest(ctx context.Context, repo *domain.Repository, e domain.Ev
 			buildID, repo.ID, fmt.Sprintf("hub-%d-%d", buildID, repo.ID),
 		).Scan(&instanceID, &threadID)
 		if err != nil {
-			return false, fmt.Errorf("upsert instance (build %d): %w", buildID, err)
+			return false, nil, fmt.Errorf("upsert instance (build %d): %w", buildID, err)
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO hub.instance_events (instance_id, event_id, dedup_key)
 			 VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
 			instanceID, eventID, domain.DedupKey(eventID, e),
 		); err != nil {
-			return false, fmt.Errorf("insert instance event: %w", err)
+			return false, nil, fmt.Errorf("insert instance event: %w", err)
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO hub.outbox (event_id, routing_key, payload) VALUES ($1, $2, $3)`,
 			eventID, routingKey, domain.EventMessage(eventID, instanceID, threadID, repo, e),
 		); err != nil {
-			return false, fmt.Errorf("insert outbox: %w", err)
+			return false, nil, fmt.Errorf("insert outbox: %w", err)
 		}
+		instanceIDs = append(instanceIDs, instanceID)
 	}
-	return false, tx.Commit(ctx)
+	return false, instanceIDs, tx.Commit(ctx)
 }
 
 func (s *Store) Unpublished(ctx context.Context, limit int) ([]domain.OutboxMessage, error) {

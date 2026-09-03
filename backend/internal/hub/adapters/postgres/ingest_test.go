@@ -52,12 +52,15 @@ func TestIngestFanOut(t *testing.T) {
 	repo, builds := seedRepo(t, db, 2)
 
 	e := domain.Event{DeliveryID: "d-1", Action: "push", CommitSHA: "abc", Ref: "refs/heads/main"}
-	dup, err := store.Ingest(ctx, repo, e, []byte(`{}`), builds)
+	dup, instanceIDs, err := store.Ingest(ctx, repo, e, []byte(`{}`), builds)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if dup {
 		t.Fatal("first delivery marked duplicate")
+	}
+	if len(instanceIDs) != 2 {
+		t.Fatalf("instanceIDs: %v, want 2", instanceIDs)
 	}
 
 	var instances, journal int
@@ -97,7 +100,7 @@ func TestIngestFanOut(t *testing.T) {
 	}
 
 	// дубль доставки: ни Экземпляров, ни outbox сверх прежнего
-	dup, err = store.Ingest(ctx, repo, e, []byte(`{}`), builds)
+	dup, _, err = store.Ingest(ctx, repo, e, []byte(`{}`), builds)
 	if err != nil || !dup {
 		t.Fatalf("dup=%v err=%v", dup, err)
 	}
@@ -118,7 +121,7 @@ func TestIngestNoBuilds(t *testing.T) {
 	repo, _ := seedRepo(t, db, 0)
 
 	e := domain.Event{DeliveryID: "d-1", Action: "issues"}
-	if _, err := store.Ingest(ctx, repo, e, []byte(`{}`), nil); err != nil {
+	if _, _, err := store.Ingest(ctx, repo, e, []byte(`{}`), nil); err != nil {
 		t.Fatal(err)
 	}
 	var events, outbox int

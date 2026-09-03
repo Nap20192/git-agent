@@ -43,6 +43,7 @@ func NewMux(h Handlers) *http.ServeMux {
 	mux.HandleFunc("PATCH /api/repositories/{id}", s(h.Repositories.Patch))
 	mux.HandleFunc("DELETE /api/repositories/{id}", s(h.Repositories.Disconnect))
 	mux.HandleFunc("GET /api/repositories/{id}/events", s(h.Repositories.Events))
+	mux.HandleFunc("POST /api/repositories/{id}/trigger", s(h.Repositories.Trigger))
 	mux.HandleFunc("GET /api/repositories/{id}/subscriptions", s(h.Subscriptions.List))
 	mux.HandleFunc("POST /api/repositories/{id}/subscriptions", s(h.Subscriptions.Create))
 	mux.HandleFunc("DELETE /api/subscriptions/{id}", s(h.Subscriptions.Delete))

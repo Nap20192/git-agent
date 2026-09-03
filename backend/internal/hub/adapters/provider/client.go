@@ -203,6 +203,31 @@ func (c *Client) CreateHook(ctx context.Context, providerName, token string, rep
 	return strconv.FormatInt(out.ID, 10), nil
 }
 
+func (c *Client) BranchHead(ctx context.Context, providerName, token string, repo *domain.Repository, ref string) (string, error) {
+	switch providerName {
+	case "github":
+		var out struct {
+			SHA string `json:"sha"`
+		}
+		u := fmt.Sprintf("%s/repos/%s/%s/commits/%s",
+			c.github(), url.PathEscape(repo.Owner), url.PathEscape(repo.Name), url.PathEscape(ref))
+		if err := c.do(ctx, token, "GET", u, nil, &out); err != nil {
+			return "", err
+		}
+		return out.SHA, nil
+	case "gitlab":
+		var out struct {
+			ID string `json:"id"`
+		}
+		u := c.gitlab() + "/projects/" + url.PathEscape(repo.ExternalID) + "/repository/commits/" + url.PathEscape(ref)
+		if err := c.do(ctx, token, "GET", u, nil, &out); err != nil {
+			return "", err
+		}
+		return out.ID, nil
+	}
+	return "", fmt.Errorf("unknown provider %q", providerName)
+}
+
 func (c *Client) DeleteHook(ctx context.Context, providerName, token string, repo *domain.Repository, hookID string) error {
 	switch providerName {
 	case "github":

@@ -124,6 +124,40 @@ paths:
             application/json:
               schema: { type: array, items: { $ref: "#/components/schemas/Event" } }
 
+  /api/repositories/{id}/trigger:
+    post:
+      summary: Запустить агента вручную (без вебхука)
+      description: >
+        Синтезирует Событие action=manual и прогоняет его тем же fan-out, что
+        и вебхук (подписки → Экземпляры → outbox). commitSha не задан —
+        резолвится HEAD ref (по умолчанию — default-ветки) через API
+        провайдера. Повторный запуск на том же коммите идемпотентен
+        (duplicate=true, ничего не создаётся).
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ref: { type: string, description: ветка/тег; пусто = default-ветка }
+                commitSha: { type: string, description: явный коммит; пусто = HEAD ref }
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [commitSha, duplicate, instanceIds]
+                properties:
+                  commitSha: { type: string }
+                  duplicate: { type: boolean }
+                  instanceIds:
+                    type: array
+                    items: { type: integer }
+                    description: затронутые Экземпляры (пуст при duplicate или без подписок)
+
   /api/repositories/{id}/subscriptions:
     get:
       summary: Подписки Сборок на события репозитория (тикет 011)

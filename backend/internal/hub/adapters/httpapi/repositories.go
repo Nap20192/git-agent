@@ -1,6 +1,9 @@
 package httpapi
 
 import (
+	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/app"
@@ -100,6 +103,39 @@ func (h *RepositoriesHandler) Disconnect(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Trigger — POST /api/repositories/{id}/trigger: ручной запуск агента.
+// Тело необязательно ({ref?, commitSha?}); пустое — HEAD default-ветки.
+func (h *RepositoriesHandler) Trigger(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Ref       string `json:"ref"`
+		CommitSHA string `json:"commitSha"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, `{"error":"bad json"}`, http.StatusBadRequest)
+		return
+	}
+	res, err := h.Service.Trigger(r.Context(), userID(r), id, req.Ref, req.CommitSHA)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, triggerResultDTO{
+		CommitSHA:   res.CommitSHA,
+		Duplicate:   res.Duplicate,
+		InstanceIDs: append([]int64{}, res.InstanceIDs...), // [] вместо null в JSON
+	})
+}
+
+type triggerResultDTO struct {
+	CommitSHA   string  `json:"commitSha"`
+	Duplicate   bool    `json:"duplicate"`
+	InstanceIDs []int64 `json:"instanceIds"`
 }
 
 // Events — GET /api/repositories/{id}/events.

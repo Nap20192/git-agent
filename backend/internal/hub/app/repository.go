@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -18,7 +19,8 @@ type RepositoryService struct {
 	Identities     domain.IdentityStore
 	Subs           domain.SubscriptionStore
 	Provider       domain.ProviderClient
-	Auth           *AuthService // токены связок + refresh-флоу
+	Auth           *AuthService    // токены связок + refresh-флоу
+	Webhook        *WebhookService // общий fan-out для ручного запуска
 	Secrets        *secrets.Box
 	WebhookBaseURL string
 }
@@ -119,4 +121,64 @@ func (s *RepositoryService) Disconnect(ctx context.Context, id, userID int64) er
 		}
 	}
 	return s.Repos.DeleteRepository(ctx, id)
+}
+
+// TriggerResult — итог ручного запуска: на каком коммите и какие Экземпляры.
+// Duplicate — этот коммит уже запускали вручную (идемпотентный no-op, как
+// повторная доставка push).
+type TriggerResult struct {
+	CommitSHA   string
+	Duplicate   bool
+	InstanceIDs []int64
+}
+
+// Trigger — ручной запуск агента (без вебхука): резолвит HEAD ветки через
+// API провайдера (если commitSHA не задан), синтезирует Событие action=manual
+// и прогоняет его тем же fan-out, что и вебхук. delivery_id детерминирован
+// по (репо, коммит) — повторный запуск на том же коммите дедупится журналом.
+func (s *RepositoryService) Trigger(ctx context.Context, userID, id int64, ref, commitSHA string) (*TriggerResult, error) {
+	repo, err := s.Repos.Repository(ctx, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	if repo == nil {
+		return nil, domain.ErrNotFound
+	}
+	if ref == "" && repo.DefaultBranch != nil {
+		ref = *repo.DefaultBranch
+	}
+	if commitSHA == "" {
+		if ref == "" {
+			return nil, fmt.Errorf("trigger: ref is required (default branch unknown): %w", domain.ErrConflict)
+		}
+		ident, err := s.Identities.Identity(ctx, repo.IdentityID, userID)
+		if err != nil {
+			return nil, err
+		}
+		if ident == nil {
+			return nil, fmt.Errorf("identity %d: %w", repo.IdentityID, domain.ErrNotFound)
+		}
+		if err := s.Auth.CallWithToken(ctx, ident, func(token string) error {
+			var err error
+			commitSHA, err = s.Provider.BranchHead(ctx, repo.Provider, token, repo, ref)
+			return err
+		}); err != nil {
+			return nil, fmt.Errorf("resolve %q head: %w", ref, err)
+		}
+	}
+
+	e := domain.Event{
+		DeliveryID: fmt.Sprintf("manual-%d-%s", repo.ID, commitSHA),
+		Action:     "manual",
+		CommitSHA:  commitSHA,
+		Ref:        ref,
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"action": "manual", "ref": ref, "commitSha": commitSHA, "userId": userID,
+	})
+	duplicate, instanceIDs, err := s.Webhook.FanOut(ctx, repo, e, payload)
+	if err != nil {
+		return nil, err
+	}
+	return &TriggerResult{CommitSHA: commitSHA, Duplicate: duplicate, InstanceIDs: instanceIDs}, nil
 }
