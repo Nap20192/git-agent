@@ -88,7 +88,7 @@ func TestParseEventGitLabMergeRequest(t *testing.T) {
 	e, ok := parseEvent("gitlab", h,
 		[]byte(`{"object_kind":"merge_request","object_attributes":{"iid":7,"title":"MR","description":"desc","source_branch":"feat",
 			"last_commit":{"id":"c0ffee"},"diff_refs":{"base_sha":"b1","head_sha":"h1"}}}`))
-	if !ok || e.CommitSHA != "c0ffee" || e.Ref != "feat" || e.BaseSHA != "b1" || e.HeadSHA != "h1" ||
+	if !ok || e.CommitSHA != "h1" || e.Ref != "feat" || e.BaseSHA != "b1" || e.HeadSHA != "h1" || // diff_refs.head_sha приоритетнее last_commit
 		e.PRNumber != 7 || e.PRTitle != "MR" || e.PRBody != "desc" {
 		t.Errorf("got %+v ok=%v", e, ok)
 	}
@@ -97,6 +97,32 @@ func TestParseEventGitLabMergeRequest(t *testing.T) {
 		[]byte(`{"object_kind":"merge_request","object_attributes":{"source_branch":"feat","last_commit":{"id":"c0ffee"}}}`))
 	if e.HeadSHA != "c0ffee" || e.BaseSHA != "" {
 		t.Errorf("fallback: got %+v", e)
+	}
+}
+
+// Инвариант контракта раннера: у PR/MR commitSha == headSha и непусто
+// (иначе Событие уйдёт в skipped_no_commit); у push commitSha=after, beforeSha=before.
+func TestParseEventShaInvariant(t *testing.T) {
+	gh := http.Header{"X-Github-Delivery": {"d"}, "X-Github-Event": {"pull_request"}}
+	gl := http.Header{"X-Gitlab-Event-Uuid": {"u"}}
+	for name, tc := range map[string]struct {
+		provider string
+		header   http.Header
+		body     string
+	}{
+		"github pr":             {"github", gh, `{"pull_request":{"head":{"sha":"h1"},"base":{"sha":"b1"}}}`},
+		"gitlab mr diff_refs":   {"gitlab", gl, `{"object_kind":"merge_request","object_attributes":{"last_commit":{"id":"old"},"diff_refs":{"base_sha":"b","head_sha":"h2"}}}`},
+		"gitlab mr last_commit": {"gitlab", gl, `{"object_kind":"merge_request","object_attributes":{"last_commit":{"id":"h3"}}}`},
+	} {
+		e, ok := parseEvent(tc.provider, tc.header, []byte(tc.body))
+		if !ok || e.CommitSHA == "" || e.CommitSHA != e.HeadSHA {
+			t.Errorf("%s: commitSha=%q headSha=%q ok=%v", name, e.CommitSHA, e.HeadSHA, ok)
+		}
+	}
+	e, _ := parseEvent("github", http.Header{"X-Github-Delivery": {"d"}, "X-Github-Event": {"push"}},
+		[]byte(`{"after":"a1","before":"b1"}`))
+	if e.CommitSHA != "a1" || e.BeforeSHA != "b1" {
+		t.Errorf("push: got %+v", e)
 	}
 }
 

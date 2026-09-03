@@ -66,7 +66,7 @@ func parseEvent(provider string, header http.Header, body []byte) (domain.Event,
 				if base, ok := pr["base"].(map[string]any); ok {
 					e.BaseSHA, _ = base["sha"].(string)
 				}
-				e.HeadSHA = e.CommitSHA
+				e.HeadSHA = e.CommitSHA // инвариант контракта раннера: commitSha == headSha
 				e.PRNumber, e.PRTitle, e.PRBody = prMeta(pr, "number", "body")
 			}
 		}
@@ -84,17 +84,18 @@ func parseEvent(provider string, header http.Header, body []byte) (domain.Event,
 			e.ChangedFiles = changedFiles(p)
 		case "merge_request":
 			if attrs, ok := dig(p, "object_attributes"); ok {
+				// инвариант контракта раннера: commitSha == headSha (иначе skipped_no_commit)
 				if last, ok := attrs["last_commit"].(map[string]any); ok {
 					e.CommitSHA, _ = last["id"].(string)
 				}
-				e.Ref, _ = attrs["source_branch"].(string)
-				e.HeadSHA = e.CommitSHA
 				if refs, ok := attrs["diff_refs"].(map[string]any); ok {
 					e.BaseSHA, _ = refs["base_sha"].(string)
 					if head, _ := refs["head_sha"].(string); head != "" {
-						e.HeadSHA = head
+						e.CommitSHA = head
 					}
 				}
+				e.HeadSHA = e.CommitSHA
+				e.Ref, _ = attrs["source_branch"].(string)
 				e.PRNumber, e.PRTitle, e.PRBody = prMeta(attrs, "iid", "description")
 			}
 		}
