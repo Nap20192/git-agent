@@ -29,6 +29,13 @@ class InstanceStore(Protocol):
         """CAS down→running (+runner_id); running у себя — held_by_self."""
         ...
 
+    async def peek_holder(self, instance_id: int, *, runner_id: int) -> ClaimResult:
+        """Читающая проверка без клейма: held_by_other (+адрес) | free | held_by_self | missing.
+
+        Для форварда чужих Событий без ожидания слота; гонку с claim решает CAS.
+        """
+        ...
+
     async def release_instance(self, instance_id: int, *, runner_id: int) -> bool:
         """CAS running→down только при своём runner_id."""
         ...

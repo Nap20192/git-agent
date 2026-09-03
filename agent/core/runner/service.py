@@ -128,26 +128,15 @@ class RunnerService:
         Исключение исполнения пробрасывается (processed_at не ставится — Событие
         доисполнит ре-публикация backend'а).
         """
-        # ponytail: чужое Событие тоже проходит через ожидание слота (слот берётся до
-        # клейма); peek держателя без слота — если задержка форварда станет проблемой
+        # чужое/пропавшее — определяем ДО ожидания слота (peek без клейма);
+        # гонку peek→claim решает CAS: _raise вернёт held_by_other и мы форварднём
+        if event.instance_id not in self._instances:
+            peek = await self._store.peek_holder(event.instance_id, runner_id=self.runner_id)
+            if peek.outcome in ("held_by_other", "missing"):
+                return await self._hand_off(event, peek)
         raised = await self._raise(event.instance_id)
         if isinstance(raised, ClaimResult):
-            if raised.outcome == "held_by_other" and raised.holder_address:
-                ok = await self._hub.forward_event(raised.holder_address, event)
-                if ok:
-                    return "forwarded"
-                log.warning(
-                    "event holder unreachable, dropping until re-publish",
-                    instance_id=event.instance_id,
-                    holder=raised.holder_address,
-                )
-                return "dropped"
-            log.warning(
-                "event for unclaimable instance",
-                instance_id=event.instance_id,
-                outcome=raised.outcome,
-            )
-            return "dropped"
+            return await self._hand_off(event, raised)
         if not await self._store.begin_event(event):
             raised.touch()
             return "duplicate"
@@ -161,6 +150,24 @@ class RunnerService:
             await self._store.mark_processed(event.instance_id, event.dedup_key)
             raised.touch()
         return "processed"
+
+    async def _hand_off(self, event: Event, claim: ClaimResult) -> str:
+        """Событие не наше: форвард держателю либо drop (доисполнит ре-публикация)."""
+        if claim.outcome == "held_by_other" and claim.holder_address:
+            if await self._hub.forward_event(claim.holder_address, event):
+                return "forwarded"
+            log.warning(
+                "event holder unreachable, dropping until re-publish",
+                instance_id=event.instance_id,
+                holder=claim.holder_address,
+            )
+            return "dropped"
+        log.warning(
+            "event for unclaimable instance",
+            instance_id=event.instance_id,
+            outcome=claim.outcome,
+        )
+        return "dropped"
 
     async def chat(self, instance_id: int, message: str):
         """Ход чата в тред Экземпляра; поднимает его при необходимости."""

@@ -76,6 +76,24 @@ class HubInstanceStore:
             return ClaimResult("missing")
         return ClaimResult("held_by_other", holder_address=holder["address"])
 
+    async def peek_holder(self, instance_id: int, *, runner_id: int) -> ClaimResult:
+        pool = await get_async_pool()
+        async with pool.connection() as conn:
+            row = await (
+                await conn.execute(
+                    "SELECT i.status, i.runner_id, r.address FROM hub.agent_instances i"
+                    " LEFT JOIN hub.runners r ON r.id = i.runner_id WHERE i.id = %s",
+                    (instance_id,),
+                )
+            ).fetchone()
+        if row is None:
+            return ClaimResult("missing")
+        if row["status"] != "running":
+            return ClaimResult("free")
+        if row["runner_id"] == runner_id:
+            return ClaimResult("held_by_self")
+        return ClaimResult("held_by_other", holder_address=row["address"])
+
     async def release_instance(self, instance_id: int, *, runner_id: int) -> bool:
         pool = await get_async_pool()
         async with pool.connection() as conn:
