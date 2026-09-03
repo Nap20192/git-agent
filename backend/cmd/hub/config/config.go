@@ -5,17 +5,20 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	DatabaseURL    string
-	RunnerToken    string
-	SecretsKey     []byte // 32 байта AES-256, в env — 64 hex-символа
-	WebhookBaseURL string
-	RabbitMQURL    string
-	Addr           string
+	DatabaseURL      string
+	RunnerToken      string
+	SecretsKey       []byte // 32 байта AES-256, в env — 64 hex-символа
+	WebhookBaseURL   string
+	RabbitMQURL      string
+	Addr             string
+	HeartbeatTimeout time.Duration // раннер без heartbeat дольше — считается мёртвым
 }
 
 // Load читает .env (корень монорепы либо cwd) и собирает конфиг.
@@ -39,6 +42,14 @@ func Load() (*Config, error) {
 	}
 	if c.RabbitMQURL == "" {
 		c.RabbitMQURL = "amqp://guest:guest@localhost:5673/"
+	}
+	c.HeartbeatTimeout = 30 * time.Second
+	if v := os.Getenv("HEARTBEAT_TIMEOUT_SECONDS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return nil, fmt.Errorf("config: HEARTBEAT_TIMEOUT_SECONDS must be a positive integer")
+		}
+		c.HeartbeatTimeout = time.Duration(n) * time.Second
 	}
 	for name, v := range map[string]string{
 		"DATABASE_URL": c.DatabaseURL,

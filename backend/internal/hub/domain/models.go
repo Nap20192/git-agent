@@ -1,0 +1,100 @@
+package domain
+
+import "time"
+
+// Identity — OAuth-связка пользователя (тикет 003).
+type Identity struct {
+	ID             int64
+	UserID         int64
+	Provider       string
+	Username       string
+	AccessTokenEnc []byte
+	CreatedAt      time.Time
+}
+
+// ProviderRepo — репозиторий, видимый связке через API провайдера.
+type ProviderRepo struct {
+	ExternalID    string
+	Owner         string
+	Name          string
+	DefaultBranch *string
+	Private       bool
+}
+
+// EventRecord — строка журнала hub.events.
+type EventRecord struct {
+	ID         int64
+	Provider   string
+	Action     string
+	CommitSHA  *string
+	Ref        *string
+	ReceivedAt time.Time
+}
+
+// AgentBuild — Сборка Агента (CONTEXT.md): хранимое определение, не процесс.
+type AgentBuild struct {
+	ID                  int64
+	UserID              int64
+	Name                string
+	LlmConnectionID     int64
+	SandboxConnectionID int64
+	Prompt              *string
+	MemoryPreset        *string
+	Limits              []byte // JSONB как есть
+	IsDefault           bool
+	CreatedAt           time.Time
+}
+
+type LlmConnection struct {
+	ID        int64
+	UserID    int64
+	Name      string
+	APIBase   string
+	APIKeyEnc []byte
+	Model     string
+	CreatedAt time.Time
+}
+
+type SandboxConnection struct {
+	ID        int64
+	Name      string
+	Domain    string
+	APIKeyEnc []byte // nullable
+	Image     *string
+	CreatedAt time.Time
+}
+
+// AgentInstance — Экземпляр Агента (CONTEXT.md): долгоживущий агент Репозитория.
+type AgentInstance struct {
+	ID                int64
+	BuildID           int64
+	RepositoryID      int64
+	SandboxInstanceID *int64
+	ThreadID          string
+	Status            string // down | running
+	RunnerID          *int64
+	UpdatedAt         time.Time
+}
+
+type Report struct {
+	ID         int64
+	InstanceID int64
+	EventID    *int64
+	Summary    string
+	CreatedAt  time.Time
+}
+
+type Finding struct {
+	ID          int64
+	InstanceID  int64
+	ReportID    *int64
+	Severity    string
+	CWE         *string
+	CVE         *string
+	File        *string
+	LineStart   *int
+	LineEnd     *int
+	Evidence    *string
+	Remediation *string
+	CreatedAt   time.Time
+}

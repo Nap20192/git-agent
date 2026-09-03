@@ -2,12 +2,60 @@ package httpapi
 
 import "net/http"
 
-// NewMux собирает HTTP-поверхность hub из готовых хендлеров.
-func NewMux(webhook *WebhookHandler, runners *RunnersHandler) *http.ServeMux {
+// Handlers — все хендлеры HTTP-поверхности hub (backend/docs/openapi.yaml).
+type Handlers struct {
+	Session      *Session
+	Webhook      *WebhookHandler
+	Runners      *RunnersHandler
+	Identities   *IdentitiesHandler
+	Repositories *RepositoriesHandler
+	Builds       *BuildsHandler
+	Connections  *ConnectionsHandler
+	Instances    *InstancesHandler
+}
+
+// NewMux собирает HTTP-поверхность hub. Пользовательские /api/* — за
+// Session (TODO(auth): пока dev-пропуск), раннерные — за X-Runner-Token,
+// вебхуки — за подписью провайдера.
+func NewMux(h Handlers) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.Handle("POST /hooks/{provider}/{repositoryId}", webhook)
-	mux.HandleFunc("POST /api/runners", runners.Auth(runners.Register))
-	mux.HandleFunc("POST /api/runners/{id}/heartbeat", runners.Auth(runners.Heartbeat))
+	s := h.Session.Wrap
+
+	mux.Handle("POST /hooks/{provider}/{repositoryId}", h.Webhook)
+
+	mux.HandleFunc("POST /api/runners", h.Runners.Auth(h.Runners.Register))
+	mux.HandleFunc("POST /api/runners/{id}/heartbeat", h.Runners.Auth(h.Runners.Heartbeat))
+	mux.HandleFunc("GET /api/runners", s(h.Runners.List))
+
+	mux.HandleFunc("GET /api/identities", s(h.Identities.List))
+	mux.HandleFunc("DELETE /api/identities/{id}", s(h.Identities.Delete))
+	mux.HandleFunc("GET /api/identities/{id}/repos", s(h.Identities.Repos))
+
+	mux.HandleFunc("GET /api/repositories", s(h.Repositories.List))
+	mux.HandleFunc("POST /api/repositories", s(h.Repositories.Connect))
+	mux.HandleFunc("PATCH /api/repositories/{id}", s(h.Repositories.Patch))
+	mux.HandleFunc("DELETE /api/repositories/{id}", s(h.Repositories.Disconnect))
+	mux.HandleFunc("GET /api/repositories/{id}/events", s(h.Repositories.Events))
+
+	mux.HandleFunc("GET /api/builds", s(h.Builds.List))
+	mux.HandleFunc("POST /api/builds", s(h.Builds.Create))
+	mux.HandleFunc("PATCH /api/builds/{id}", s(h.Builds.Patch))
+	mux.HandleFunc("DELETE /api/builds/{id}", s(h.Builds.Delete))
+
+	mux.HandleFunc("GET /api/connections/llm", s(h.Connections.ListLlm))
+	mux.HandleFunc("POST /api/connections/llm", s(h.Connections.CreateLlm))
+	mux.HandleFunc("DELETE /api/connections/llm/{id}", s(h.Connections.DeleteLlm))
+	mux.HandleFunc("GET /api/connections/sandbox", s(h.Connections.ListSandbox))
+	mux.HandleFunc("POST /api/connections/sandbox", s(h.Connections.CreateSandbox))
+	mux.HandleFunc("DELETE /api/connections/sandbox/{id}", s(h.Connections.DeleteSandbox))
+
+	mux.HandleFunc("GET /api/instances", s(h.Instances.List))
+	mux.HandleFunc("GET /api/instances/{id}", s(h.Instances.Get))
+	mux.HandleFunc("GET /api/instances/{id}/reports", s(h.Instances.Reports))
+	mux.HandleFunc("GET /api/instances/{id}/findings", s(h.Instances.Findings))
+	mux.HandleFunc("POST /api/instances/{id}/stop", s(h.Instances.Stop))
+	mux.HandleFunc("POST /api/instances/{id}/chat", s(h.Instances.Chat))
+
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

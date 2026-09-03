@@ -1,0 +1,158 @@
+package httpapi
+
+import (
+	"io"
+	"log/slog"
+	"net/http"
+	"strconv"
+
+	"github.com/vnkjd/git-agent/backend/internal/hub/app"
+	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
+)
+
+// InstancesHandler — Экземпляры Агентов: список/деталь/результаты + операции
+// через Раннер (chat-прокси, stop).
+type InstancesHandler struct {
+	Store   domain.InstanceStore
+	Service *app.InstanceService
+}
+
+// List — GET /api/instances[?repositoryId=].
+func (h *InstancesHandler) List(w http.ResponseWriter, r *http.Request) {
+	var repoID *int64
+	if q := r.URL.Query().Get("repositoryId"); q != "" {
+		id, err := strconv.ParseInt(q, 10, 64)
+		if err != nil {
+			http.Error(w, `{"error":"bad repositoryId"}`, http.StatusBadRequest)
+			return
+		}
+		repoID = &id
+	}
+	list, err := h.Store.Instances(r.Context(), userID(r), repoID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, mapSlice(list, toInstanceDTO))
+}
+
+// Get — GET /api/instances/{id}.
+func (h *InstancesHandler) Get(w http.ResponseWriter, r *http.Request) {
+	inst, ok := h.instance(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, toInstanceDTO(*inst))
+}
+
+// Reports — GET /api/instances/{id}/reports.
+func (h *InstancesHandler) Reports(w http.ResponseWriter, r *http.Request) {
+	inst, ok := h.instance(w, r)
+	if !ok {
+		return
+	}
+	reports, err := h.Store.Reports(r.Context(), inst.ID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, mapSlice(reports, func(rep domain.Report) reportDTO {
+		return reportDTO(rep)
+	}))
+}
+
+// Findings — GET /api/instances/{id}/findings.
+func (h *InstancesHandler) Findings(w http.ResponseWriter, r *http.Request) {
+	inst, ok := h.instance(w, r)
+	if !ok {
+		return
+	}
+	findings, err := h.Store.Findings(r.Context(), inst.ID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, mapSlice(findings, func(f domain.Finding) findingDTO {
+		return findingDTO(f)
+	}))
+}
+
+// Stop — POST /api/instances/{id}/stop.
+func (h *InstancesHandler) Stop(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := h.Service.Stop(r.Context(), id, userID(r)); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Chat — POST /api/instances/{id}/chat: SSE-прокси в Раннер (down-Экземпляр
+// сначала поднимается). Кадры ChatEvent (openapi.yaml) идут от раннера как есть.
+func (h *InstancesHandler) Chat(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Message string `json:"message"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.Message == "" {
+		http.Error(w, `{"error":"message is required"}`, http.StatusBadRequest)
+		return
+	}
+	stream, err := h.Service.Chat(r.Context(), id, userID(r), req.Message)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer stream.Close()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	flusher, _ := w.(http.Flusher)
+	buf := make([]byte, 4096)
+	for {
+		n, err := stream.Read(buf)
+		if n > 0 {
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return // клиент отвалился
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		if err != nil {
+			if err != io.EOF {
+				slog.Warn("instances: chat stream interrupted", "instanceId", id, "err", err)
+			}
+			return
+		}
+	}
+}
+
+func (h *InstancesHandler) instance(w http.ResponseWriter, r *http.Request) (*domain.AgentInstance, bool) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return nil, false
+	}
+	inst, err := h.Store.Instance(r.Context(), id, userID(r))
+	if err != nil {
+		writeError(w, err)
+		return nil, false
+	}
+	if inst == nil {
+		writeError(w, domain.ErrNotFound)
+		return nil, false
+	}
+	return inst, true
+}

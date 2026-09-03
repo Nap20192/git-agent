@@ -118,7 +118,9 @@ func TestWebhookIngest(t *testing.T) {
 
 	store := &pgstore.Store{Pool: db}
 	handler := &WebhookHandler{Service: &app.WebhookService{Repos: store, Ingestor: store, Secrets: box}}
-	srv := httptest.NewServer(NewMux(handler, &RunnersHandler{Store: store, Token: "t"}))
+	mux := http.NewServeMux()
+	mux.Handle("POST /hooks/{provider}/{repositoryId}", handler)
+	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	body := []byte(`{"after":"abc123","ref":"refs/heads/main"}`)

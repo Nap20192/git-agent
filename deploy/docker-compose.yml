@@ -72,6 +72,23 @@ services:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
 
+  hub:
+    build: ../backend
+    container_name: git-agent-hub
+    environment:
+      DATABASE_URL: postgresql://git_agent:git_agent@postgres:5432/git_agent
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-dev-runner-token}
+      SECRETS_KEY: ${SECRETS_KEY:?SECRETS_KEY required (64 hex chars)}
+      WEBHOOK_BASE_URL: ${WEBHOOK_BASE_URL:-}
+      HUB_ADDR: ":8081"
+    ports:
+      - "8081:8081"
+    depends_on:
+      - postgres
+      - rabbitmq
+    restart: unless-stopped
+
 volumes:
   pgdata:
   rabbitmqdata:

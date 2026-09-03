@@ -38,11 +38,11 @@ func TestRunnerRoutes(t *testing.T) {
 	if resp := post("/api/runners", "runner-token", `{"name":"r1","slots":2}`); resp.StatusCode != 400 {
 		t.Fatalf("missing address: %d", resp.StatusCode)
 	}
-	if resp := post("/api/runners", "runner-token", `{"name":"r1","address":"http://r1","slots":2}`); resp.StatusCode != 200 {
+	if resp := post("/api/runners", "runner-token", `{"name":"r1","address":"http://r1","slots":2}`); resp.StatusCode != 201 {
 		t.Fatalf("register: %d", resp.StatusCode)
 	}
 	// повторная регистрация того же имени — upsert, не конфликт
-	if resp := post("/api/runners", "runner-token", `{"name":"r1","address":"http://r1b","slots":4}`); resp.StatusCode != 200 {
+	if resp := post("/api/runners", "runner-token", `{"name":"r1","address":"http://r1b","slots":4}`); resp.StatusCode != 201 {
 		t.Fatalf("re-register: %d", resp.StatusCode)
 	}
 	var n int

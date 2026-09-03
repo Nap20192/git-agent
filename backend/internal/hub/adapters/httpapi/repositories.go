@@ -1,0 +1,110 @@
+package httpapi
+
+import (
+	"net/http"
+
+	"github.com/vnkjd/git-agent/backend/internal/hub/app"
+	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
+)
+
+const eventsPageLimit = 100
+
+// RepositoriesHandler — подключённые Репозитории и их журнал Событий.
+type RepositoriesHandler struct {
+	Store   domain.RepositoryAdmin
+	Service *app.RepositoryService
+}
+
+// List — GET /api/repositories.
+func (h *RepositoriesHandler) List(w http.ResponseWriter, r *http.Request) {
+	list, err := h.Store.Repositories(r.Context(), userID(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, mapSlice(list, toRepositoryDTO))
+}
+
+// Connect — POST /api/repositories: создаёт webhook у провайдера.
+func (h *RepositoriesHandler) Connect(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IdentityID int64  `json:"identityId"`
+		ExternalID string `json:"externalId"`
+		BuildID    *int64 `json:"buildId"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.IdentityID == 0 || req.ExternalID == "" {
+		http.Error(w, `{"error":"identityId and externalId are required"}`, http.StatusBadRequest)
+		return
+	}
+	repo, err := h.Service.Connect(r.Context(), userID(r), req.IdentityID, req.ExternalID, req.BuildID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, toRepositoryDTO(*repo))
+}
+
+// Patch — PATCH /api/repositories/{id}: привязать/отвязать Сборку.
+func (h *RepositoriesHandler) Patch(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		BuildID *int64 `json:"buildId"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if err := h.Store.SetBuild(r.Context(), id, userID(r), req.BuildID); err != nil {
+		writeError(w, err)
+		return
+	}
+	repo, err := h.Store.Repository(r.Context(), id, userID(r))
+	if err != nil || repo == nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toRepositoryDTO(*repo))
+}
+
+// Disconnect — DELETE /api/repositories/{id}: снимает хук у провайдера.
+func (h *RepositoriesHandler) Disconnect(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := h.Service.Disconnect(r.Context(), id, userID(r)); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Events — GET /api/repositories/{id}/events.
+func (h *RepositoriesHandler) Events(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	repo, err := h.Store.Repository(r.Context(), id, userID(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if repo == nil {
+		writeError(w, domain.ErrNotFound)
+		return
+	}
+	events, err := h.Store.Events(r.Context(), id, eventsPageLimit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, mapSlice(events, func(e domain.EventRecord) eventDTO {
+		return eventDTO(e)
+	}))
+}

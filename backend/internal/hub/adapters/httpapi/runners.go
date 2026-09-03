@@ -10,11 +10,23 @@ import (
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 )
 
-// RunnersHandler — реестр Раннеров (тикет 004): саморегистрация + heartbeat,
-// оба роута за заголовком X-Runner-Token.
+// RunnersHandler — реестр Раннеров (тикет 004): саморегистрация + heartbeat
+// за заголовком X-Runner-Token; список — пользовательский (session).
 type RunnersHandler struct {
 	Store domain.RunnerStore
 	Token string
+}
+
+// List — GET /api/runners (UI/отладка).
+func (h *RunnersHandler) List(w http.ResponseWriter, r *http.Request) {
+	list, err := h.Store.Runners(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, mapSlice(list, func(run domain.Runner) runnerDTO {
+		return runnerDTO(run)
+	}))
 }
 
 // Auth — middleware: constant-time сравнение X-Runner-Token с RUNNER_TOKEN.
@@ -30,7 +42,7 @@ func (h *RunnersHandler) Auth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // Register — POST /api/runners: upsert по уникальному имени; повторная
-// регистрация обновляет адрес/слоты и продлевает heartbeat.
+// регистрация обновляет адрес/слоты и продлевает heartbeat. 201 + Runner.
 func (h *RunnersHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name    string `json:"name"`
@@ -47,8 +59,12 @@ func (h *RunnersHandler) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"internal"}`, http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"id": id, "name": req.Name})
+	run, err := h.Store.Runner(r.Context(), id)
+	if err != nil || run == nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, runnerDTO(*run))
 }
 
 // Heartbeat — POST /api/runners/{id}/heartbeat.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Event — тонкий факт с вебхука (CONTEXT.md: Событие) до записи в БД.
@@ -15,15 +16,20 @@ type Event struct {
 	Ref        string
 }
 
-// Repository — подключённый Репозиторий, как его видит вебхук-слой.
+// Repository — подключённый Репозиторий.
 type Repository struct {
-	ID               int64
-	UserID           int64
-	Provider         string
-	Owner            string
-	Name             string
-	BuildID          *int64
-	WebhookSecretEnc []byte
+	ID                int64
+	UserID            int64
+	IdentityID        int64
+	Provider          string
+	ExternalID        string
+	Owner             string
+	Name              string
+	DefaultBranch     *string
+	WebhookProviderID *string
+	WebhookSecretEnc  []byte
+	BuildID           *int64
+	ConnectedAt       time.Time
 }
 
 func (r *Repository) FullName() string { return r.Owner + "/" + r.Name }

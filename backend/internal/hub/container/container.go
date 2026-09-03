@@ -15,7 +15,9 @@ import (
 	"github.com/vnkjd/git-agent/backend/cmd/hub/config"
 	"github.com/vnkjd/git-agent/backend/internal/hub/adapters/httpapi"
 	pgstore "github.com/vnkjd/git-agent/backend/internal/hub/adapters/postgres"
+	"github.com/vnkjd/git-agent/backend/internal/hub/adapters/provider"
 	rmq "github.com/vnkjd/git-agent/backend/internal/hub/adapters/rabbitmq"
+	"github.com/vnkjd/git-agent/backend/internal/hub/adapters/runnerapi"
 	"github.com/vnkjd/git-agent/backend/internal/hub/app"
 	"github.com/vnkjd/git-agent/backend/pkg/postgres"
 	"github.com/vnkjd/git-agent/backend/pkg/secrets"
@@ -30,14 +32,16 @@ type Container struct {
 	Store     *pgstore.Store
 	Publisher *rmq.Publisher
 
-	Webhook *app.WebhookService
-	Outbox  *app.OutboxService
+	Webhook      *app.WebhookService
+	Outbox       *app.OutboxService
+	Repositories *app.RepositoryService
+	Instances    *app.InstanceService
+	Heartbeat    *app.HeartbeatService
 
 	Server *http.Server
 }
 
 // New — фабрика: инстанцирует все зависимости в порядке слоёв.
-// Ошибка на любом шаге — уже созданные ресурсы освобождаются.
 func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 	box, err := secrets.New(cfg.SecretsKey)
 	if err != nil {
@@ -49,24 +53,51 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 	}
 
 	store := &pgstore.Store{Pool: pg.GetDB()}
+	// TODO(auth, тикет 003): dev-пользователь до OAuth-входа
+	devUserID, err := store.EnsureDevUser(ctx)
+	if err != nil {
+		pg.Close()
+		return nil, err
+	}
+
 	publisher := &rmq.Publisher{URL: cfg.RabbitMQURL}
+	providerClient := &provider.Client{}
+	runnerClient := &runnerapi.Client{}
 
 	webhook := &app.WebhookService{Repos: store, Ingestor: store, Secrets: box}
 	outbox := &app.OutboxService{Store: store, Publisher: publisher}
+	repositories := &app.RepositoryService{
+		Repos: store, Identities: store, Provider: providerClient,
+		Secrets: box, WebhookBaseURL: cfg.WebhookBaseURL,
+	}
+	instances := &app.InstanceService{
+		Instances: store, Runners: store, Client: runnerClient,
+		RunnersAlive: cfg.HeartbeatTimeout,
+	}
+	heartbeat := &app.HeartbeatService{Store: store, Timeout: cfg.HeartbeatTimeout}
 
-	mux := httpapi.NewMux(
-		&httpapi.WebhookHandler{Service: webhook},
-		&httpapi.RunnersHandler{Store: store, Token: cfg.RunnerToken},
-	)
+	mux := httpapi.NewMux(httpapi.Handlers{
+		Session:      &httpapi.Session{DevUserID: devUserID},
+		Webhook:      &httpapi.WebhookHandler{Service: webhook},
+		Runners:      &httpapi.RunnersHandler{Store: store, Token: cfg.RunnerToken},
+		Identities:   &httpapi.IdentitiesHandler{Store: store, Provider: providerClient, Secrets: box},
+		Repositories: &httpapi.RepositoriesHandler{Store: store, Service: repositories},
+		Builds:       &httpapi.BuildsHandler{Store: store},
+		Connections:  &httpapi.ConnectionsHandler{Store: store, Secrets: box},
+		Instances:    &httpapi.InstancesHandler{Store: store, Service: instances},
+	})
 
 	return &Container{
-		Cfg:       cfg,
-		PG:        pg,
-		Store:     store,
-		Publisher: publisher,
-		Webhook:   webhook,
-		Outbox:    outbox,
-		Server:    &http.Server{Addr: cfg.Addr, Handler: mux},
+		Cfg:          cfg,
+		PG:           pg,
+		Store:        store,
+		Publisher:    publisher,
+		Webhook:      webhook,
+		Outbox:       outbox,
+		Repositories: repositories,
+		Instances:    instances,
+		Heartbeat:    heartbeat,
+		Server:       &http.Server{Addr: cfg.Addr, Handler: mux},
 	}, nil
 }
 
@@ -84,6 +115,9 @@ func (c *Container) Run(ctx context.Context) error {
 	})
 	g.Go(func() error {
 		return c.Outbox.Run(ctx)
+	})
+	g.Go(func() error {
+		return c.Heartbeat.Run(ctx)
 	})
 	g.Go(func() error {
 		<-ctx.Done()
