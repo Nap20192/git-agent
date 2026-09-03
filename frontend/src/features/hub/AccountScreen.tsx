@@ -3,11 +3,11 @@
 import { useHubApi, type Provider } from "@/api/hub";
 import { useHubRepositories, useMe } from "@/hooks";
 import { useTheme } from "@/lib/theme.ts";
-import { Panel, ago, errMsg, useScreenCtx, useShell } from "./ui.tsx";
+import { Panel, ago, useScreenCtx, useShell } from "./ui.tsx";
 
 export function AccountScreen() {
   const api = useHubApi();
-  const { say } = useShell();
+  const { say, fail } = useShell();
   const { theme, label, toggle } = useTheme();
   const meQ = useMe();
   const reposQ = useHubRepositories();
@@ -21,7 +21,7 @@ export function AccountScreen() {
       say(`unlinked ${provider}`);
       meQ.reload();
     } catch (e) {
-      say(errMsg(e, "unlink failed"));
+      fail(e, "unlink failed");
     }
   };
   const logout = async () => {
@@ -60,7 +60,7 @@ export function AccountScreen() {
       </Panel>
       <Panel label="session" className="pad">
         <div className="kv" style={{ alignItems: "center" }}>
-          <span className="comment small">watchers keep running after sign-out; only this browser session ends.</span>
+          <span className="comment small">agents keep running after sign-out; only this browser session ends.</span>
           <button className="btn" onClick={logout}>sign out →</button>
         </div>
       </Panel>

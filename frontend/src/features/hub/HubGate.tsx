@@ -1,12 +1,12 @@
 /** Auth gate + app frame. GET /api/me decides: 401 → sign-in (OAuth only),
  *  ok → top bar (brand, repos/builds tabs, live dot, theme, user) + status bar
  *  (identity chip, context, message, position, clock) around the screen. */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { UnauthorizedError, traceTail, useHubApi, useLastTrace, type Me, type Provider } from "@/api/hub";
 import { useHubRepositories, useInstances, useMe } from "@/hooks";
 import { useTheme } from "@/lib/theme.ts";
-import { ShellCtx, type Shell } from "./ui.tsx";
+import { ErrorBanner, ShellCtx, toShellError, type Shell, type ShellError } from "./ui.tsx";
 
 function useClock() {
   const [now, setNow] = useState(() => new Date());
@@ -82,10 +82,27 @@ function Frame({ me }: { me: Me }) {
   const [msg, setMsg] = useState("ready");
   const [ctx, setCtx] = useState<string | null>(null);
   const [live, setLive] = useState(false);
+  const [err, setErr] = useState<ShellError | null>(null);
   const reposQ = useHubRepositories();
   const instancesQ = useInstances();
   const trace = useLastTrace();
-  const shell = useMemo<Shell>(() => ({ say: setMsg, setCtx, setLive }), []);
+  const shell = useMemo<Shell>(
+    () => ({
+      say: setMsg,
+      setCtx,
+      setLive,
+      fail: (e, fallback) => {
+        const se = toShellError(e, fallback);
+        setErr(se);
+        setMsg(se.message);
+      },
+    }),
+    [],
+  );
+  // a new screen = a new context: drop the banner, refresh the status-bar counts
+  const reloadRef = useRef(() => {});
+  reloadRef.current = () => { reposQ.reload(); instancesQ.reload(); };
+  useEffect(() => { setErr(null); reloadRef.current(); }, [pathname]);
 
   const seg = pathname.split("/")[1] || "repos";
   const screen = pathname.startsWith("/repos/") ? "repository" : (SCREEN_NAMES[seg] ?? seg);
@@ -122,6 +139,7 @@ function Frame({ me }: { me: Me }) {
           </button>
         </div>
         <div className="main">
+          {err && <ErrorBanner err={err} onClose={() => setErr(null)} />}
           <Outlet />
         </div>
         <div className="statusbar">

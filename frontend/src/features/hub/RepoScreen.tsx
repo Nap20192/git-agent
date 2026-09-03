@@ -2,12 +2,13 @@
  *  Сборка; no subscriptions → the default Сборка covers everything) with
  *  playground/stop/unsubscribe, a subscribe form (build + actions + ref mask),
  *  the Событие journal and a chat with the active watcher. */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useHubApi, type Subscription } from "@/api/hub";
 import { useBuilds, useHubRepositories, useInstances, useRepoEvents, useSubscriptions } from "@/hooks";
+import { FindingsPanel, type FindingsSource } from "./findings.tsx";
 import { InstanceChatPanel } from "./InstanceChatPanel.tsx";
-import { Dot, Panel, ago, errMsg, sha, shortRef, useScreenCtx, useShell } from "./ui.tsx";
+import { Dot, Panel, ago, sha, shortRef, useScreenCtx, useShell } from "./ui.tsx";
 
 const JCOLS = "150px 1fr 110px 1fr";
 
@@ -18,7 +19,7 @@ export function RepoScreen() {
   const id = Number(useParams().id);
   const navigate = useNavigate();
   const api = useHubApi();
-  const { say } = useShell();
+  const { say, fail } = useShell();
   const reposQ = useHubRepositories();
   const buildsQ = useBuilds();
   const instancesQ = useInstances();
@@ -26,6 +27,7 @@ export function RepoScreen() {
   const subsQ = useSubscriptions(id);
   const [busy, setBusy] = useState(false);
   const [f, setF] = useState({ build: "", actions: "", ref: "" });
+  const findingsSource = useMemo<FindingsSource>(() => ({ list: (x) => api.listRepositoryFindings(id, x), export: (format, x) => api.exportRepositoryFindings(id, format, x) }), [api, id]);
 
   const repo = (reposQ.data ?? []).find((r) => r.id === id);
   useScreenCtx(repo ? `${repo.owner}/${repo.name}` : null);
@@ -39,6 +41,11 @@ export function RepoScreen() {
   const chatInst = mine.find((i) => i.status === "running") ?? mine[0];
   // subscriptions whose Сборка has no Экземпляр yet (raised on the first Событие)
   const pending = subs.filter((s) => !mine.some((i) => i.buildId === s.buildId));
+  // who answers an event here: a subscribed build, else the default build; nobody = nothing runs
+  const defaultBuild = builds.find((b) => b.isDefault);
+  const served = subs.length > 0 || defaultBuild != null;
+  const canRun = !buildsQ.loading && !subsQ.loading && served;
+  const branch = repo?.defaultBranch ?? "main";
 
   if (!repo) return <div className="gate">{reposQ.loading ? "loading…" : "this repository isn't connected."}</div>;
 
@@ -48,10 +55,14 @@ export function RepoScreen() {
     try {
       const res = await api.triggerRepository(repo.id, mode ? { mode } : undefined);
       if (res.duplicate) {
-        say(`already ran @ ${sha(res.commitSha)} — nothing new to do`);
+        say(`already ran @ ${sha(res.commitSha)} — nothing new to do; full scan re-runs the same commit`);
         return;
       }
-      say(`${mode === "full" ? "full scan" : "manual run"} @ ${sha(res.commitSha)} → ${res.instanceIds.length} instance(s) raised`);
+      if (res.instanceIds.length === 0) {
+        fail(new Error("no build serves this repository — make a build the default or subscribe one below"), "nothing to run");
+        return;
+      }
+      say(`${mode === "full" ? "full scan" : "run"} @ ${sha(res.commitSha)} → agent #${res.instanceIds.join(", #")}`);
       const target = res.instanceIds.find((id) => id === chatInst?.id) ?? res.instanceIds[0];
       if (target !== undefined) navigate(`/instances/${target}`);
       else {
@@ -59,7 +70,7 @@ export function RepoScreen() {
         instancesQ.reload();
       }
     } catch (e) {
-      say(errMsg(e, "trigger failed"));
+      fail(e, "run failed");
     } finally {
       setBusy(false);
     }
@@ -70,7 +81,7 @@ export function RepoScreen() {
       await fn();
       say(ok);
     } catch (e) {
-      say(errMsg(e, "failed"));
+      fail(e, "failed");
     } finally {
       setBusy(false);
     }
@@ -112,16 +123,23 @@ export function RepoScreen() {
             {repo.mode === "watch" ? <><span className="tag" title="no webhook — run manually">watch</span> no webhook — run manually</> : "webhook installed"}
           </div>
         </div>
-        <div className="row">
-          <button className="btn primary" disabled={busy} onClick={() => run()}>❯ trigger run @ {repo.defaultBranch ?? "main"}</button>
-          <button className="btn md" disabled={busy} onClick={() => run("full")}>full scan</button>
-          <button className="btn md danger" disabled={busy} onClick={disconnect}>disconnect</button>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          <div className="row">
+            <button className="btn primary" disabled={busy || !canRun} title={canRun ? `review HEAD of ${branch}; the hub creates the sandbox instance and the runner picks it up` : "no build serves this repository"} onClick={() => run()}>❯ run agent @ {branch}</button>
+            <button className="btn md" disabled={busy || !canRun} title="full security audit of the whole repository — long and expensive" onClick={() => run("full")}>full scan</button>
+            <button className="btn md danger" disabled={busy} onClick={disconnect}>disconnect</button>
+          </div>
+          {!served && !buildsQ.loading && !subsQ.loading && (
+            <div className="small err pretty">
+              {builds.length === 0 ? <>no builds yet — <a href="/builds" onClick={(e) => { e.preventDefault(); navigate("/builds"); }}>create a build</a> (llm connection + sandbox connection) and make it the default.</> : <>no default build and no subscription — <a href="/builds" onClick={(e) => { e.preventDefault(); navigate("/builds"); }}>make a build the default</a> or subscribe one below.</>}
+            </div>
+          )}
         </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16, flex: 1, minHeight: 0 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
-          <Panel label="watchers" dim={mine.length + pending.length}>
+          <Panel label="agents" dim={mine.length + pending.length ? `${mine.length + pending.length} · one per build` : "none yet"}>
             {mine.map((w) => {
               const running = w.status === "running";
               const sub = subFor(w.buildId);
@@ -133,7 +151,7 @@ export function RepoScreen() {
                       <b>{buildName(w.buildId)}</b> <span className="muted">#{w.id} · {w.status}</span>
                     </div>
                     <div className="small comment" style={{ marginTop: 2 }}>
-                      sandbox {w.sandboxExternalId ?? "none"}{w.sandboxStatus ? ` (${w.sandboxStatus})` : ""} · runner {w.runnerId ?? "—"} · updated {ago(w.updatedAt)}
+                      sandbox instance {w.sandboxExternalId ?? "none yet — created on run"}{w.sandboxStatus ? ` (${w.sandboxStatus})` : ""} · runner {w.runnerId ?? "—"} · updated {ago(w.updatedAt)}
                     </div>
                     <div className="small muted" style={{ marginTop: 2 }}>{subText(sub)}</div>
                   </div>
@@ -155,7 +173,9 @@ export function RepoScreen() {
               </div>
             ))}
             {mine.length + pending.length === 0 && (
-              <div className="empty small">{instancesQ.loading ? "loading…" : "no watchers — the default build handles every event. subscribe one to narrow or split the coverage."}</div>
+              <div className="empty small pretty">
+                {instancesQ.loading ? "loading…" : served ? <>no agent yet — <b>{defaultBuild?.name ?? "the subscribed build"}</b> answers the first event; press <b>run agent</b> to raise it now. subscribe another build to narrow or split the coverage.</> : "no build serves this repository — nothing will run until a build is the default or subscribed here."}
+              </div>
             )}
             <div className="row" style={{ padding: 12, background: "var(--bg-elevated)" }}>
               <span className="small muted">subscribe build</span>
@@ -183,20 +203,25 @@ export function RepoScreen() {
                   <span className="muted">{ago(e.receivedAt)}</span>
                 </div>
               ))}
-              {events.length === 0 && <div className="empty small">{eventsQ.loading ? "loading…" : "nothing yet — push to the repository and the webhook delivers the first event here."}</div>}
+              {events.length === 0 && <div className="empty small">{eventsQ.loading ? "loading…" : repo.mode === "watch" ? "nothing yet — no webhook on a watch repo: press run agent (or full scan) and the event appears here." : "nothing yet — push to the repository (the webhook delivers it) or press run agent."}</div>}
             </div>
           </Panel>
         </div>
 
-        <Panel label="chat" dim={chatInst ? `${buildName(chatInst.buildId)} #${chatInst.id}` : "no watcher"} className="col elev" >
+        <Panel label="chat" dim={chatInst ? `${buildName(chatInst.buildId)} #${chatInst.id}` : "no agent yet"} className="col elev" >
           <div style={{ display: "flex", flexDirection: "column", minHeight: 420, flex: 1 }}>
             <InstanceChatPanel
               instanceId={chatInst?.id ?? null}
-              empty="ask the watcher what it has accumulated on this repo. a down instance wakes on the first message."
+              empty="ask the agent what it has accumulated on this repo. a down agent wakes on the first message."
               onStatusChange={instancesQ.reload}
             />
           </div>
         </Panel>
+      </div>
+
+      <div>
+        <h2 style={{ marginBottom: 12 }}>findings <span className="muted small" style={{ fontWeight: 400 }}>· across every agent of this repository</span></h2>
+        <FindingsPanel source={findingsSource} events={events} empty="no findings on this repository yet — they appear after the first run." fileName={`findings-${repo.owner}-${repo.name}`} />
       </div>
     </div>
   );

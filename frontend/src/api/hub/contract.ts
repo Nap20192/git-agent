@@ -142,19 +142,54 @@ export interface Runner {
   lastHeartbeatAt?: string;
 }
 
+/**
+ * Structured Отчёт (findings v2). Every field optional — the agent fills what
+ * it knows; `summary` stays the markdown fallback.
+ * TODO(findings-v2): re-check field names against backend/docs/openapi.yaml once the backend commit lands.
+ */
+export interface ReportStructured {
+  summary?: string | null;
+  scope?: {
+    eventType?: string | null;
+    /** commit range, e.g. "a1b2c3d..e4f5a6b" */
+    range?: string | null;
+    filesTouched?: number | string[] | null;
+    linesChanged?: number | null;
+  } | null;
+  method?: string[] | null;
+  findingsBySeverity?: Record<string, number> | null;
+  topRisks?: string[] | null;
+  recommendations?: string[] | null;
+  limitations?: string[] | null;
+}
+
 export interface Report {
   id: number;
   instanceId: number;
   eventId?: number | null;
   summary: string;
+  structured?: ReportStructured | null;
   createdAt: string;
 }
 
+/** Whether the Событие under review introduced the finding or it predates it. */
+export type IntroducedBy = "this_event" | "earlier";
+
+/** Находка (findings v2: title/description/impact/confidence/category/references + git blame + eventId).
+ *  TODO(findings-v2): re-check against backend/docs/openapi.yaml once the backend commit lands. */
 export interface Finding {
   id: number;
   instanceId: number;
   reportId?: number | null;
+  eventId?: number | null;
   severity: string;
+  title?: string | null;
+  description?: string | null;
+  impact?: string | null;
+  /** "high" | "medium" | "low" (free string on the wire). */
+  confidence?: string | null;
+  /** e.g. injection, secrets, authz, crypto, config, deps. */
+  category?: string | null;
   cwe?: string | null;
   cve?: string | null;
   file?: string | null;
@@ -162,8 +197,24 @@ export interface Finding {
   lineEnd?: number | null;
   evidence?: string | null;
   remediation?: string | null;
+  references?: string[] | null;
+  blameAuthor?: string | null;
+  blameEmail?: string | null;
+  blameCommit?: string | null;
+  blameDate?: string | null;
+  blameCommitMessage?: string | null;
+  introducedBy?: IntroducedBy | null;
   createdAt?: string;
 }
+
+/** Query params of GET …/findings (all optional; empty = no filter). */
+export interface FindingFilters {
+  severity?: string;
+  category?: string;
+  eventId?: number;
+  introducedBy?: IntroducedBy;
+}
+export type FindingExportFormat = "csv" | "md";
 
 /**
  * One SSE frame of POST /api/instances/{id}/chat. Fixed in the backend

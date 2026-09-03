@@ -78,6 +78,8 @@ export interface AgentNode {
   error?: string;
   /** Self-report text from the task_report frame. */
   report?: string;
+  /** The lead's Отчёт object (structured when the agent wrote one). */
+  reportObj?: import("@/api/hub").Report;
   /** Work log (tool_call / tool_result / text frames), oldest first. */
   work: WorkFrame[];
 }
@@ -177,11 +179,11 @@ export function activityLine(f: ActivityEvent): string | null {
   const task = f.taskId ? `subagent ${f.taskId.slice(-6)}` : "";
   switch (f.kind) {
     case "run_started":
-      return "ход начался";
+      return "turn started";
     case "run_finished":
-      return `ход завершён — Находок: ${f.findingsCount ?? 0}`;
+      return `turn finished — findings: ${f.findingsCount ?? 0}`;
     case "run_failed":
-      return `ход упал — ${f.description ?? "error"}`;
+      return `turn failed — ${f.description ?? "error"}`;
     case "node":
       return `node ${f.description ?? "?"} ✓`;
     case "tool_call" as ActivityEvent["kind"]:
@@ -191,7 +193,7 @@ export function activityLine(f: ActivityEvent): string | null {
         ? `${task} queued — ${f.description ?? ""}`.trim()
         : `${task} working`;
     case "task_finished":
-      return `${task} done${f.findingsCount ? ` — Находок: ${f.findingsCount}` : ""}`;
+      return `${task} done${f.findingsCount ? ` — findings: ${f.findingsCount}` : ""}`;
     case "task_failed":
       return `${task} ${f.status ?? "failed"}${f.description ? ` — ${f.description}` : ""}`;
     default:

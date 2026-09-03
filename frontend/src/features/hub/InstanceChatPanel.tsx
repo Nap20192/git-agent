@@ -72,7 +72,7 @@ export function InstanceChatPanel({
   return (
     <div className="chat">
       <div className="chat-log" ref={logRef}>
-        {rows.length === 0 && <div className="small muted pretty">{instanceId == null ? "no watcher yet — subscribe a build or trigger a run." : empty}</div>}
+        {rows.length === 0 && <div className="small muted pretty">{instanceId == null ? "no agent yet — press run agent; the agent appears with its first event." : empty}</div>}
         {rows.map((m, i) =>
           m.role === "user" ? (
             <div key={i} className="chat-user"><span className="accent">❯ </span>{m.text}</div>
@@ -87,7 +87,7 @@ export function InstanceChatPanel({
         <span className="sigil">❯</span>
         <input
           value={input}
-          placeholder={instanceId == null ? "no watcher" : busy ? "watcher is working…" : "message the watcher…"}
+          placeholder={instanceId == null ? "no agent yet" : busy ? "agent is working…" : "message the agent…"}
           disabled={busy || instanceId == null}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send()}

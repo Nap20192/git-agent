@@ -2,7 +2,7 @@
  * HTTP + SSE adapter for the Go hub backend (backend/docs/openapi.yaml).
  * Session cookie auth; hub endpoints return bare JSON arrays/objects.
  */
-import type { ActivityEvent, ChatEvent, TerminalEvent } from "./contract.ts";
+import type { ActivityEvent, ChatEvent, FindingFilters, TerminalEvent } from "./contract.ts";
 import { UnauthorizedError, type HubApi } from "./client.ts";
 import { TRACE_HEADER, newTraceId, setLastTrace, traceTail } from "./trace.ts";
 
@@ -74,6 +74,24 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** Same as req, but the body is a file (csv/md export). */
+async function reqText(path: string): Promise<string> {
+  const { res, traceId } = await traced("GET", path, { credentials: "include" });
+  if (res.status === 401) throw new UnauthorizedError();
+  if (!res.ok) throw await apiError(res, traceId);
+  return res.text();
+}
+
+/** ?severity=&category=&eventId=&introducedBy= — only the set keys. */
+function query(params: Record<string, string | number | undefined>): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "") q.set(k, String(v));
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+const findingsQuery = (f?: FindingFilters, extra: Record<string, string | undefined> = {}) =>
+  query({ severity: f?.severity, category: f?.category, eventId: f?.eventId, introducedBy: f?.introducedBy, ...extra });
+
 export function createHttpHubApi(): HubApi {
   return {
     me: () => req("/me"),
@@ -130,7 +148,10 @@ export function createHttpHubApi(): HubApi {
     raiseInstance: (id) => req(`/instances/${id}/raise`, { method: "POST" }),
     resumeInstance: (id) => req(`/instances/${id}/resume`, { method: "POST" }),
     listInstanceReports: (id) => req(`/instances/${id}/reports`),
-    listInstanceFindings: (id) => req(`/instances/${id}/findings`),
+    listInstanceFindings: (id, f) => req(`/instances/${id}/findings${findingsQuery(f)}`),
+    exportInstanceFindings: (id, format, f) => reqText(`/instances/${id}/findings/export${findingsQuery(f, { format })}`),
+    listRepositoryFindings: (id, f) => req(`/repositories/${id}/findings${findingsQuery(f)}`),
+    exportRepositoryFindings: (id, format, f) => reqText(`/repositories/${id}/findings/export${findingsQuery(f, { format })}`),
 
     listRunners: () => req("/runners"),
 

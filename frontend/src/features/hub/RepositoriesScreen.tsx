@@ -11,12 +11,13 @@ import {
   useBuilds,
   useHubRepositories,
   useIdentityRepos,
+  useLlmConnections,
   useInstances,
   useMe,
   useRunners,
   useSandboxInstancesHub,
 } from "@/hooks";
-import { Drawer, Panel, ago, errMsg, sha, shortRef, useScreenCtx, useShell } from "./ui.tsx";
+import { Drawer, Onboarding, Panel, ago, sha, shortRef, useScreenCtx, useShell } from "./ui.tsx";
 
 const COLS = "90px 1.4fr 120px 1fr 1fr 1.2fr";
 
@@ -25,6 +26,7 @@ export function RepositoriesScreen() {
   const api = useHubApi();
   const reposQ = useHubRepositories();
   const buildsQ = useBuilds();
+  const llmQ = useLlmConnections();
   const instancesQ = useInstances();
   const runnersQ = useRunners();
   const sbxQ = useSandboxInstancesHub();
@@ -44,6 +46,9 @@ export function RepositoriesScreen() {
   const buildName = (id?: number | null) => (id != null ? builds.find((b) => b.id === id)?.name : undefined);
   const running = instances.filter((i) => i.status === "running").length;
   const alive = sbx.filter((s) => s.status === "alive").length;
+  const loaded = !reposQ.loading && !buildsQ.loading && !llmQ.loading;
+  const onboarding = { llm: (llmQ.data ?? []).length > 0, build: defaultBuild != null, repo: repos.length > 0 };
+  const showOnboarding = loaded && !(onboarding.llm && onboarding.build && onboarding.repo);
 
   return (
     <div className="screen">
@@ -57,9 +62,11 @@ export function RepositoriesScreen() {
         </button>
       </div>
 
+      {showOnboarding && <Onboarding state={onboarding} onConnect={() => setConnecting(true)} />}
+
       <div className="box">
         <div className="thead" style={{ "--cols": COLS } as React.CSSProperties}>
-          <span>provider</span><span>repository</span><span>branch</span><span>watchers</span><span>build</span><span>last event</span>
+          <span>provider</span><span>repository</span><span>branch</span><span>agents</span><span>build</span><span>last event</span>
         </div>
         {repos.map((r) => {
           const mine = instances.filter((i) => i.repositoryId === r.id);
@@ -78,13 +85,15 @@ export function RepositoriesScreen() {
                 {run > 0 && <span className="accent">● </span>}
                 {mine.length ? `${run} running · ${mine.length - run} down` : "none"}
               </span>
-              <span className="comment ellip">{buildName(r.buildId) ?? (defaultBuild ? `${defaultBuild.name} (default)` : "—")}</span>
+              <span className="comment ellip">{buildName(r.buildId) ?? (defaultBuild ? `${defaultBuild.name} (default)` : <span className="err">no build — nothing will run</span>)}</span>
               <span className="comment ellip">{last ? `${last.action} · ${shortRef(last.ref)} @ ${sha(last.commitSha)} · ${ago(last.receivedAt)}` : lastQ.loading ? "…" : "no events"}</span>
             </div>
           );
         })}
         {repos.length === 0 && (
-          <div className="empty">{reposQ.loading ? "loading…" : "nothing connected yet — connect your own repository (webhook) or watch a public one by URL."}</div>
+          <div className="empty">
+            {reposQ.loading ? "loading…" : <>nothing connected yet — <a href="/repos" onClick={(e) => { e.preventDefault(); setConnecting(true); }}>connect your own repository</a> (webhook) or watch a public one by url.</>}
+          </div>
         )}
       </div>
 
@@ -106,17 +115,17 @@ export function RepositoriesScreen() {
           {(runnersQ.data ?? []).length === 0 && <div className="small muted">no runners registered</div>}
         </Panel>
         <Panel label="instances" className="elev pad">
-          <div className="kv"><span>agent</span><span className="comment">{running} running · {instances.length - running} down</span></div>
-          <div className="kv"><span>sandbox</span><span className="comment">{alive} alive · {sbx.length - alive} dead</span></div>
+          <div className="kv"><span>agents</span><span className="comment">{running} running · {instances.length - running} down</span></div>
+          <div className="kv"><span>sandbox instances</span><span className="comment">{alive} alive · {sbx.length - alive} dead</span></div>
         </Panel>
         <Panel label="default build" className="elev pad">
           <div>
-            <b>{defaultBuild?.name ?? "— none"}</b>
+            <b>{defaultBuild?.name ?? "none"}</b>
             {defaultBuild?.memoryPreset && <span className="muted"> · {defaultBuild.memoryPreset}</span>}
           </div>
           <div className="small muted pretty">
-            serves any repo without its own subscription.{" "}
-            <a href="/builds" onClick={(e) => { e.preventDefault(); navigate("/builds"); }}>edit builds →</a>
+            {defaultBuild ? "serves any repo without its own subscription." : <span className="err">without a default build, repos without a subscription never run.</span>}{" "}
+            <a href="/builds" onClick={(e) => { e.preventDefault(); navigate("/builds"); }}>{defaultBuild ? "edit builds →" : "create a build →"}</a>
           </div>
         </Panel>
       </div>
@@ -128,7 +137,7 @@ export function RepositoriesScreen() {
 
 export function ConnectDrawer({ open, builds, onClose, reload }: { open: boolean; builds: AgentBuild[]; onClose: () => void; reload: () => void }) {
   const api = useHubApi();
-  const { say } = useShell();
+  const { say, fail } = useShell();
   const meQ = useMe();
   const reposQ = useHubRepositories();
   const [identityId, setIdentityId] = useState<number | null>(null);
@@ -157,7 +166,7 @@ export function ConnectDrawer({ open, builds, onClose, reload }: { open: boolean
       reposQ.reload();
       onClose();
     } catch (e) {
-      say(errMsg(e, "connect failed"));
+      fail(e, "connect failed");
     } finally {
       setBusy(null);
     }
@@ -165,7 +174,7 @@ export function ConnectDrawer({ open, builds, onClose, reload }: { open: boolean
 
   return (
     <Drawer open={open} title="connect repository" onClose={onClose}>
-      <div className="small comment pretty">pick an identity; the hub lists what that account can see, installs a webhook on connect and assigns the default build.</div>
+      <div className="small comment pretty">pick an identity; the hub lists what that account can see and installs a webhook on connect. events go to the default build unless you subscribe another one below.</div>
       <div className="segs">
         {identities.map((i) => (
           <button key={i.id} className={`seg${i.id === current ? " active" : ""}`} onClick={() => setIdentityId(i.id)}>
@@ -175,9 +184,9 @@ export function ConnectDrawer({ open, builds, onClose, reload }: { open: boolean
         {identities.length === 0 && <span className="seg muted">no identities — link one on the account page</span>}
       </div>
       <div className="row">
-        <span className="small muted">assign build</span>
+        <span className="small muted">subscribe build</span>
         <select className="select" value={buildId} onChange={(e) => setBuildId(e.target.value)}>
-          <option value="">default</option>
+          <option value="">none — served by the default build</option>
           {builds.map((b) => (
             <option key={b.id} value={b.id}>{b.name}</option>
           ))}
@@ -200,7 +209,7 @@ export function ConnectDrawer({ open, builds, onClose, reload }: { open: boolean
           </div>
         ))}
         {providerQ.loading && <div className="empty">loading…</div>}
-        {providerQ.error && <div className="empty err">{providerQ.error.message}</div>}
+        {providerQ.error && <div className="empty err pretty">can't list this account's repositories: {providerQ.error.message}</div>}
         {!providerQ.loading && (providerQ.data ?? []).length === 0 && current != null && <div className="empty">nothing visible for this identity.</div>}
       </div>
 

@@ -1,5 +1,5 @@
 /** Thin resource hooks over the hub API (mirrors resources.ts). */
-import { useHubApi } from "@/api/hub";
+import { useHubApi, type FindingFilters } from "@/api/hub";
 import { useAsync } from "./useAsync.ts";
 
 export function useMe() {
@@ -56,9 +56,13 @@ export function useInstanceReports(id: number) {
   const api = useHubApi();
   return useAsync(() => api.listInstanceReports(id), [id]);
 }
-export function useInstanceFindings(id: number) {
+export function useInstanceFindings(id: number, filters?: FindingFilters) {
   const api = useHubApi();
-  return useAsync(() => api.listInstanceFindings(id), [id]);
+  return useAsync(() => api.listInstanceFindings(id, filters), [id, JSON.stringify(filters ?? {})]);
+}
+export function useRepositoryFindings(id: number, filters?: FindingFilters) {
+  const api = useHubApi();
+  return useAsync(() => api.listRepositoryFindings(id, filters), [id, JSON.stringify(filters ?? {})]);
 }
 export function useRunners() {
   const api = useHubApi();
