@@ -8,7 +8,6 @@ from langchain.agents.middleware import (
     ClearToolUsesEdit,
     ContextEditingMiddleware,
     SummarizationMiddleware,
-    TodoListMiddleware,
 )
 from langchain_core.language_models.chat_models import BaseChatModel
 
@@ -20,7 +19,6 @@ class RuntimeFeatures:
     """Declarative feature flags for ``build_agent``."""
 
     sandbox: bool | AgentMiddleware = False
-    memory: bool | AgentMiddleware = False
     # Explicit memory config for direct build_agent(features=...) callers;
     # wins over memory_preset. Otherwise the preset name (or env/production
     # default) is resolved via core.memory.resolve_memory_preset.
@@ -28,30 +26,17 @@ class RuntimeFeatures:
     memory_preset: str | None = None
     summarization: Literal[False] | AgentMiddleware = False
     subagent: bool | AgentMiddleware = False
-    vision: bool | AgentMiddleware = False
-    auto_title: bool | AgentMiddleware = False
-    guardrail: Literal[False] | AgentMiddleware = False
     loop_detection: bool | AgentMiddleware = False
     token_budget: bool | AgentMiddleware = False
 
 
-_FEATURE_FIELDS = (
-    "sandbox",
-    "memory",
-    "subagent",
-    "vision",
-    "auto_title",
-    "guardrail",
-    "loop_detection",
-    "token_budget",
-)
+_FEATURE_FIELDS = ("sandbox", "subagent", "loop_detection", "token_budget")
 
 
 def assemble_from_features(
     features: RuntimeFeatures,
     model: BaseChatModel,
     *,
-    plan_mode: bool,
     extra_middleware: list[AgentMiddleware],
 ) -> list[AgentMiddleware]:
     from core.middleware.tool_result_sanitization import (
@@ -113,11 +98,9 @@ def assemble_from_features(
                 assembled.append(TokenBudgetMiddleware())
                 continue
             raise ValueError(
-                f"features.{field_name}=True has no built-in middleware yet; "
+                f"features.{field_name}=True has no built-in middleware; "
                 "pass an AgentMiddleware instance or False"
             )
-    if plan_mode:
-        assembled.append(TodoListMiddleware())
     assembled.extend(extra_middleware)
     from core.middleware.terminal_response import TerminalResponseMiddleware
     from core.middleware.tool_error_handling import ToolErrorHandlingMiddleware

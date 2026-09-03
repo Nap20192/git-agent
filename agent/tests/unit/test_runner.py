@@ -54,8 +54,17 @@ def test_event_prompt_full_scan():
     from core.runner.executor import _event_prompt
 
     ctx = {"owner": "acme", "name": "repo", "prompt": "Сборка: смотри в оба"}
-    full = _event_prompt(ctx, parse_event({**WIRE, "action": "full_scan", "dedupKey": "full-abc123"}))
-    for marker in ("ПОЛНЫЙ security-аудит", "план", "Сабагенту", "task", "report_finding", "write_report"):
+    full = _event_prompt(
+        ctx, parse_event({**WIRE, "action": "full_scan", "dedupKey": "full-abc123"})
+    )
+    for marker in (
+        "ПОЛНЫЙ security-аудит",
+        "план",
+        "Сабагенту",
+        "task",
+        "report_finding",
+        "write_report",
+    ):
         assert marker in full
     assert "Сборка: смотри в оба" in full  # промпт Сборки остаётся
     assert "ПОЛНЫЙ" not in _event_prompt(ctx, parse_event(WIRE))
@@ -253,7 +262,9 @@ def test_sandbox_not_provisioned_drops_without_processed():
     async def run():
         store = MemStore()
         seed(store)
-        executor = FakeExecutor(error=SandboxNotProvisionedError("instance 3: sandbox not provisioned"))
+        executor = FakeExecutor(
+            error=SandboxNotProvisionedError("instance 3: sandbox not provisioned")
+        )
         service = await started(make_service(store, executor=executor))
         event = parse_event(WIRE)
         assert await service.handle_event(event) == "dropped"

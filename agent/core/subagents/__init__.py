@@ -1,4 +1,4 @@
-"""Система сабагентов: лид + делегирование через тул `task` (референс deer-flow)."""
+"""Система сабагентов (референс deer-flow). Вход — тул `task` из core/tools/delegation."""
 
 from core.subagents.capacity import (
     SubagentCapacity,
@@ -16,7 +16,6 @@ from core.subagents.registry import (
     available_subagent_names,
     get_subagent_config,
 )
-from core.subagents.task_tool import build_task_tool
 
 __all__ = [
     "SubagentCapacity",
@@ -27,7 +26,6 @@ __all__ = [
     "SubagentResult",
     "SubagentStatus",
     "available_subagent_names",
-    "build_task_tool",
     "get_subagent_config",
     "read_subagent_result_metadata",
 ]

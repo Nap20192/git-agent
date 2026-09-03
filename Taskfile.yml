@@ -52,7 +52,7 @@ tasks:
       - uv run ruff format .
 
   test:
-    desc: Все тесты агента (unit + integration + e2e; нужны OpenSandbox + Postgres)
+    desc: Все тесты агента (unit + integration + e2e; нужны Postgres, RabbitMQ, OpenSandbox)
     dir: agent
     cmds:
       - uv run pytest -q
@@ -75,21 +75,9 @@ tasks:
     cmds:
       - uv run pytest tests/e2e -q
 
-  formal:
-    desc: Проверить только формальную модель рантайма (Lean)
-    dir: agent
-    cmds:
-      - ./formal/check.sh
-
   check:
-    desc: Полная проверка — линтер + тесты (тесты включают Lean-верификацию)
+    desc: Полная проверка — линтер + тесты агента
     deps: [lint, test]
-
-  server:
-    desc: HTTP-gateway агента (FastAPI) на :8080 (нужны Postgres + OpenSandbox)
-    dir: agent
-    cmds:
-      - uv run uvicorn main:app --port 8080
 
   runner:
     desc: Раннер — консьюмер Событий RabbitMQ + HTTP API на :8082 (:8081 у hub)
@@ -153,12 +141,13 @@ tasks:
       - bun dev
 
   app:
-    desc: Всё приложение — инфраструктура, миграции, бек и фронт (Ctrl+C останавливает оба)
+    desc: Всё приложение — инфраструктура, миграции, hub (:8081), раннер (:8082) и фронт (:5173); Ctrl+C гасит всё
     deps: [up, migrate]
     cmds:
       - |
         bash -c '
         trap "kill 0" INT TERM
-        (cd agent && uv run uvicorn main:app --port 8080) &
+        (cd backend && go run ./cmd/hub) &
+        (cd agent && uv run uvicorn runner:app --port 8082) &
         (cd frontend && bun install --silent && bun dev) &
         wait'

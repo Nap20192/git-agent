@@ -46,7 +46,7 @@ func (h *SandboxInstancesHandler) Create(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if conn.Image == nil || *conn.Image == "" {
-		http.Error(w, `{"error":"sandbox connection has no image configured"}`, http.StatusBadRequest)
+		badRequest(w, "sandbox connection has no image configured")
 		return
 	}
 	apiKey := ""

@@ -5,11 +5,35 @@
 import type { ActivityEvent, ChatEvent, TerminalEvent } from "./contract.ts";
 import { UnauthorizedError, type HubApi } from "./client.ts";
 
-/* Hub base URL. Default "" = same-origin /api (vite proxies that to the
-   Python gateway :8080). To hit the Go hub (:8081) in dev, set
-   VITE_HUB_URL=/hub — vite.config.ts proxies /hub/* there, keeping the
-   session cookie same-origin. */
-const BASE = `${import.meta.env.VITE_HUB_URL ?? ""}/api`;
+/* Hub base URL. Default "/hub" — vite.config.ts proxies /hub/* to the Go hub
+   (:8081), keeping the session cookie same-origin. Set VITE_HUB_URL="" when
+   the hub is served from the same origin (prod). */
+const BASE = `${import.meta.env.VITE_HUB_URL ?? "/hub"}/api`;
+
+/** Error body per ApiError ({error:{code,message}}); tolerates legacy {error:"…"}. */
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+    public code = "error",
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+async function apiError(res: Response): Promise<ApiError> {
+  let message = res.statusText || `HTTP ${res.status}`;
+  let code = "error";
+  try {
+    const e = (await res.json())?.error;
+    if (typeof e === "string") message = e;
+    else if (e?.message) ({ message, code = code } = e);
+  } catch {
+    /* non-JSON error */
+  }
+  return new ApiError(res.status, message, code);
+}
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -19,13 +43,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (res.status === 401) throw new UnauthorizedError();
   if (!res.ok) {
-    let message = res.statusText;
-    try {
-      message = (await res.json())?.error?.message ?? message;
-    } catch {
-      /* non-JSON error */
-    }
-    throw new Error(`${res.status} ${message}`);
+    throw await apiError(res);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -123,13 +141,7 @@ async function streamSSE<E>(
   });
   if (res.status === 401) throw new UnauthorizedError();
   if (!res.ok || !res.body) {
-    let m = res.statusText;
-    try {
-      m = (await res.json())?.error?.message ?? m;
-    } catch {
-      /* non-JSON */
-    }
-    throw new Error(`${res.status} ${m}`);
+    throw await apiError(res);
   }
   const reader = res.body.getReader();
   const dec = new TextDecoder();

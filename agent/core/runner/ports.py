@@ -12,6 +12,16 @@ class SandboxNotProvisionedError(RuntimeError):
     """У Экземпляра Агента нет живого Экземпляра Сэндбокса — раннер сам НЕ создаёт."""
 
 
+class InstanceUnavailableError(RuntimeError):
+    """Экземпляр нельзя обслужить на этом раннере: держит другой раннер, нет в БД
+    или пропал контекст. `outcome` — исход клейма (held_by_other | missing | …)."""
+
+    def __init__(self, instance_id: int, outcome: str) -> None:
+        super().__init__(f"instance {instance_id} unavailable: {outcome}")
+        self.instance_id = instance_id
+        self.outcome = outcome
+
+
 @dataclass(frozen=True)
 class ClaimResult:
     """Итог клейма Экземпляра: claimed | held_by_self | held_by_other | missing."""

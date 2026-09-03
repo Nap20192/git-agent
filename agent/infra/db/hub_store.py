@@ -177,7 +177,6 @@ class HubInstanceStore:
                 ),
             )
 
-
     async def add_activity(
         self, instance_id: int, *, event_id: int | None, seq: int, frame: dict[str, Any]
     ) -> None:

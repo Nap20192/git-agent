@@ -80,7 +80,7 @@ func (h *SubscriptionsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.BuildID == 0 {
-		http.Error(w, `{"error":"buildId is required"}`, http.StatusBadRequest)
+		badRequest(w, "buildId is required")
 		return
 	}
 	sub := &domain.BuildSubscription{

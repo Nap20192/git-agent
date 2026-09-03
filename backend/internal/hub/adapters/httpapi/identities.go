@@ -1,7 +1,8 @@
 package httpapi
 
 import (
-	"log/slog"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -19,7 +20,7 @@ type IdentitiesHandler struct {
 func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
-		http.Error(w, `{"error":"bad id"}`, http.StatusBadRequest)
+		badRequest(w, "id in path must be an integer")
 		return 0, false
 	}
 	return id, true
@@ -71,8 +72,10 @@ func (h *IdentitiesHandler) Repos(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	if err != nil {
-		slog.Error("identities: provider repos failed", "identityId", id, "err", err)
-		http.Error(w, `{"error":"provider unavailable"}`, http.StatusBadGateway)
+		if errors.Is(err, domain.ErrUnauthorized) {
+			err = fmt.Errorf("%s rejected the access token — reconnect the account: %w", ident.Provider, domain.ErrUpstream)
+		}
+		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mapSlice(repos, func(p domain.ProviderRepo) providerRepoDTO {

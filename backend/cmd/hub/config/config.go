@@ -4,6 +4,7 @@ package config
 import (
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
@@ -18,6 +19,7 @@ type Config struct {
 	WebhookBaseURL   string
 	RabbitMQURL      string
 	Addr             string
+	LogLevel         slog.Level    // LOG_LEVEL=debug|info|warn|error (общий с раннером)
 	HeartbeatTimeout time.Duration // раннер без heartbeat дольше — считается мёртвым
 
 	// OAuth-приложения (тикет 003); пустые = провайдер недоступен (503), не ошибка старта
@@ -60,6 +62,11 @@ func Load() (*Config, error) {
 	}
 	if c.Addr == "" {
 		c.Addr = ":8081"
+	}
+	if v := os.Getenv("LOG_LEVEL"); v != "" {
+		if err := c.LogLevel.UnmarshalText([]byte(v)); err != nil {
+			return nil, fmt.Errorf("config: LOG_LEVEL %q: %w", v, err)
+		}
 	}
 	if c.FrontendURL == "" {
 		c.FrontendURL = "http://localhost:5173"

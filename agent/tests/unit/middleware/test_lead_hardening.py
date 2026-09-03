@@ -283,7 +283,6 @@ def test_features_assembly_order_and_defaults():
     chain = assemble_from_features(
         RuntimeFeatures(loop_detection=True, token_budget=True),
         GenericFakeChatModel(messages=iter([])),
-        plan_mode=False,
         extra_middleware=[],
     )
     names = [type(m).__name__ for m in chain]

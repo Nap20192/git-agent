@@ -26,6 +26,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Один формат на процесс: текст с уровнем из LOG_LEVEL (JSON — когда появится сборщик логов).
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.LogLevel})))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

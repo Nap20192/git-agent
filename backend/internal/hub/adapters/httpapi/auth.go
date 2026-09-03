@@ -38,7 +38,7 @@ func (s *Session) Wrap(next http.HandlerFunc) http.HandlerFunc {
 			userID, ok = s.DevUserID, true
 		}
 		if !ok {
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			writeError(w, domain.ErrUnauthorized)
 			return
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), userIDKey, userID)))
@@ -96,7 +96,7 @@ func (h *AuthHandler) redirectURI(r *http.Request, provider string) string {
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
 	if provider != "github" && provider != "gitlab" {
-		http.Error(w, `{"error":"unknown provider"}`, http.StatusBadRequest)
+		badRequest(w, "unknown provider")
 		return
 	}
 	stateBytes := make([]byte, 16)
@@ -126,7 +126,7 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	stateC, err := r.Cookie(stateCookie)
 	if code == "" || state == "" || err != nil || stateC.Value != state {
-		http.Error(w, `{"error":"invalid oauth state"}`, http.StatusBadRequest)
+		badRequest(w, "invalid oauth state")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: stateCookie, Path: "/api/auth", MaxAge: -1})

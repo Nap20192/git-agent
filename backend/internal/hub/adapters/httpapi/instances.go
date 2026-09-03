@@ -25,7 +25,7 @@ func (h *InstancesHandler) List(w http.ResponseWriter, r *http.Request) {
 	if q := r.URL.Query().Get("repositoryId"); q != "" {
 		id, err := strconv.ParseInt(q, 10, 64)
 		if err != nil {
-			http.Error(w, `{"error":"bad repositoryId"}`, http.StatusBadRequest)
+			badRequest(w, "repositoryId must be an integer")
 			return
 		}
 		repoID = &id
@@ -91,7 +91,7 @@ func (h *InstancesHandler) Activity(w http.ResponseWriter, r *http.Request) {
 	if q := r.URL.Query().Get("eventId"); q != "" {
 		v, err := strconv.ParseInt(q, 10, 64)
 		if err != nil {
-			http.Error(w, `{"error":"bad eventId"}`, http.StatusBadRequest)
+			badRequest(w, "eventId must be an integer")
 			return
 		}
 		eventID = &v
@@ -170,7 +170,7 @@ func (h *InstancesHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Message == "" {
-		http.Error(w, `{"error":"message is required"}`, http.StatusBadRequest)
+		badRequest(w, "message is required")
 		return
 	}
 	stream, err := h.Service.Chat(r.Context(), id, userID(r), req.Message)
@@ -196,7 +196,7 @@ func (h *InstancesHandler) Terminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Command == "" {
-		http.Error(w, `{"error":"command is required"}`, http.StatusBadRequest)
+		badRequest(w, "command is required")
 		return
 	}
 	stream, err := h.Service.Terminal(r.Context(), id, userID(r), req.Command)
