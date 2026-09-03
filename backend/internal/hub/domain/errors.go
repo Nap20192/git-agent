@@ -16,3 +16,16 @@ var (
 	// (он ставит запросы в очередь при занятых слотах): 504 наружу.
 	ErrTimeout = errors.New("timeout")
 )
+
+// ErrUpstream — внешний сервис (провайдер) ответил ошибкой: 502 наружу,
+// детали — только в лог.
+var ErrUpstream = errors.New("upstream")
+
+// ValidationError — отказ по входу. Единственный тип ошибки, чьё сообщение
+// уходит клиенту как есть (400): текст пишет код, не внешняя система.
+type ValidationError struct{ Msg string }
+
+func (e *ValidationError) Error() string { return e.Msg }
+
+// Invalid — ValidationError с текстом для клиента.
+func Invalid(msg string) error { return &ValidationError{Msg: msg} }

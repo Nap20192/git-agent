@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"encoding/json"
-	"net/http/httptest"
+	"errors"
 	"testing"
+
+	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 )
 
 func TestBuildInputValidateLimits(t *testing.T) {
@@ -25,12 +27,13 @@ func TestBuildInputValidateLimits(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			in := buildInput{Name: "b", LlmConnectionID: 1, SandboxConnectionID: 1, Limits: json.RawMessage(tc.limits)}
-			w := httptest.NewRecorder()
-			if got := in.validate(w); got != tc.ok {
-				t.Fatalf("validate = %v, want %v (body: %s)", got, tc.ok, w.Body.String())
+			err := in.validate()
+			if (err == nil) != tc.ok {
+				t.Fatalf("validate = %v, want ok=%v", err, tc.ok)
 			}
-			if !tc.ok && w.Code != 400 {
-				t.Fatalf("status = %d, want 400", w.Code)
+			var invalid *domain.ValidationError
+			if err != nil && !errors.As(err, &invalid) {
+				t.Fatalf("validate error %T, want *domain.ValidationError", err)
 			}
 		})
 	}

@@ -7,11 +7,7 @@ import (
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 )
 
-// SubscriptionsHandler — подписки Сборок на события Репозитория (тикет 011).
-type SubscriptionsHandler struct {
-	Store domain.SubscriptionStore
-	Repos domain.RepositoryAdmin
-}
+// Подписки Сборок на события Репозитория (тикет 011).
 
 type subscriptionDTO struct {
 	ID           int64     `json:"id"`
@@ -33,78 +29,51 @@ func toSubscriptionDTO(s domain.BuildSubscription) subscriptionDTO {
 	}
 }
 
-// ownRepo — Репозиторий пользователя либо 404.
-func (h *SubscriptionsHandler) ownRepo(w http.ResponseWriter, r *http.Request) (int64, bool) {
-	id, ok := pathID(w, r)
-	if !ok {
-		return 0, false
-	}
-	repo, err := h.Repos.Repository(r.Context(), id, userID(r))
+// GET /api/repositories/{id}/subscriptions.
+func (s *Server) listSubscriptions(w http.ResponseWriter, r *http.Request) error {
+	id, err := s.ownRepo(r)
 	if err != nil {
-		writeError(w, err)
-		return 0, false
+		return err
 	}
-	if repo == nil {
-		writeError(w, domain.ErrNotFound)
-		return 0, false
+	subs, err := s.Store.SubscriptionsByRepo(r.Context(), id)
+	if err != nil {
+		return err
 	}
-	return id, true
+	return respond(w, http.StatusOK, mapSlice(subs, toSubscriptionDTO))
 }
 
-// List — GET /api/repositories/{id}/subscriptions.
-func (h *SubscriptionsHandler) List(w http.ResponseWriter, r *http.Request) {
-	repoID, ok := h.ownRepo(w, r)
-	if !ok {
-		return
-	}
-	subs, err := h.Store.SubscriptionsByRepo(r.Context(), repoID)
+// POST /api/repositories/{id}/subscriptions.
+func (s *Server) createSubscription(w http.ResponseWriter, r *http.Request) error {
+	id, err := s.ownRepo(r)
 	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, mapSlice(subs, toSubscriptionDTO))
-}
-
-// Create — POST /api/repositories/{id}/subscriptions: upsert по (build, repo).
-func (h *SubscriptionsHandler) Create(w http.ResponseWriter, r *http.Request) {
-	repoID, ok := h.ownRepo(w, r)
-	if !ok {
-		return
+		return err
 	}
 	var req struct {
 		BuildID int64    `json:"buildId"`
 		Actions []string `json:"actions"`
 		RefMask *string  `json:"refMask"`
 	}
-	if !decodeBody(w, r, &req) {
-		return
+	if err := decode(r, &req); err != nil {
+		return err
 	}
 	if req.BuildID == 0 {
-		http.Error(w, `{"error":"buildId is required"}`, http.StatusBadRequest)
-		return
+		return domain.Invalid("buildId is required")
 	}
-	sub := &domain.BuildSubscription{
-		BuildID: req.BuildID, RepositoryID: repoID,
-		Actions: req.Actions, RefMask: req.RefMask,
+	sub := &domain.BuildSubscription{BuildID: req.BuildID, RepositoryID: id, Actions: req.Actions, RefMask: req.RefMask}
+	if sub.ID, err = s.Store.UpsertSubscription(r.Context(), sub); err != nil {
+		return err
 	}
-	id, err := h.Store.UpsertSubscription(r.Context(), sub)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	sub.ID = id
-	writeJSON(w, http.StatusCreated, toSubscriptionDTO(*sub))
+	return respond(w, http.StatusCreated, toSubscriptionDTO(*sub))
 }
 
-// Delete — DELETE /api/subscriptions/{id}.
-func (h *SubscriptionsHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
-	if !ok {
-		return
+// DELETE /api/subscriptions/{id}.
+func (s *Server) deleteSubscription(w http.ResponseWriter, r *http.Request) error {
+	id, err := pathID(r)
+	if err != nil {
+		return err
 	}
-	if err := h.Store.DeleteSubscription(r.Context(), id, userID(r)); err != nil {
-		writeError(w, err)
-		return
+	if err := s.Store.DeleteSubscription(r.Context(), id, userID(r)); err != nil {
+		return err
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return noContent(w)
 }

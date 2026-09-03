@@ -1,81 +1,65 @@
 package httpapi
 
 import (
-	"log/slog"
 	"net/http"
-	"strconv"
+	"time"
 
-	"github.com/vnkjd/git-agent/backend/internal/hub/app"
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 )
 
-// IdentitiesHandler — связки пользователя + прокси списка репозиториев провайдера.
-type IdentitiesHandler struct {
-	Store    domain.IdentityStore
-	Provider domain.ProviderClient
-	Auth     *app.AuthService
+// OAuth-связки пользователя + прокси списка репозиториев провайдера.
+
+type identityDTO struct {
+	ID        int64     `json:"id"`
+	Provider  string    `json:"provider"`
+	Username  string    `json:"username"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
-func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+func toIdentityDTO(i domain.Identity) identityDTO {
+	return identityDTO{ID: i.ID, Provider: i.Provider, Username: i.Username, CreatedAt: i.CreatedAt}
+}
+
+type providerRepoDTO struct {
+	ExternalID    string  `json:"externalId"`
+	Owner         string  `json:"owner"`
+	Name          string  `json:"name"`
+	DefaultBranch *string `json:"defaultBranch"`
+	Private       bool    `json:"private"`
+}
+
+// GET /api/identities.
+func (s *Server) listIdentities(w http.ResponseWriter, r *http.Request) error {
+	list, err := s.Store.Identities(r.Context(), userID(r))
 	if err != nil {
-		http.Error(w, `{"error":"bad id"}`, http.StatusBadRequest)
-		return 0, false
-	}
-	return id, true
-}
-
-// List — GET /api/identities.
-func (h *IdentitiesHandler) List(w http.ResponseWriter, r *http.Request) {
-	list, err := h.Store.Identities(r.Context(), userID(r))
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, mapSlice(list, toIdentityDTO))
-}
-
-// Delete — DELETE /api/identities/{id}; связка с Репозиториями — 409.
-func (h *IdentitiesHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
-	if !ok {
-		return
-	}
-	if err := h.Store.DeleteIdentity(r.Context(), id, userID(r)); err != nil {
-		writeError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// Repos — GET /api/identities/{id}/repos: прокси API провайдера токеном
-// связки (401 от провайдера — refresh-флоу внутри CallWithToken).
-func (h *IdentitiesHandler) Repos(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
-	if !ok {
-		return
-	}
-	ident, err := h.Store.Identity(r.Context(), id, userID(r))
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	if ident == nil {
-		writeError(w, domain.ErrNotFound)
-		return
-	}
-	var repos []domain.ProviderRepo
-	err = h.Auth.CallWithToken(r.Context(), ident, func(token string) error {
-		var err error
-		repos, err = h.Provider.Repos(r.Context(), ident.Provider, token)
 		return err
-	})
-	if err != nil {
-		slog.Error("identities: provider repos failed", "identityId", id, "err", err)
-		http.Error(w, `{"error":"provider unavailable"}`, http.StatusBadGateway)
-		return
 	}
-	writeJSON(w, http.StatusOK, mapSlice(repos, func(p domain.ProviderRepo) providerRepoDTO {
+	return respond(w, http.StatusOK, mapSlice(list, toIdentityDTO))
+}
+
+// DELETE /api/identities/{id}.
+func (s *Server) deleteIdentity(w http.ResponseWriter, r *http.Request) error {
+	id, err := pathID(r)
+	if err != nil {
+		return err
+	}
+	if err := s.Store.DeleteIdentity(r.Context(), id, userID(r)); err != nil {
+		return err
+	}
+	return noContent(w)
+}
+
+// GET /api/identities/{id}/repos.
+func (s *Server) identityRepos(w http.ResponseWriter, r *http.Request) error {
+	id, err := pathID(r)
+	if err != nil {
+		return err
+	}
+	repos, err := s.Repositories.ProviderRepos(r.Context(), userID(r), id)
+	if err != nil {
+		return err
+	}
+	return respond(w, http.StatusOK, mapSlice(repos, func(p domain.ProviderRepo) providerRepoDTO {
 		return providerRepoDTO(p)
 	}))
 }

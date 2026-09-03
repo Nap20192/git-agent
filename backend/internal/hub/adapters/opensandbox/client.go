@@ -84,6 +84,9 @@ func (c *Client) CreateSandbox(ctx context.Context, domain, apiKey, image string
 		"entrypoint":     []string{"tail", "-f", "/dev/null"},
 		"resourceLimits": map[string]string{"cpu": "1", "memory": "512Mi"},
 		"timeout":        nil, // no-TTL: жизненным циклом рулит юзер, не таймер
+		// execd держит SSE-стрим команды ещё ApiGracefulShutdownTimeout (1s) после
+		// execution_complete — ~1s накладных на каждую команду агента; укорачиваем
+		"env": map[string]string{"EXECD_API_GRACE_SHUTDOWN": "100ms"},
 	}
 	var out struct {
 		ID string `json:"id"`

@@ -1,219 +1,120 @@
+// Package httpapi — inbound-адаптер HTTP (wire-формат backend/docs/openapi.yaml).
 package httpapi
 
 import (
 	"encoding/json"
 	"errors"
-	"log/slog"
+	"io"
 	"net/http"
-	"time"
+	"strconv"
+
+	"go.uber.org/zap"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 )
 
-// MaskKey — инвариант redaction (зеркало agent/infra/server/wire.py::mask_key):
-// секрет наружу только маской.
-func MaskKey(key string) string {
-	if key == "" {
-		return ""
+type handler func(w http.ResponseWriter, r *http.Request) error
+
+func handle(fn handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := fn(w, r); err != nil {
+			writeError(w, err)
+		}
 	}
-	if len(key) > 4 {
-		return "…" + key[len(key)-4:]
-	}
-	return "…"
+}
+
+type errorDTO struct {
+	Error string `json:"error"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.Error("httpapi: encode response", "err", err)
+		zap.S().Errorw("httpapi: encode response", "err", err)
 	}
+}
+
+func respond(w http.ResponseWriter, status int, v any) error {
+	writeJSON(w, status, v)
+	return nil
+}
+
+func noContent(w http.ResponseWriter) error {
+	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 func writeError(w http.ResponseWriter, err error) {
+	var invalid *domain.ValidationError
 	switch {
+	case errors.As(err, &invalid):
+		writeJSON(w, http.StatusBadRequest, errorDTO{invalid.Msg})
 	case errors.Is(err, domain.ErrNotFound):
-		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+		writeJSON(w, http.StatusNotFound, errorDTO{"not found"})
 	case errors.Is(err, domain.ErrConflict):
-		http.Error(w, `{"error":"conflict"}`, http.StatusConflict)
+		writeJSON(w, http.StatusConflict, errorDTO{"conflict"})
 	case errors.Is(err, domain.ErrUnavailable):
-		// понятный текст: без OAuth-ключей провайдер недоступен, сервис жив
-		http.Error(w, `{"error":"provider is not configured (set *_OAUTH_CLIENT_ID/SECRET in .env)"}`, http.StatusServiceUnavailable)
+		writeJSON(w, http.StatusServiceUnavailable, errorDTO{"provider is not configured (set *_OAUTH_CLIENT_ID/SECRET in .env)"})
 	case errors.Is(err, domain.ErrTimeout):
-		http.Error(w, `{"error":"runner did not start streaming in time (queued too long)"}`, http.StatusGatewayTimeout)
+		writeJSON(w, http.StatusGatewayTimeout, errorDTO{"runner did not start streaming in time (queued too long)"})
+	case errors.Is(err, domain.ErrUpstream):
+		zap.S().Warnw("httpapi: upstream error", "err", err)
+		writeJSON(w, http.StatusBadGateway, errorDTO{"provider unavailable"})
 	default:
-		slog.Error("httpapi: internal error", "err", err)
-		http.Error(w, `{"error":"internal"}`, http.StatusInternalServerError)
+		zap.S().Errorw("httpapi: internal error", "err", err)
+		writeJSON(w, http.StatusInternalServerError, errorDTO{"internal"})
 	}
 }
 
-func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+func unauthorized(w http.ResponseWriter) {
+	writeJSON(w, http.StatusUnauthorized, errorDTO{"unauthorized"})
+}
+
+func decode(r *http.Request, v any) error {
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		http.Error(w, `{"error":"bad json"}`, http.StatusBadRequest)
-		return false
+		return domain.Invalid("bad json")
 	}
-	return true
+	return nil
 }
 
-// ── DTO (camelCase — backend/docs/openapi.yaml) ─────────────────────────────
-
-type identityDTO struct {
-	ID        int64     `json:"id"`
-	Provider  string    `json:"provider"`
-	Username  string    `json:"username"`
-	CreatedAt time.Time `json:"createdAt"`
-}
-
-func toIdentityDTO(i domain.Identity) identityDTO {
-	return identityDTO{ID: i.ID, Provider: i.Provider, Username: i.Username, CreatedAt: i.CreatedAt}
-}
-
-type providerRepoDTO struct {
-	ExternalID    string  `json:"externalId"`
-	Owner         string  `json:"owner"`
-	Name          string  `json:"name"`
-	DefaultBranch *string `json:"defaultBranch"`
-	Private       bool    `json:"private"`
-}
-
-type repositoryDTO struct {
-	ID            int64     `json:"id"`
-	IdentityID    int64     `json:"identityId"`
-	Provider      string    `json:"provider"`
-	ExternalID    string    `json:"externalId"`
-	Owner         string    `json:"owner"`
-	Name          string    `json:"name"`
-	DefaultBranch *string   `json:"defaultBranch"`
-	BuildID       *int64    `json:"buildId"`
-	ConnectedAt   time.Time `json:"connectedAt"`
-}
-
-func toRepositoryDTO(r domain.Repository) repositoryDTO {
-	return repositoryDTO{
-		ID: r.ID, IdentityID: r.IdentityID, Provider: r.Provider, ExternalID: r.ExternalID,
-		Owner: r.Owner, Name: r.Name, DefaultBranch: r.DefaultBranch,
-		BuildID: r.BuildID, ConnectedAt: r.ConnectedAt,
+func decodeOptional(r *http.Request, v any) error {
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil && !errors.Is(err, io.EOF) {
+		return domain.Invalid("bad json")
 	}
+	return nil
 }
 
-type eventDTO struct {
-	ID         int64     `json:"id"`
-	Provider   string    `json:"provider"`
-	Action     string    `json:"action"`
-	CommitSHA  *string   `json:"commitSha"`
-	Ref        *string   `json:"ref"`
-	ReceivedAt time.Time `json:"receivedAt"`
-}
-
-type buildDTO struct {
-	ID                  int64           `json:"id"`
-	Name                string          `json:"name"`
-	LlmConnectionID     int64           `json:"llmConnectionId"`
-	SandboxConnectionID int64           `json:"sandboxConnectionId"`
-	Prompt              *string         `json:"prompt"`
-	MemoryPreset        *string         `json:"memoryPreset"`
-	Limits              json.RawMessage `json:"limits"`
-	IsDefault           bool            `json:"isDefault"`
-	CreatedAt           time.Time       `json:"createdAt"`
-}
-
-func toBuildDTO(b domain.AgentBuild) buildDTO {
-	limits := json.RawMessage(b.Limits)
-	if len(limits) == 0 {
-		limits = json.RawMessage(`{}`)
+func pathID(r *http.Request) (int64, error) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		return 0, domain.Invalid("bad id")
 	}
-	return buildDTO{
-		ID: b.ID, Name: b.Name,
-		LlmConnectionID: b.LlmConnectionID, SandboxConnectionID: b.SandboxConnectionID,
-		Prompt: b.Prompt, MemoryPreset: b.MemoryPreset, Limits: limits,
-		IsDefault: b.IsDefault, CreatedAt: b.CreatedAt,
+	return id, nil
+}
+
+func queryID(r *http.Request, name string) (*int64, error) {
+	q := r.URL.Query().Get(name)
+	if q == "" {
+		return nil, nil
 	}
-}
-
-type llmConnectionDTO struct {
-	ID           int64  `json:"id"`
-	Name         string `json:"name"`
-	APIBase      string `json:"apiBase"`
-	APIKeyMasked string `json:"apiKeyMasked"`
-	Model        string `json:"model"`
-}
-
-type sandboxConnectionDTO struct {
-	ID           int64   `json:"id"`
-	Name         string  `json:"name"`
-	Domain       string  `json:"domain"`
-	APIKeyMasked *string `json:"apiKeyMasked"`
-	Image        *string `json:"image"`
-}
-
-type instanceDTO struct {
-	ID                int64     `json:"id"`
-	BuildID           int64     `json:"buildId"`
-	RepositoryID      int64     `json:"repositoryId"`
-	SandboxInstanceID *int64    `json:"sandboxInstanceId"`
-	SandboxExternalID *string   `json:"sandboxExternalId"`
-	SandboxStatus     *string   `json:"sandboxStatus"`
-	ThreadID          string    `json:"threadId"`
-	Status            string    `json:"status"`
-	RunnerID          *int64    `json:"runnerId"`
-	UpdatedAt         time.Time `json:"updatedAt"`
-}
-
-func toInstanceDTO(i domain.AgentInstance) instanceDTO {
-	return instanceDTO{
-		ID: i.ID, BuildID: i.BuildID, RepositoryID: i.RepositoryID,
-		SandboxInstanceID: i.SandboxInstanceID,
-		SandboxExternalID: i.SandboxExternalID, SandboxStatus: i.SandboxStatus,
-		ThreadID: i.ThreadID,
-		Status:   i.Status, RunnerID: i.RunnerID, UpdatedAt: i.UpdatedAt,
+	id, err := strconv.ParseInt(q, 10, 64)
+	if err != nil {
+		return nil, domain.Invalid("bad " + name)
 	}
+	return &id, nil
 }
 
-type sandboxInstanceDTO struct {
-	ID                  int64      `json:"id"`
-	ExternalID          string     `json:"externalId"`
-	SandboxConnectionID int64      `json:"sandboxConnectionId"`
-	Status              string     `json:"status"`
-	CreatedAt           time.Time  `json:"createdAt"`
-	KilledAt            *time.Time `json:"killedAt"`
+func found[T any](v *T, err error) (*T, error) {
+	if err != nil {
+		return nil, err
+	}
+	if v == nil {
+		return nil, domain.ErrNotFound
+	}
+	return v, nil
 }
 
-func toSandboxInstanceDTO(si domain.SandboxInstance) sandboxInstanceDTO {
-	return sandboxInstanceDTO(si)
-}
-
-type runnerDTO struct {
-	ID              int64     `json:"id"`
-	Name            string    `json:"name"`
-	Address         string    `json:"address"`
-	Slots           int       `json:"slots"`
-	LastHeartbeatAt time.Time `json:"lastHeartbeatAt"`
-}
-
-type reportDTO struct {
-	ID         int64     `json:"id"`
-	InstanceID int64     `json:"instanceId"`
-	EventID    *int64    `json:"eventId"`
-	Summary    string    `json:"summary"`
-	CreatedAt  time.Time `json:"createdAt"`
-}
-
-type findingDTO struct {
-	ID          int64     `json:"id"`
-	InstanceID  int64     `json:"instanceId"`
-	ReportID    *int64    `json:"reportId"`
-	Severity    string    `json:"severity"`
-	CWE         *string   `json:"cwe"`
-	CVE         *string   `json:"cve"`
-	File        *string   `json:"file"`
-	LineStart   *int      `json:"lineStart"`
-	LineEnd     *int      `json:"lineEnd"`
-	Evidence    *string   `json:"evidence"`
-	Remediation *string   `json:"remediation"`
-	CreatedAt   time.Time `json:"createdAt"`
-}
-
-// mapSlice — []domain → []DTO; пустой список сериализуется как [], не null.
 func mapSlice[T, D any](in []T, f func(T) D) []D {
 	out := make([]D, len(in))
 	for i, v := range in {

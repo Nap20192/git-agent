@@ -7,7 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
-	"log/slog"
+
+	"go.uber.org/zap"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 	"github.com/vnkjd/git-agent/backend/pkg/secrets"
@@ -74,7 +75,7 @@ func (s *RepositoryService) Connect(ctx context.Context, userID, identityID int6
 			BuildID: *buildID, RepositoryID: repo.ID,
 		}); err != nil {
 			if delErr := s.Repos.DeleteRepository(ctx, repo.ID); delErr != nil {
-				slog.Error("repository: rollback after subscription failure", "repositoryId", repo.ID, "err", delErr)
+				zap.S().Errorw("repository: rollback after subscription failure", "repositoryId", repo.ID, "err", delErr)
 			}
 			return nil, err
 		}
@@ -89,7 +90,7 @@ func (s *RepositoryService) Connect(ctx context.Context, userID, identityID int6
 	})
 	if err != nil {
 		if delErr := s.Repos.DeleteRepository(ctx, repo.ID); delErr != nil {
-			slog.Error("repository: rollback after hook failure", "repositoryId", repo.ID, "err", delErr)
+			zap.S().Errorw("repository: rollback after hook failure", "repositoryId", repo.ID, "err", delErr)
 		}
 		return nil, fmt.Errorf("create provider hook: %w", err)
 	}
@@ -116,7 +117,7 @@ func (s *RepositoryService) Disconnect(ctx context.Context, id, userID int64) er
 				return s.Provider.DeleteHook(ctx, repo.Provider, token, repo, *repo.WebhookProviderID)
 			})
 			if err != nil {
-				slog.Warn("repository: provider hook removal failed, disconnecting anyway",
+				zap.S().Warnw("repository: provider hook removal failed, disconnecting anyway",
 					"repositoryId", id, "err", err)
 			}
 		}
@@ -191,4 +192,50 @@ func (s *RepositoryService) Trigger(ctx context.Context, userID, id int64, ref, 
 		return nil, err
 	}
 	return &TriggerResult{CommitSHA: commitSHA, Duplicate: duplicate, InstanceIDs: instanceIDs}, nil
+}
+
+// ProviderRepos — репозитории провайдера токеном связки (401 от провайдера —
+// refresh-флоу внутри CallWithToken). Ошибка провайдера — ErrUpstream: наружу
+// 502 без деталей, детали — в лог на границе.
+func (s *RepositoryService) ProviderRepos(ctx context.Context, userID, identityID int64) ([]domain.ProviderRepo, error) {
+	ident, err := s.Identities.Identity(ctx, identityID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if ident == nil {
+		return nil, domain.ErrNotFound
+	}
+	var repos []domain.ProviderRepo
+	err = s.Auth.CallWithToken(ctx, ident, func(token string) error {
+		var err error
+		repos, err = s.Provider.Repos(ctx, ident.Provider, token)
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: provider repos: %v", domain.ErrUpstream, err)
+	}
+	return repos, nil
+}
+
+// SetBuild — deprecated (тикет 011): {buildId} транслируется в подписку
+// Сборки на все события Репозитория; возвращает обновлённый Репозиторий.
+func (s *RepositoryService) SetBuild(ctx context.Context, id, userID, buildID int64) (*domain.Repository, error) {
+	repo, err := s.Repos.Repository(ctx, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	if repo == nil {
+		return nil, domain.ErrNotFound
+	}
+	if _, err := s.Subs.UpsertSubscription(ctx, &domain.BuildSubscription{BuildID: buildID, RepositoryID: id}); err != nil {
+		return nil, err
+	}
+	repo, err = s.Repos.Repository(ctx, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	if repo == nil {
+		return nil, domain.ErrNotFound
+	}
+	return repo, nil
 }

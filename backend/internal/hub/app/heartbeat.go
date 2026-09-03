@@ -2,8 +2,9 @@ package app
 
 import (
 	"context"
-	"log/slog"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 )
@@ -31,11 +32,11 @@ func (s *HeartbeatService) Run(ctx context.Context) error {
 		case <-ticker.C:
 			downed, requeued, err := s.Store.RequeueStale(ctx, s.Timeout)
 			if err != nil {
-				slog.Error("heartbeat: requeue failed", "err", err)
+				zap.S().Errorw("heartbeat: requeue failed", "err", err)
 				continue
 			}
 			if downed > 0 || requeued > 0 {
-				slog.Info("heartbeat: stale runners handled", "instancesDowned", downed, "eventsRequeued", requeued)
+				zap.S().Infow("heartbeat: stale runners handled", "instancesDowned", downed, "eventsRequeued", requeued)
 			}
 		}
 	}

@@ -12,11 +12,7 @@ import (
 
 func TestRunnerRoutes(t *testing.T) {
 	db := testdb.Setup(t)
-	h := &RunnersHandler{Store: &pgstore.Store{Pool: db}, Token: "runner-token"}
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/runners", h.Auth(h.Register))
-	mux.HandleFunc("POST /api/runners/{id}/heartbeat", h.Auth(h.Heartbeat))
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewServer(NewMux(&Server{Store: &pgstore.Store{Pool: db}, RunnerToken: "runner-token"}))
 	defer srv.Close()
 
 	post := func(path, token, body string) *http.Response {

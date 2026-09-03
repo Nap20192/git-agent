@@ -1,0 +1,32 @@
+# sqlc: SQL → типизированный Go (internal/hub/adapters/postgres/db). Регенерация: task backend:sqlc
+version: "2"
+sql:
+  - engine: postgresql
+    schema: ../migrations/backend
+    queries: internal/hub/adapters/postgres/queries
+    gen:
+      go:
+        package: db
+        out: internal/hub/adapters/postgres/db
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
+        # имена полей = domain-структуры: строки конвертируются приведением типа
+        rename:
+          api_base: APIBase
+          api_key_enc: APIKeyEnc
+          cwe: CWE
+          cve: CVE
+          commit_sha: CommitSHA
+        overrides:
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type: { import: "time", type: "Time", pointer: true }
+          - db_type: "pg_catalog.int4"
+            go_type: "int"
+          - db_type: "pg_catalog.int4"
+            nullable: true
+            go_type: { type: "int", pointer: true }
+          - db_type: "pg_catalog.interval"
+            go_type: "time.Duration"

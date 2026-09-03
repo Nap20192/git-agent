@@ -56,11 +56,7 @@ func TestTrigger(t *testing.T) {
 		Auth:     &app.AuthService{Store: store, Secrets: box},
 		Webhook:  webhook, Secrets: box,
 	}
-	session := &Session{Store: store, DevUserID: userID}
-	mux := http.NewServeMux()
-	h := &RepositoriesHandler{Store: store, Subs: store, Service: svc}
-	mux.HandleFunc("POST /api/repositories/{id}/trigger", session.Wrap(h.Trigger))
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewServer(NewMux(&Server{Store: store, Repositories: svc, DevUserID: userID}))
 	defer srv.Close()
 
 	trigger := func(repoID int64, body string) (int, triggerResultDTO) {

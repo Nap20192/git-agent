@@ -57,17 +57,11 @@ func newAuthRig(t *testing.T) *authRig {
 		GitHub:    oauth.App{ClientID: "cid", ClientSecret: "csec"},
 		GitHubWeb: fakeGitHub.URL, GitHubAPI: fakeGitHub.URL,
 	}
-	session := &Session{Store: store}
-	auth := &AuthHandler{
-		Service: &app.AuthService{Store: store, OAuth: oauthClient, Secrets: rig.box},
-		Session: session, Store: store, Identities: store,
+	mux := NewMux(&Server{
+		Store:       store,
+		Auth:        &app.AuthService{Store: store, OAuth: oauthClient, Secrets: rig.box},
 		FrontendURL: "http://front.example/",
-	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/auth/{provider}/login", auth.Login)
-	mux.HandleFunc("GET /api/auth/{provider}/callback", auth.Callback)
-	mux.HandleFunc("POST /api/auth/logout", auth.Logout)
-	mux.HandleFunc("GET /api/me", session.Wrap(auth.Me))
+	})
 	rig.srv = httptest.NewServer(mux)
 	t.Cleanup(rig.srv.Close)
 	return rig

@@ -119,10 +119,9 @@ func TestWebhookIngest(t *testing.T) {
 	repoID := seed(t, db, box)
 
 	store := &pgstore.Store{Pool: db}
-	handler := &WebhookHandler{Service: &app.WebhookService{Repos: store, Subs: store, Ingestor: store, Secrets: box}}
-	mux := http.NewServeMux()
-	mux.Handle("POST /hooks/{provider}/{repositoryId}", handler)
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewServer(NewMux(&Server{
+		Webhook: &app.WebhookService{Repos: store, Subs: store, Ingestor: store, Secrets: box},
+	}))
 	defer srv.Close()
 
 	body := []byte(`{"after":"abc123","ref":"refs/heads/main"}`)
@@ -212,10 +211,9 @@ func TestWebhookDefaultBuildFallback(t *testing.T) {
 	}
 
 	store := &pgstore.Store{Pool: db}
-	handler := &WebhookHandler{Service: &app.WebhookService{Repos: store, Subs: store, Ingestor: store, Secrets: box}}
-	mux := http.NewServeMux()
-	mux.Handle("POST /hooks/{provider}/{repositoryId}", handler)
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewServer(NewMux(&Server{
+		Webhook: &app.WebhookService{Repos: store, Subs: store, Ingestor: store, Secrets: box},
+	}))
 	defer srv.Close()
 
 	body := []byte(`{"after":"abc","ref":"refs/heads/main"}`)

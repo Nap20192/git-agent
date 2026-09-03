@@ -9,6 +9,10 @@ from opensandbox.sandbox import Sandbox as _OpenSandbox
 from core.config import settings
 from core.ports import SandboxCommandError
 
+# execd после execution_complete держит SSE-стрим ещё ApiGracefulShutdownTimeout
+# (дефолт 1s) — это ~1s накладных на КАЖДУЮ команду. Ручка — env execd.
+EXECD_ENV = {"EXECD_API_GRACE_SHUTDOWN": "100ms"}
+
 
 class OpenSandboxAdapter:
     repo_dir = "/repo"
@@ -56,6 +60,7 @@ async def create_sandbox(
     sandbox = await _OpenSandbox.create(
         image or settings.sandbox_image,
         timeout=None,
+        env=EXECD_ENV,
         connection_config=_connection_config(domain, api_key),
     )
     return OpenSandboxAdapter(sandbox)
