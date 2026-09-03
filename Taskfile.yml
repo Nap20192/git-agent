@@ -97,6 +97,13 @@ tasks:
     cmds:
       - uv run uvicorn runner:app --port 8081
 
+  demo:runner:
+    desc: Интерактивное демо Раннера (реальные Rabbit+Postgres, без LLM)
+    dir: agent
+    interactive: true
+    cmds:
+      - uv run python scripts/demo_runner.py
+
   backend:build:
     desc: Собрать Go-бекенд (hub)
     dir: backend
