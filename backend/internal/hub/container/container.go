@@ -69,12 +69,14 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 	auth := &app.AuthService{Store: store, OAuth: oauthClient, Secrets: box}
 	webhook := &app.WebhookService{Repos: store, Subs: store, Ingestor: store, Secrets: box}
 	outbox := &app.OutboxService{Store: store, Publisher: publisher}
+	sandboxes := &app.SandboxService{Store: store, Connections: store, Builds: store, Client: sandboxClient, Secrets: box, Defaults: cfg.Defaults}
 	repositories := &app.RepositoryService{
 		Repos: store, Identities: store, Subs: store, Provider: providerClient,
 		Auth: auth, Webhook: webhook, Secrets: box, WebhookBaseURL: cfg.WebhookBaseURL,
+		Instances: store, Sandboxes: sandboxes,
 	}
 	instances := &app.InstanceService{
-		Instances: store, Runners: store, Client: runnerClient,
+		Instances: store, Runners: store, Client: runnerClient, Sandboxes: sandboxes,
 		RunnersAlive: cfg.HeartbeatTimeout,
 	}
 	heartbeat := &app.HeartbeatService{Store: store, Timeout: cfg.HeartbeatTimeout}
@@ -88,7 +90,7 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 		Repositories:  repositories,
 		Instances:     instances,
 		Webhook:       webhook,
-		Sandboxes:     &app.SandboxService{Store: store, Connections: store, Client: sandboxClient, Secrets: box, Defaults: cfg.Defaults},
+		Sandboxes:     sandboxes,
 		Connections:   &app.ConnectionService{Store: store, Secrets: box},
 		Defaults:      cfg.Defaults,
 		DevUserID:     cfg.DevUserID,

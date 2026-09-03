@@ -131,7 +131,7 @@ func (s *Store) Ingest(ctx context.Context, repo *domain.Repository, e domain.Ev
 	routingKey := domain.RoutingKey(repo.Provider, repo.ID, e.Action)
 	for _, buildID := range buildIDs {
 		inst, err := q.UpsertInstance(ctx, db.UpsertInstanceParams{
-			BuildID: buildID, RepositoryID: repo.ID, ThreadID: fmt.Sprintf("hub-%d-%d", buildID, repo.ID),
+			BuildID: buildID, RepositoryID: repo.ID, ThreadID: threadID(buildID, repo.ID),
 		})
 		if err != nil {
 			return false, nil, fmt.Errorf("upsert instance (build %d): %w", buildID, err)
@@ -293,6 +293,14 @@ func (s *Store) DefaultBuild(ctx context.Context, userID int64) (*domain.AgentBu
 
 // ── Builds ──────────────────────────────────────────────────────────────────
 
+func (s *Store) Build(ctx context.Context, id int64) (*domain.AgentBuild, error) {
+	b, err := optional(s.q().Build(ctx, id))
+	if b == nil || err != nil {
+		return nil, err
+	}
+	return (*domain.AgentBuild)(b), nil
+}
+
 func (s *Store) Builds(ctx context.Context, userID int64) ([]domain.AgentBuild, error) {
 	rows, err := s.q().Builds(ctx, userID)
 	return mapRows(rows, err, func(r db.HubAgentBuild) domain.AgentBuild { return domain.AgentBuild(r) })
@@ -378,6 +386,19 @@ func (s *Store) Activity(ctx context.Context, instanceID int64, eventID *int64) 
 		return s.q().ActivityLatest(ctx, instanceID)
 	}
 	return s.q().ActivityByEvent(ctx, db.ActivityByEventParams{InstanceID: instanceID, EventID: eventID})
+}
+
+// threadID — тред чекпоинтов Экземпляра (Сборка, Репозиторий); один и тот же
+// у Ingest и UpsertInstance — иначе разъедутся на ON CONFLICT.
+func threadID(buildID, repositoryID int64) string {
+	return fmt.Sprintf("hub-%d-%d", buildID, repositoryID)
+}
+
+func (s *Store) UpsertInstance(ctx context.Context, buildID, repositoryID int64) (int64, error) {
+	row, err := s.q().UpsertInstance(ctx, db.UpsertInstanceParams{
+		BuildID: buildID, RepositoryID: repositoryID, ThreadID: threadID(buildID, repositoryID),
+	})
+	return row.ID, err
 }
 
 func (s *Store) SetInstanceRunning(ctx context.Context, id, runnerID int64) error {

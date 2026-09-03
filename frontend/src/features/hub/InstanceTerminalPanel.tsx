@@ -82,7 +82,7 @@ export function InstanceTerminalPanel({ instanceId, running, hasSandbox, sandbox
         <div className="term-host" ref={hostRef} />
       ) : (
         <div className="empty small" style={{ flex: 1 }}>
-          {!hasSandbox ? "no sandbox — create one on the timeline tab to open the terminal." : "the agent is down — raise it (run agent or send a chat message) to open the terminal."}
+          {!hasSandbox ? "no sandbox yet — run the agent or send a chat message (the hub creates one), or create it on the timeline tab." : "the agent is down — raise it (run agent or send a chat message) to open the terminal."}
         </div>
       )}
       <div className="prompt">

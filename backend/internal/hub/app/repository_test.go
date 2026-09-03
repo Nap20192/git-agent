@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/vnkjd/git-agent/backend/internal/hub/adapters/opensandbox"
 	pgstore "github.com/vnkjd/git-agent/backend/internal/hub/adapters/postgres"
 	"github.com/vnkjd/git-agent/backend/internal/hub/adapters/provider"
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
@@ -268,5 +270,125 @@ func TestRepositoryTriggerWatchWithoutIdentity(t *testing.T) {
 	}
 	if res.CommitSHA != "headsha" || res.Duplicate {
 		t.Errorf("trigger: %+v", res)
+	}
+}
+
+// ── авто-провижининг песочницы (тикет 004, решение изменено) ────────────────
+
+type fakeSandboxes struct{ created atomic.Int32 }
+
+func (f *fakeSandboxes) CreateSandbox(context.Context, string, string, string) (string, error) {
+	n := f.created.Add(1)
+	return fmt.Sprintf("sbx-%d", n), nil
+}
+func (f *fakeSandboxes) DeleteSandbox(context.Context, string, string, string) error { return nil }
+
+// Trigger на Экземпляр без песочницы: hub создаёт её из sandbox_connection
+// Сборки, привязывает и только потом кладёт Событие в outbox; с живой —
+// вторую не создаёт; dead привязанная — пересоздаётся.
+func TestTriggerAutoProvisionsSandbox(t *testing.T) {
+	db := testdb.Setup(t)
+	ctx := context.Background()
+	box, _ := secrets.New(bytes.Repeat([]byte{3}, 32))
+	store := &pgstore.Store{Pool: db}
+
+	var userID, repoID int64
+	if err := db.QueryRow(ctx, `
+		WITH u AS (INSERT INTO hub.users (display_name) VALUES ('t') RETURNING id),
+		l AS (INSERT INTO hub.llm_connections (user_id, name, api_base, api_key_enc, model)
+		      SELECT id, 'llm', 'http://x', '\x00', 'm' FROM u RETURNING id, user_id),
+		s AS (INSERT INTO hub.sandbox_connections (name, domain, image) VALUES ('sbx', 'x', 'img') RETURNING id),
+		b AS (INSERT INTO hub.agent_builds (user_id, name, llm_connection_id, sandbox_connection_id, is_default)
+		      SELECT l.user_id, 'default', l.id, s.id, true FROM l, s RETURNING id, user_id)
+		INSERT INTO hub.repositories (user_id, mode, provider, external_id, owner, name, default_branch)
+		SELECT user_id, 'watch', 'github', '500', 'acme', 'pub', 'main' FROM b RETURNING user_id, id`,
+	).Scan(&userID, &repoID); err != nil {
+		t.Fatal(err)
+	}
+
+	lifecycle := &fakeSandboxes{}
+	svc := &RepositoryService{
+		Repos: store, Identities: store, Subs: store, Instances: store,
+		Webhook:   &WebhookService{Repos: store, Subs: store, Ingestor: store, Secrets: box},
+		Sandboxes: &SandboxService{Store: store, Connections: store, Builds: store, Client: lifecycle, Secrets: box},
+	}
+	counts := func() (sandboxes, outbox int, linked *int64) {
+		t.Helper()
+		if err := db.QueryRow(ctx, `SELECT (SELECT count(*) FROM hub.sandbox_instances), (SELECT count(*) FROM hub.outbox),
+			(SELECT sandbox_instance_id FROM hub.agent_instances WHERE repository_id = $1)`, repoID).Scan(&sandboxes, &outbox, &linked); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+
+	if _, err := svc.Trigger(ctx, userID, repoID, "", "sha1", ""); err != nil {
+		t.Fatal(err)
+	}
+	sandboxes, outbox, linked := counts()
+	if sandboxes != 1 || outbox != 1 || linked == nil || lifecycle.created.Load() != 1 {
+		t.Fatalf("after first trigger: sandboxes=%d outbox=%d linked=%v created=%d", sandboxes, outbox, linked, lifecycle.created.Load())
+	}
+	first := *linked
+
+	// живая привязана — вторую не создаём
+	if _, err := svc.Trigger(ctx, userID, repoID, "", "sha2", ""); err != nil {
+		t.Fatal(err)
+	}
+	if sandboxes, outbox, linked = counts(); sandboxes != 1 || outbox != 2 || *linked != first {
+		t.Fatalf("after second trigger: sandboxes=%d outbox=%d linked=%v", sandboxes, outbox, *linked)
+	}
+
+	// привязанная умерла — пересоздаём и перепривязываем
+	if err := store.MarkSandboxInstanceDead(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Trigger(ctx, userID, repoID, "", "sha3", ""); err != nil {
+		t.Fatal(err)
+	}
+	if sandboxes, outbox, linked = counts(); sandboxes != 2 || outbox != 3 || *linked == first {
+		t.Fatalf("after dead sandbox: sandboxes=%d outbox=%d linked=%v", sandboxes, outbox, *linked)
+	}
+}
+
+// OpenSandbox не отвечает — Событие не публикуется, наверх ErrUpstream.
+func TestTriggerSandboxFailureDoesNotPublish(t *testing.T) {
+	db := testdb.Setup(t)
+	ctx := context.Background()
+	box, _ := secrets.New(bytes.Repeat([]byte{3}, 32))
+	store := &pgstore.Store{Pool: db}
+
+	var userID, repoID int64
+	if err := db.QueryRow(ctx, `
+		WITH u AS (INSERT INTO hub.users (display_name) VALUES ('t') RETURNING id),
+		l AS (INSERT INTO hub.llm_connections (user_id, name, api_base, api_key_enc, model)
+		      SELECT id, 'llm', 'http://x', '\x00', 'm' FROM u RETURNING id, user_id),
+		s AS (INSERT INTO hub.sandbox_connections (name, domain, image) VALUES ('sbx', 'x', 'img') RETURNING id),
+		b AS (INSERT INTO hub.agent_builds (user_id, name, llm_connection_id, sandbox_connection_id, is_default)
+		      SELECT l.user_id, 'default', l.id, s.id, true FROM l, s RETURNING id, user_id)
+		INSERT INTO hub.repositories (user_id, mode, provider, external_id, owner, name, default_branch)
+		SELECT user_id, 'watch', 'github', '500', 'acme', 'pub', 'main' FROM b RETURNING user_id, id`,
+	).Scan(&userID, &repoID); err != nil {
+		t.Fatal(err)
+	}
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadGateway) }))
+	defer dead.Close()
+	if _, err := db.Exec(ctx, `UPDATE hub.sandbox_connections SET domain = $1`, dead.URL); err != nil {
+		t.Fatal(err)
+	}
+	svc := &RepositoryService{
+		Repos: store, Identities: store, Subs: store, Instances: store,
+		Webhook:   &WebhookService{Repos: store, Subs: store, Ingestor: store, Secrets: box},
+		Sandboxes: &SandboxService{Store: store, Connections: store, Builds: store, Client: &opensandbox.Client{}, Secrets: box},
+	}
+	_, err := svc.Trigger(ctx, userID, repoID, "", "sha1", "")
+	if !errors.Is(err, domain.ErrUpstream) {
+		t.Fatalf("want ErrUpstream, got %v", err)
+	}
+	var outbox, sandboxes int
+	if err := db.QueryRow(ctx, `SELECT (SELECT count(*) FROM hub.outbox), (SELECT count(*) FROM hub.sandbox_instances)`).Scan(&outbox, &sandboxes); err != nil {
+		t.Fatal(err)
+	}
+	if outbox != 0 || sandboxes != 0 {
+		t.Fatalf("outbox=%d sandboxes=%d, want 0/0", outbox, sandboxes)
 	}
 }

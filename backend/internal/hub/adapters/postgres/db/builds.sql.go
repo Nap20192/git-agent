@@ -9,6 +9,30 @@ import (
 	"context"
 )
 
+const build = `-- name: Build :one
+SELECT id, user_id, name, llm_connection_id, sandbox_connection_id,
+       prompt, memory_preset, limits, is_default, created_at
+  FROM hub.agent_builds WHERE id = $1
+`
+
+func (q *Queries) Build(ctx context.Context, id int64) (HubAgentBuild, error) {
+	row := q.db.QueryRow(ctx, build, id)
+	var i HubAgentBuild
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.LlmConnectionID,
+		&i.SandboxConnectionID,
+		&i.Prompt,
+		&i.MemoryPreset,
+		&i.Limits,
+		&i.IsDefault,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const builds = `-- name: Builds :many
 
 SELECT id, user_id, name, llm_connection_id, sandbox_connection_id,

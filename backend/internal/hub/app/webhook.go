@@ -64,19 +64,29 @@ func (s *WebhookService) FanOut(ctx context.Context, repo *domain.Repository, e 
 	if e.TraceID = trace.FromContext(ctx); e.TraceID == "" {
 		e.TraceID = trace.New()
 	}
+	buildIDs, err := s.MatchedBuilds(ctx, repo, e.Action, e.Ref)
+	if err != nil {
+		return false, nil, err
+	}
+	return s.Ingestor.Ingest(ctx, repo, e, payload, buildIDs)
+}
+
+// MatchedBuilds — Сборки, которые получат Событие (action, ref) Репозитория:
+// по подпискам, а у репо без подписок — дефолтная Сборка юзера.
+func (s *WebhookService) MatchedBuilds(ctx context.Context, repo *domain.Repository, action, ref string) ([]int64, error) {
 	subs, err := s.Subs.SubscriptionsByRepo(ctx, repo.ID)
 	if err != nil {
-		return false, nil, fmt.Errorf("subscriptions lookup: %w", err)
+		return nil, fmt.Errorf("subscriptions lookup: %w", err)
 	}
-	buildIDs := domain.MatchedBuilds(subs, e.Action, e.Ref)
+	buildIDs := domain.MatchedBuilds(subs, action, ref)
 	if len(subs) == 0 {
 		def, err := s.Subs.DefaultBuild(ctx, repo.UserID)
 		if err != nil {
-			return false, nil, fmt.Errorf("default build lookup: %w", err)
+			return nil, fmt.Errorf("default build lookup: %w", err)
 		}
 		if def != nil {
 			buildIDs = []int64{def.ID}
 		}
 	}
-	return s.Ingestor.Ingest(ctx, repo, e, payload, buildIDs)
+	return buildIDs, nil
 }

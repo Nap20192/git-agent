@@ -288,7 +288,7 @@ export function PlaygroundScreen() {
               ) : (
                 <>
                   <div className="small comment pretty">
-                    {inst.sandboxInstanceId != null ? `previous sandbox ${inst.sandboxExternalId ?? ""} is dead. events need a live sandbox — create a new one.` : "no sandbox yet. the agent cannot process events until you create one (the runner never creates sandboxes itself)."}
+                    {inst.sandboxInstanceId != null ? `previous sandbox ${inst.sandboxExternalId ?? ""} is dead. the hub creates a fresh one on the next run / chat — or create it now.` : "no sandbox yet. the hub creates one from the build's sandbox connection on the first run / chat — or create it now."}
                   </div>
                   <button className="btn primary" style={{ marginTop: 8 }} disabled={busy != null} onClick={createSandbox}>{busy === "sandbox" ? "creating…" : `+ create sandbox${build?.sandboxConnectionId != null ? ` · connection #${build.sandboxConnectionId}` : ""}`}</button>
                 </>

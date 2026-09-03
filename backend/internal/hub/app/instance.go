@@ -18,7 +18,8 @@ type InstanceService struct {
 	Instances    domain.InstanceStore
 	Runners      domain.RunnerStore
 	Client       domain.RunnerClient
-	RunnersAlive time.Duration // окно живости heartbeat при выборе Раннера
+	Sandboxes    *SandboxService // авто-провижининг песочницы перед raise; nil — выключен
+	RunnersAlive time.Duration   // окно живости heartbeat при выборе Раннера
 }
 
 // Chat поднимает down-Экземпляр (raise на свободном Раннере) и возвращает
@@ -31,7 +32,7 @@ func (s *InstanceService) Chat(ctx context.Context, id, userID int64, message st
 	if inst == nil {
 		return nil, domain.ErrNotFound
 	}
-	runner, _, err := s.ensureRunning(ctx, inst)
+	runner, _, err := s.ensureRunning(ctx, inst, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +50,7 @@ func (s *InstanceService) Raise(ctx context.Context, id, userID int64) (bool, er
 	if inst == nil {
 		return false, domain.ErrNotFound
 	}
-	_, queued, err := s.ensureRunning(ctx, inst)
+	_, queued, err := s.ensureRunning(ctx, inst, userID)
 	return queued, err
 }
 
@@ -153,13 +154,14 @@ func (s *InstanceService) Stop(ctx context.Context, id, userID int64) error {
 	return s.Instances.SetInstanceDown(ctx, inst.ID)
 }
 
-// ensureRunning — running-Экземпляр возвращает его Раннер; down — выбирает
-// живой Раннер и просит raise. Раннер отвечает быстро: running — фиксируем
+// ensureRunning — running-Экземпляр возвращает его Раннер; down — сначала
+// живая песочница (нет/dead — hub создаёт сам, тикет 004), затем живой
+// Раннер и raise. Раннер отвечает быстро: running — фиксируем
 // single-running в БД; queued — слот занят, раннер поднимет фоном и сам
 // зафиксирует running (клейм CAS), статус в БД не трогаем.
 // ponytail: два конкурентных чата могут поднять дважды — гонка закрывается
 // advisory-lock по id Экземпляра, когда станет реальной проблемой.
-func (s *InstanceService) ensureRunning(ctx context.Context, inst *domain.AgentInstance) (*domain.Runner, bool, error) {
+func (s *InstanceService) ensureRunning(ctx context.Context, inst *domain.AgentInstance, userID int64) (*domain.Runner, bool, error) {
 	if inst.Status == "running" && inst.RunnerID != nil {
 		runner, err := s.Runners.Runner(ctx, *inst.RunnerID)
 		if err != nil {
@@ -167,6 +169,11 @@ func (s *InstanceService) ensureRunning(ctx context.Context, inst *domain.AgentI
 		}
 		if runner != nil {
 			return runner, false, nil
+		}
+	}
+	if s.Sandboxes != nil {
+		if err := s.Sandboxes.Ensure(ctx, inst, userID); err != nil {
+			return nil, false, err
 		}
 	}
 	runner, err := s.Runners.AliveRunner(ctx, s.RunnersAlive)

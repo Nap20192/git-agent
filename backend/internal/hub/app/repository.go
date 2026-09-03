@@ -25,6 +25,8 @@ type RepositoryService struct {
 	Provider       domain.ProviderClient
 	Auth           *AuthService    // токены связок + refresh-флоу
 	Webhook        *WebhookService // общий fan-out для ручного запуска
+	Instances      domain.InstanceStore
+	Sandboxes      *SandboxService // авто-провижининг песочницы перед публикацией События; nil — выключен
 	Secrets        *secrets.Box
 	WebhookBaseURL string
 }
@@ -279,11 +281,44 @@ func (s *RepositoryService) Trigger(ctx context.Context, userID, id int64, ref, 
 	payload, _ := json.Marshal(map[string]any{
 		"action": action, "ref": ref, "commitSha": commitSHA, "userId": userID,
 	})
+	if err := s.provisionSandboxes(ctx, repo, action, ref); err != nil {
+		return nil, err
+	}
 	duplicate, instanceIDs, err := s.Webhook.FanOut(ctx, repo, e, payload)
 	if err != nil {
 		return nil, err
 	}
 	return &TriggerResult{CommitSHA: commitSHA, Duplicate: duplicate, InstanceIDs: instanceIDs}, nil
+}
+
+// provisionSandboxes — до публикации События у каждого затронутого Экземпляра
+// должна быть живая песочница (тикет 004: hub создаёт сам). Экземпляры
+// upsert'ятся здесь же — Ingest потом найдёт те же строки.
+func (s *RepositoryService) provisionSandboxes(ctx context.Context, repo *domain.Repository, action, ref string) error {
+	if s.Sandboxes == nil {
+		return nil
+	}
+	buildIDs, err := s.Webhook.MatchedBuilds(ctx, repo, action, ref)
+	if err != nil {
+		return err
+	}
+	for _, buildID := range buildIDs {
+		id, err := s.Instances.UpsertInstance(ctx, buildID, repo.ID)
+		if err != nil {
+			return err
+		}
+		inst, err := s.Instances.Instance(ctx, id, repo.UserID)
+		if err != nil {
+			return err
+		}
+		if inst == nil {
+			return fmt.Errorf("instance %d vanished after upsert: %w", id, domain.ErrNotFound)
+		}
+		if err := s.Sandboxes.Ensure(ctx, inst, repo.UserID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ProviderRepos — репозитории провайдера токеном связки (401 от провайдера —

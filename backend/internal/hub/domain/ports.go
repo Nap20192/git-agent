@@ -95,6 +95,9 @@ type RepositoryAdmin interface {
 // BuildStore — Сборки Агентов.
 type BuildStore interface {
 	Builds(ctx context.Context, userID int64) ([]AgentBuild, error)
+	// Build — nil, nil для незнакомого id (без скоупа юзера: нужна hub'у
+	// для авто-провижининга песочницы Экземпляра).
+	Build(ctx context.Context, id int64) (*AgentBuild, error)
 	CreateBuild(ctx context.Context, b *AgentBuild) (int64, error)
 	UpdateBuild(ctx context.Context, b *AgentBuild) error
 	DeleteBuild(ctx context.Context, id, userID int64) error
@@ -135,6 +138,9 @@ type InstanceStore interface {
 	Instance(ctx context.Context, id, userID int64) (*AgentInstance, error)
 	Reports(ctx context.Context, instanceID int64) ([]Report, error)
 	Findings(ctx context.Context, instanceID int64) ([]Finding, error)
+	// UpsertInstance — Экземпляр (Сборка, Репозиторий), тот же, что создаст
+	// Ingest; нужен до публикации События, чтобы привязать песочницу.
+	UpsertInstance(ctx context.Context, buildID, repositoryID int64) (int64, error)
 	SetInstanceRunning(ctx context.Context, id, runnerID int64) error
 	SetInstanceDown(ctx context.Context, id int64) error
 	// Activity — реплей activity-кадров хода из hub.activity (payload jsonb

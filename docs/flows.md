@@ -296,7 +296,7 @@ sequenceDiagram
     end
 ```
 
-## 8. Жизненный цикл песочницы (создаёт юзер, раннер только connect)
+## 8. Жизненный цикл песочницы (создаёт юзер или hub при запуске, раннер только connect)
 
 ```mermaid
 sequenceDiagram
@@ -320,10 +320,27 @@ sequenceDiagram
     end
     U->>H: POST /api/instances/{id}/sandbox {sandboxInstanceId}
     H->>DB: agent_instances.sandbox_instance_id
+    Note over U,DB: запуск: /trigger (каждый затронутый Экземпляр), raise, chat
+    U->>H: POST /api/repositories/{id}/trigger | /api/instances/{id}/raise | /chat
+    H->>DB: Экземпляр (upsert) + статус привязанной песочницы
+    alt нет живой (не привязана / dead) — hub создаёт сам
+        H->>DB: agent_builds.sandbox_connection_id Сборки Экземпляра
+        H->>SB: POST /v1/sandboxes (тот же путь, что ручное создание)
+        alt OpenSandbox не ответил
+            SB-->>H: error
+            H-->>U: 502 provision sandbox for instance: … (Событие НЕ публикуется, raise не зовётся)
+        else 202
+            SB-->>H: {id}
+            H->>DB: INSERT sandbox_instances (alive) + agent_instances.sandbox_instance_id
+        end
+    else живая привязана
+        Note over H: вторую не создаём
+    end
+    H->>DB: Событие в outbox / H->>RN: raise
     Note over RN,SB: при подъёме Экземпляра
     RN->>SB: Sandbox.connect(external_id)
-    alt контейнер умер (рестарт докера)
-        RN->>DB: status=dead → создать новую и привязать
+    alt контейнер исчез (рестарт докера), статус ещё alive
+        RN-->>H: SandboxNotProvisionedError → Событие не обработано; юзер kill → dead, следующий запуск пересоздаст
     else ok
         RN->>SB: commands.run(…) ~1с/команда
     end

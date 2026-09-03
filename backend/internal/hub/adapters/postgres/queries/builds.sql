@@ -5,6 +5,11 @@ SELECT id, user_id, name, llm_connection_id, sandbox_connection_id,
        prompt, memory_preset, limits, is_default, created_at
   FROM hub.agent_builds WHERE user_id = @user_id ORDER BY id;
 
+-- name: Build :one
+SELECT id, user_id, name, llm_connection_id, sandbox_connection_id,
+       prompt, memory_preset, limits, is_default, created_at
+  FROM hub.agent_builds WHERE id = @id;
+
 -- name: CreateBuild :one
 INSERT INTO hub.agent_builds
   (user_id, name, llm_connection_id, sandbox_connection_id, prompt, memory_preset, limits, is_default)
