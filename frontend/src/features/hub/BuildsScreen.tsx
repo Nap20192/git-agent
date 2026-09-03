@@ -7,6 +7,35 @@ import { Badge, Button, Drawer, EntityList, Panel, PanelHeader, TextInput } from
 import type { Column } from "@/components/primitives";
 import styles from "./hub.module.css";
 
+/** Известные раннеру ключи limits (agent/core/lead/graph.py::_lead_features). */
+const LIMIT_FIELDS = [
+  { key: "maxSubagents", label: "Конкурентность Сабагентов", ph: "3", hint: "Сколько Сабагентов работают одновременно" },
+  { key: "maxTotalSubagents", label: "Всего делегаций", ph: "6", hint: "Максимум делегаций за один ход Лида" },
+  { key: "subagentTimeout", label: "Таймаут Сабагента, сек", ph: "600", hint: "Потолок исполнения одного Сабагента" },
+  { key: "queueTimeout", label: "Таймаут очереди, сек", ph: "300", hint: "Сколько Сабагент ждёт свободного слота" },
+  { key: "tokenBudget", label: "Бюджет токенов", ph: "без лимита", hint: "Бюджет токенов на ход; пусто — без лимита" },
+] as const;
+
+function fmtSeconds(s: number): string {
+  return s % 60 === 0 ? `${s / 60}м` : `${s}с`;
+}
+
+function limitsSummary(limits?: Record<string, unknown>): string {
+  const n = (k: string) => (typeof limits?.[k] === "number" ? (limits[k] as number) : null);
+  const parts: string[] = [];
+  const conc = n("maxSubagents");
+  if (conc != null) parts.push(`${conc} конкурентно`);
+  const total = n("maxTotalSubagents");
+  if (total != null) parts.push(`${total} всего`);
+  const exec = n("subagentTimeout");
+  if (exec != null) parts.push(fmtSeconds(exec));
+  const queue = n("queueTimeout");
+  if (queue != null) parts.push(`очередь ${fmtSeconds(queue)}`);
+  const budget = n("tokenBudget");
+  if (budget != null) parts.push(`${budget >= 1000 ? `${Math.round(budget / 1000)}k` : budget} ткн`);
+  return parts.length ? parts.join(" · ") : "дефолты";
+}
+
 export function BuildsScreen() {
   const buildsQ = useBuilds();
   const llmQ = useLlmConnections();
@@ -33,6 +62,7 @@ export function BuildsScreen() {
     { id: "llm", header: "LLM", width: "1.1fr", render: (b) => <span className={styles.cell}>{llmName(b.llmConnectionId)}</span> },
     { id: "sandbox", header: "SANDBOX", width: "1.1fr", render: (b) => <span className={styles.cell}>{sandboxName(b.sandboxConnectionId)}</span> },
     { id: "preset", header: "MEMORY", width: "0.9fr", render: (b) => <span className={styles.cell}>{b.memoryPreset ?? "—"}</span> },
+    { id: "limits", header: "LIMITS", width: "1.3fr", render: (b) => <span className={styles.cell}>{limitsSummary(b.limits)}</span> },
     {
       id: "created",
       header: "CREATED",
@@ -108,6 +138,9 @@ function BuildDrawer({
   const [prompt, setPrompt] = useState("");
   const [preset, setPreset] = useState("");
   const [isDefault, setIsDefault] = useState(false);
+  const [limitVals, setLimitVals] = useState<Record<string, string>>({});
+  // Неизвестные ключи существующего limits — сохраняем как есть, не теряем.
+  const [extraLimits, setExtraLimits] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState(false);
   const [seeded, setSeeded] = useState<number | null | undefined>(undefined);
 
@@ -121,6 +154,14 @@ function BuildDrawer({
     setPrompt(build?.prompt ?? "");
     setPreset(build?.memoryPreset ?? "");
     setIsDefault(build?.isDefault ?? false);
+    const vals: Record<string, string> = {};
+    const extra: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(build?.limits ?? {})) {
+      if (LIMIT_FIELDS.some((f) => f.key === k)) vals[k] = String(v);
+      else extra[k] = v;
+    }
+    setLimitVals(vals);
+    setExtraLimits(extra);
   }
   if (!open && seeded !== undefined) setSeeded(undefined);
 
@@ -128,12 +169,18 @@ function BuildDrawer({
     if (!name.trim()) return;
     setBusy(true);
     try {
+      const limits: Record<string, unknown> = { ...extraLimits };
+      for (const f of LIMIT_FIELDS) {
+        const v = (limitVals[f.key] ?? "").trim();
+        if (v !== "" && Number.isFinite(Number(v))) limits[f.key] = Number(v);
+      }
       const input = {
         name: name.trim(),
         llmConnectionId: llmId ? Number(llmId) : undefined,
         sandboxConnectionId: sandboxId ? Number(sandboxId) : undefined,
         prompt: prompt.trim() || null,
         memoryPreset: preset.trim() || null,
+        limits,
         isDefault,
       };
       if (build) await api.updateBuild(build.id, input);
@@ -193,6 +240,22 @@ function BuildDrawer({
 
       <label className={styles.label}>MEMORY PRESET</label>
       <TextInput value={preset} onChange={(e) => setPreset(e.target.value)} placeholder="prod_v2" />
+
+      <label className={styles.label}>
+        ЛИМИТЫ САБАГЕНТОВ <span className={styles.note}>— пусто = дефолт</span>
+      </label>
+      {LIMIT_FIELDS.map((f) => (
+        <div key={f.key}>
+          <label className={styles.label}>{f.label}</label>
+          <TextInput
+            type="number"
+            value={limitVals[f.key] ?? ""}
+            onChange={(e) => setLimitVals({ ...limitVals, [f.key]: e.target.value })}
+            placeholder={f.ph}
+          />
+          <p className={styles.hint}>{f.hint}</p>
+        </div>
+      ))}
 
       <label className={styles.check}>
         <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
