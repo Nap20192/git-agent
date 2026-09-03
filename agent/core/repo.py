@@ -55,7 +55,7 @@ async def prepare_repo(sandbox: Sandbox, repo_url: str, checkout_ref: str | None
     """Клон + опциональный пин коммита."""
     repo_dir = shlex.quote(sandbox.repo_dir)
     await sandbox.run(
-        f"rm -rf {repo_dir} && git clone --depth 1 {shlex.quote(repo_url)} {repo_dir}",
+        f"cd / && rm -rf {repo_dir} && git clone --depth 1 {shlex.quote(repo_url)} {repo_dir}",  # cd /: образ может иметь WORKDIR=/repo — удалять cwd из-под git нельзя
         timeout_seconds=CLONE_TIMEOUT_SECONDS,
     )
     if checkout_ref:
