@@ -149,8 +149,9 @@ type InstanceStore interface {
 // StaleRequeuer — надзор за протухшими Раннерами (тикеты 004/005):
 // их running-Экземпляры → down, необработанные События → снова в outbox.
 type StaleRequeuer interface {
-	// RequeueStale возвращает (сколько Экземпляров опущено, сколько Событий переопубликовано).
-	RequeueStale(ctx context.Context, timeout time.Duration) (downed, requeued int, err error)
+	// RequeueStale возвращает сколько Экземпляров опущено и trace_id
+	// переопубликованных Событий (по одному на строку outbox).
+	RequeueStale(ctx context.Context, timeout time.Duration) (downed int, requeued []string, err error)
 }
 
 // OAuthClient — OAuth-флоу провайдера (тикет 003). Провайдер без ключей

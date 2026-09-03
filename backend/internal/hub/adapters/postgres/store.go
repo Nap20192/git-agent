@@ -118,7 +118,7 @@ func (s *Store) Ingest(ctx context.Context, repo *domain.Repository, e domain.Ev
 
 	eventID, err := q.InsertEvent(ctx, db.InsertEventParams{
 		Provider: repo.Provider, DeliveryID: e.DeliveryID, RepositoryID: repo.ID,
-		Action: e.Action, CommitSHA: e.CommitSHA, Ref: e.Ref, Payload: payload,
+		Action: e.Action, CommitSHA: e.CommitSHA, Ref: e.Ref, Payload: payload, TraceID: e.TraceID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return true, nil, nil
@@ -463,9 +463,9 @@ func (s *Store) AliveRunner(ctx context.Context, aliveWithin time.Duration) (*do
 
 // RequeueStale — running-Экземпляры протухших Раннеров → down, их
 // необработанные События — снова в outbox (один стейтмент, queries/runners.sql).
-func (s *Store) RequeueStale(ctx context.Context, timeout time.Duration) (int, int, error) {
+func (s *Store) RequeueStale(ctx context.Context, timeout time.Duration) (int, []string, error) {
 	r, err := s.q().RequeueStale(ctx, timeout)
-	return r.Downed, r.Requeued, err
+	return r.Downed, r.RequeuedTraceIds, err
 }
 
 // RequeueInstance — «Продолжить»: незавершённые События одного Экземпляра —

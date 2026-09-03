@@ -2,7 +2,7 @@
 package httpapi
 
 import (
-	"crypto/rand"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
-	"github.com/vnkjd/git-agent/backend/pkg/requestid"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
 type handler func(w http.ResponseWriter, r *http.Request) error
@@ -24,7 +24,7 @@ type handler func(w http.ResponseWriter, r *http.Request) error
 func handle(fn handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := fn(w, r); err != nil {
-			writeError(w, err)
+			writeError(r.Context(), w, err)
 		}
 	}
 }
@@ -61,15 +61,16 @@ var errStatus = []struct {
 	{domain.ErrTimeout, http.StatusGatewayTimeout, "timeout", "runner did not start streaming in time (queued too long)"},
 }
 
-// writeError — {"error":{"code","message"}} (зеркало frontend ApiError).
-func writeError(w http.ResponseWriter, err error) {
+// writeError — {"error":{"code","message"}} (зеркало frontend ApiError);
+// внутренняя ошибка логируется с trace_id запроса из ctx.
+func writeError(ctx context.Context, w http.ResponseWriter, err error) {
 	for _, m := range errStatus {
 		if errors.Is(err, m.sentinel) {
 			writeAPIError(w, m.status, m.code, humanMessage(err, m.sentinel, m.fallback))
 			return
 		}
 	}
-	zap.S().Errorw("httpapi: internal error", "err", err)
+	trace.Logger(ctx).Errorw("httpapi: internal error", "err", err)
 	writeAPIError(w, http.StatusInternalServerError, "internal", "internal error: "+err.Error())
 }
 
@@ -86,7 +87,7 @@ func humanMessage(err, sentinel error, fallback string) string {
 }
 
 func unauthorized(w http.ResponseWriter) {
-	writeError(w, domain.ErrUnauthorized)
+	writeError(context.Background(), w, domain.ErrUnauthorized)
 }
 
 func decode(r *http.Request, v any) error {
@@ -146,28 +147,28 @@ func mapSlice[T, D any](in []T, f func(T) D) []D {
 	return out
 }
 
-// Logging — одна строка на запрос; 5xx — ERROR; /healthz не шумит.
+// Logging — сквозной trace_id (X-Trace-Id: принять валидный либо сгенерировать,
+// положить в ctx, вернуть в ответе тем же заголовком) + одна строка на запрос;
+// 5xx — ERROR; /healthz не шумит.
 func Logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		traceID := trace.Accept(r.Header.Get(trace.Header))
+		w.Header().Set(trace.Header, traceID)
+		r = r.WithContext(trace.WithValue(r.Context(), traceID))
 		if r.URL.Path == "/healthz" {
 			next.ServeHTTP(w, r)
 			return
 		}
 		start := time.Now()
-		reqID := r.Header.Get("X-Request-ID")
-		if !requestid.Valid(reqID) {
-			reqID = rand.Text()
-		}
-		w.Header().Set("X-Request-ID", reqID)
-		r = r.WithContext(requestid.WithValue(r.Context(), reqID))
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
-		fields := []any{"request_id", reqID, "method", r.Method, "path", r.URL.Path, "status", sw.status,
+		log := trace.Logger(r.Context())
+		fields := []any{"method", r.Method, "path", r.URL.Path, "status", sw.status,
 			"duration_ms", time.Since(start).Milliseconds(), "remote", r.RemoteAddr}
 		if sw.status >= 500 {
-			zap.S().Errorw("http", fields...)
+			log.Errorw("http", fields...)
 		} else {
-			zap.S().Infow("http", fields...)
+			log.Infow("http", fields...)
 		}
 	})
 }
@@ -198,7 +199,7 @@ func Recover(next http.Handler) http.Handler {
 				if err, ok := p.(error); ok && errors.Is(err, http.ErrAbortHandler) {
 					panic(p)
 				}
-				zap.S().Errorw("httpapi: panic", "method", r.Method, "path", r.URL.Path, "panic", p, "stack", string(debug.Stack()))
+				trace.Logger(r.Context()).Errorw("httpapi: panic", "method", r.Method, "path", r.URL.Path, "panic", p, "stack", string(debug.Stack()))
 				writeAPIError(w, http.StatusInternalServerError, "internal", fmt.Sprintf("internal error: panic: %v", p))
 			}
 		}()

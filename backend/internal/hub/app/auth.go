@@ -8,10 +8,9 @@ import (
 	"fmt"
 	"time"
 
-	"go.uber.org/zap"
-
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 	"github.com/vnkjd/git-agent/backend/pkg/secrets"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
 const SessionTTL = 30 * 24 * time.Hour
@@ -140,7 +139,7 @@ func (s *AuthService) CallWithToken(ctx context.Context, ident *domain.Identity,
 	}
 	tok, refErr := s.OAuth.Refresh(ctx, ident.Provider, string(refresh))
 	if refErr != nil {
-		zap.S().Warnw("auth: token refresh failed", "identityId", ident.ID, "err", refErr)
+		trace.Logger(ctx).Warnw("auth: token refresh failed", "identityId", ident.ID, "err", refErr)
 		return err
 	}
 	accessEnc, refreshEnc, encErr := s.encryptTokens(tok)

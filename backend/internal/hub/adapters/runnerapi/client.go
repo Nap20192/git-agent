@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
-	"github.com/vnkjd/git-agent/backend/pkg/requestid"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
 type Client struct {
@@ -41,15 +41,15 @@ func (c *Client) http() *http.Client {
 	return &http.Client{Timeout: 60 * time.Second}
 }
 
-// newRequest — запрос к раннеру со сквозным X-Request-ID из ctx (hub-middleware
+// newRequest — запрос к раннеру со сквозным X-Trace-Id из ctx (hub-middleware
 // Logging); раннер привязывает его к своим логам — один id на оба сервиса.
 func newRequest(ctx context.Context, method, url string, body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, err
 	}
-	if id := requestid.FromContext(ctx); id != "" {
-		req.Header.Set("X-Request-ID", id)
+	if id := trace.FromContext(ctx); id != "" {
+		req.Header.Set(trace.Header, id)
 	}
 	return req, nil
 }

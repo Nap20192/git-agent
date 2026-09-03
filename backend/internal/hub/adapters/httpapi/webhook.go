@@ -7,30 +7,30 @@ import (
 	"strconv"
 	"strings"
 
-	"go.uber.org/zap"
-
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
 const maxWebhookBody = 10 << 20
 
 func (s *Server) webhook(w http.ResponseWriter, r *http.Request) {
 	defer w.WriteHeader(http.StatusOK) // единственный ответ наружу
+	log := trace.Logger(r.Context())
 
 	provider := r.PathValue("provider")
 	repoID, err := strconv.ParseInt(r.PathValue("repositoryId"), 10, 64)
 	if (provider != "github" && provider != "gitlab") || err != nil {
-		zap.S().Infow("webhook: dropped, bad path", "provider", provider)
+		log.Infow("webhook: dropped, bad path", "provider", provider)
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBody))
 	if err != nil {
-		zap.S().Infow("webhook: dropped, body read", "err", err)
+		log.Infow("webhook: dropped, body read", "err", err)
 		return
 	}
 	e, ok := parseEvent(provider, r.Header, body)
 	if !ok {
-		zap.S().Infow("webhook: dropped, unparseable event", "repositoryId", repoID, "provider", provider)
+		log.Infow("webhook: dropped, unparseable event", "repositoryId", repoID, "provider", provider)
 		return
 	}
 	auth := domain.WebhookAuth{

@@ -14,6 +14,7 @@ type Event struct {
 	Action     string
 	CommitSHA  string
 	Ref        string
+	TraceID    string // сквозной trace_id запроса, породившего Событие (pkg/trace)
 }
 
 // Repository — подключённый Репозиторий. Привязка Сборок — подписками
@@ -62,6 +63,7 @@ func EventMessage(eventID, instanceID int64, threadID string, repo *Repository, 
 		"commitSha":    e.CommitSHA,
 		"ref":          e.Ref,
 		"dedupKey":     DedupKey(eventID, e),
+		"traceId":      e.TraceID,
 	})
 	return b
 }

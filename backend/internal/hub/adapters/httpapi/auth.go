@@ -7,9 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"go.uber.org/zap"
-
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
 // OAuth-вход по модели Railway (тикет 003).
@@ -65,7 +64,7 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) error {
 	}
 	token, expires, err := s.Auth.HandleCallback(r.Context(), provider, code, s.redirectURI(r, provider), currentUser)
 	if err != nil {
-		zap.S().Errorw("auth: oauth callback failed", "provider", provider, "err", err)
+		trace.Logger(r.Context()).Errorw("auth: oauth callback failed", "provider", provider, "err", err)
 		return err
 	}
 	http.SetCookie(w, &http.Cookie{

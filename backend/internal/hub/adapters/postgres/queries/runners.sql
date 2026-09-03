@@ -47,9 +47,10 @@ WITH targets AS (
                        AND (o2.payload->>'instanceId')::bigint = ie.instance_id
                      ORDER BY o2.id LIMIT 1) o ON true
      WHERE ie.processed_at IS NULL
-     RETURNING event_id
+     RETURNING event_id, coalesce(payload->>'traceId', '') AS trace_id
 )
-SELECT (SELECT count(*) FROM targets)::int AS downed, (SELECT count(*) FROM requeued)::int AS requeued;
+SELECT (SELECT count(*) FROM targets)::int AS downed,
+       (SELECT coalesce(array_agg(trace_id), '{}') FROM requeued)::text[] AS requeued_trace_ids;
 
 -- RequeueInstance — «Продолжить»: незавершённые События одного Экземпляра —
 -- снова в outbox; возвращает пере-опубликованные eventId (пусто = нечего продолжать).

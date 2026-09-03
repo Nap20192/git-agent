@@ -35,7 +35,7 @@ UPDATE hub.repositories SET webhook_provider_id = @webhook_provider_id WHERE id 
 DELETE FROM hub.repositories WHERE id = @id;
 
 -- name: Events :many
-SELECT id, provider, action, commit_sha, ref, received_at
+SELECT id, provider, action, commit_sha, ref, received_at, trace_id
   FROM hub.events WHERE repository_id = @repository_id ORDER BY id DESC LIMIT @row_limit::int;
 
 -- name: SubscriptionsByRepo :many

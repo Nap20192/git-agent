@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
 type Client struct {
@@ -59,6 +60,9 @@ func (c *Client) do(ctx context.Context, token, method, url string, body, out an
 	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
 	if err != nil {
 		return err
+	}
+	if id := trace.FromContext(ctx); id != "" {
+		req.Header.Set(trace.Header, id)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")

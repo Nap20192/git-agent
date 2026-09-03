@@ -38,6 +38,7 @@ type eventDTO struct {
 	CommitSHA  *string   `json:"commitSha"`
 	Ref        *string   `json:"ref"`
 	ReceivedAt time.Time `json:"receivedAt"`
+	TraceID    string    `json:"traceId"`
 }
 
 type triggerResultDTO struct {

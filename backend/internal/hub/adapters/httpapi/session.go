@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"go.uber.org/zap"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
 // Сессия (тикет 003).
@@ -39,7 +39,7 @@ func (s *Server) currentUser(r *http.Request) (int64, bool) {
 	}
 	uid, ok, err := s.Store.SessionUser(r.Context(), c.Value)
 	if err != nil {
-		zap.S().Errorw("auth: session lookup failed", "err", err)
+		trace.Logger(r.Context()).Errorw("auth: session lookup failed", "err", err)
 		return 0, false
 	}
 	return uid, ok

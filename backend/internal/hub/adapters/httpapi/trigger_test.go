@@ -14,6 +14,7 @@ import (
 	"github.com/vnkjd/git-agent/backend/internal/hub/app"
 	"github.com/vnkjd/git-agent/backend/internal/pkg/testdb"
 	"github.com/vnkjd/git-agent/backend/pkg/secrets"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
 // Ручной запуск (POST /api/repositories/{id}/trigger): тот же fan-out, что и
@@ -38,8 +39,11 @@ func TestTrigger(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// фейковый GitHub: HEAD default-ветки
+	// фейковый GitHub: HEAD default-ветки; провайдер получает X-Trace-Id запроса
+	const traceID = "fedcba9876543210fedcba9876543210"
+	var providerTrace string
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		providerTrace = r.Header.Get(trace.Header)
 		if r.URL.Path != "/repos/acme/repo/commits/main" {
 			http.NotFound(w, r)
 			return
@@ -56,13 +60,16 @@ func TestTrigger(t *testing.T) {
 		Auth:     &app.AuthService{Store: store, Secrets: box},
 		Webhook:  webhook, Secrets: box,
 	}
-	srv := httptest.NewServer(NewMux(&Server{Store: store, Repositories: svc, DevUserID: userID}))
+	srv := httptest.NewServer(Logging(NewMux(&Server{Store: store, Repositories: svc, DevUserID: userID})))
 	defer srv.Close()
 
 	trigger := func(repoID int64, body string) (int, triggerResultDTO) {
 		t.Helper()
-		resp, err := http.Post(srv.URL+"/api/repositories/"+strconv.FormatInt(repoID, 10)+"/trigger",
-			"application/json", bytes.NewBufferString(body))
+		req, _ := http.NewRequest("POST", srv.URL+"/api/repositories/"+strconv.FormatInt(repoID, 10)+"/trigger",
+			bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(trace.Header, traceID)
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -86,6 +93,16 @@ func TestTrigger(t *testing.T) {
 	rk := "github." + strconv.FormatInt(repoID, 10) + ".manual"
 	if n := count(t, db, `SELECT count(*) FROM hub.outbox WHERE routing_key = $1`, rk); n != 1 {
 		t.Fatalf("outbox: %d", n)
+	}
+	// trace_id запроса /trigger = trace_id События; провайдеру ушёл тот же заголовок
+	if providerTrace != traceID {
+		t.Fatalf("provider got trace %q", providerTrace)
+	}
+	if n := count(t, db, `SELECT count(*) FROM hub.events WHERE trace_id = $1`, traceID); n != 1 {
+		t.Fatalf("events.trace_id: %d", n)
+	}
+	if n := count(t, db, `SELECT count(*) FROM hub.outbox WHERE payload->>'traceId' = $1`, traceID); n != 1 {
+		t.Fatalf("outbox traceId: %d", n)
 	}
 
 	// повтор на том же коммите — идемпотентный no-op

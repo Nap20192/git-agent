@@ -103,14 +103,15 @@ WITH targets AS (
                        AND (o2.payload->>'instanceId')::bigint = ie.instance_id
                      ORDER BY o2.id LIMIT 1) o ON true
      WHERE ie.processed_at IS NULL
-     RETURNING event_id
+     RETURNING event_id, coalesce(payload->>'traceId', '') AS trace_id
 )
-SELECT (SELECT count(*) FROM targets)::int AS downed, (SELECT count(*) FROM requeued)::int AS requeued
+SELECT (SELECT count(*) FROM targets)::int AS downed,
+       (SELECT coalesce(array_agg(trace_id), '{}') FROM requeued)::text[] AS requeued_trace_ids
 `
 
 type RequeueStaleRow struct {
-	Downed   int
-	Requeued int
+	Downed           int
+	RequeuedTraceIds []string
 }
 
 // Ре-публикация (heartbeat + resume): незавершённые События (instance_events без
@@ -124,7 +125,7 @@ type RequeueStaleRow struct {
 func (q *Queries) RequeueStale(ctx context.Context, timeout time.Duration) (RequeueStaleRow, error) {
 	row := q.db.QueryRow(ctx, requeueStale, timeout)
 	var i RequeueStaleRow
-	err := row.Scan(&i.Downed, &i.Requeued)
+	err := row.Scan(&i.Downed, &i.RequeuedTraceIds)
 	return i, err
 }
 

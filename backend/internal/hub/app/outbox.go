@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
 const (
@@ -50,14 +51,16 @@ func (s *OutboxService) drain(ctx context.Context) {
 			return
 		}
 		for _, m := range batch {
+			log := zap.S().With(trace.Field, trace.FromMessage(m.Payload), "outboxId", m.ID, "routingKey", m.RoutingKey)
 			if err := s.Publisher.Publish(ctx, m.RoutingKey, m.Payload); err != nil {
-				zap.S().Warnw("outbox: publish failed, will retry", "outboxId", m.ID, "err", err)
+				log.Warnw("outbox: publish failed, will retry", "err", err)
 				return
 			}
 			if err := s.Store.MarkPublished(ctx, m.ID); err != nil {
-				zap.S().Errorw("outbox: mark published failed (duplicate delivery possible)", "outboxId", m.ID, "err", err)
+				log.Errorw("outbox: mark published failed (duplicate delivery possible)", "err", err)
 				return
 			}
+			log.Infow("outbox: published")
 		}
 		if len(batch) < outboxBatchSize {
 			return

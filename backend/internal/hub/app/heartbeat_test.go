@@ -41,8 +41,8 @@ func TestRequeueStale(t *testing.T) {
 		if _, err := db.Exec(ctx,
 			`INSERT INTO hub.outbox (event_id, routing_key, payload, published_at)
 			 VALUES ($1, 'github.1.push',
-			         jsonb_build_object('eventId', $1::bigint, 'instanceId', $2::bigint), now())`,
-			eventID, instID); err != nil {
+			         jsonb_build_object('eventId', $1::bigint, 'instanceId', $2::bigint, 'traceId', 'trace-' || $3::text), now())`,
+			eventID, instID, dedup); err != nil {
 			t.Fatal(err)
 		}
 		var processedAt any
@@ -63,8 +63,8 @@ func TestRequeueStale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if downed != 1 || requeued != 1 {
-		t.Fatalf("downed=%d requeued=%d, want 1/1", downed, requeued)
+	if downed != 1 || len(requeued) != 1 || requeued[0] != "trace-sha-unprocessed" {
+		t.Fatalf("downed=%d requeued=%v, want 1/[trace-sha-unprocessed]", downed, requeued)
 	}
 
 	var status string
@@ -89,7 +89,7 @@ func TestRequeueStale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if downed != 0 || requeued != 0 {
-		t.Fatalf("second tick: downed=%d requeued=%d, want 0/0", downed, requeued)
+	if downed != 0 || len(requeued) != 0 {
+		t.Fatalf("second tick: downed=%d requeued=%v, want 0/[]", downed, requeued)
 	}
 }

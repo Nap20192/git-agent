@@ -7,9 +7,8 @@ import (
 	"io"
 	"time"
 
-	"go.uber.org/zap"
-
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
 // InstanceService — операции над Экземплярами через Раннеров (тикет 004):
@@ -110,7 +109,7 @@ func (s *InstanceService) Activity(ctx context.Context, id, userID int64, eventI
 			if err == nil {
 				return stream, nil
 			}
-			zap.S().Warnw("instance: runner activity failed, replaying from db", "instanceId", inst.ID, "err", err)
+			trace.Logger(ctx).Warnw("instance: runner activity failed, replaying from db", "instanceId", inst.ID, "err", err)
 		}
 	}
 	frames, err := s.Instances.Activity(ctx, inst.ID, eventID)
@@ -147,7 +146,7 @@ func (s *InstanceService) Stop(ctx context.Context, id, userID int64) error {
 	if inst.RunnerID != nil {
 		if runner, err := s.Runners.Runner(ctx, *inst.RunnerID); err == nil && runner != nil {
 			if err := s.Client.Stop(ctx, runner.Address, inst.ID); err != nil {
-				zap.S().Warnw("instance: runner stop failed, marking down anyway", "instanceId", inst.ID, "err", err)
+				trace.Logger(ctx).Warnw("instance: runner stop failed, marking down anyway", "instanceId", inst.ID, "err", err)
 			}
 		}
 	}

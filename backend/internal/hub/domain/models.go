@@ -39,6 +39,7 @@ type EventRecord struct {
 	CommitSHA  *string
 	Ref        *string
 	ReceivedAt time.Time
+	TraceID    string
 }
 
 // AgentBuild — Сборка Агента (CONTEXT.md): хранимое определение, не процесс.

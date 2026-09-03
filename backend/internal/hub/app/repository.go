@@ -9,10 +9,9 @@ import (
 	"fmt"
 	"time"
 
-	"go.uber.org/zap"
-
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 	"github.com/vnkjd/git-agent/backend/pkg/secrets"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
 // RepositoryService — подключение/отключение Репозиториев (тикет 002):
@@ -76,7 +75,7 @@ func (s *RepositoryService) Connect(ctx context.Context, userID, identityID int6
 			BuildID: *buildID, RepositoryID: repo.ID,
 		}); err != nil {
 			if delErr := s.Repos.DeleteRepository(ctx, repo.ID); delErr != nil {
-				zap.S().Errorw("repository: rollback after subscription failure", "repositoryId", repo.ID, "err", delErr)
+				trace.Logger(ctx).Errorw("repository: rollback after subscription failure", "repositoryId", repo.ID, "err", delErr)
 			}
 			return nil, err
 		}
@@ -91,7 +90,7 @@ func (s *RepositoryService) Connect(ctx context.Context, userID, identityID int6
 	})
 	if err != nil {
 		if delErr := s.Repos.DeleteRepository(ctx, repo.ID); delErr != nil {
-			zap.S().Errorw("repository: rollback after hook failure", "repositoryId", repo.ID, "err", delErr)
+			trace.Logger(ctx).Errorw("repository: rollback after hook failure", "repositoryId", repo.ID, "err", delErr)
 		}
 		return nil, fmt.Errorf("create provider hook: %w", err)
 	}
@@ -118,7 +117,7 @@ func (s *RepositoryService) Disconnect(ctx context.Context, id, userID int64) er
 				return s.Provider.DeleteHook(ctx, repo.Provider, token, repo, *repo.WebhookProviderID)
 			})
 			if err != nil {
-				zap.S().Warnw("repository: provider hook removal failed, disconnecting anyway",
+				trace.Logger(ctx).Warnw("repository: provider hook removal failed, disconnecting anyway",
 					"repositoryId", id, "err", err)
 			}
 		}

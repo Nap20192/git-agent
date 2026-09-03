@@ -35,8 +35,9 @@ func (s *HeartbeatService) Run(ctx context.Context) error {
 				zap.S().Errorw("heartbeat: requeue failed", "err", err)
 				continue
 			}
-			if downed > 0 || requeued > 0 {
-				zap.S().Infow("heartbeat: stale runners handled", "instancesDowned", downed, "eventsRequeued", requeued)
+			if downed > 0 || len(requeued) > 0 {
+				zap.S().Infow("heartbeat: stale runners handled", "instancesDowned", downed,
+					"eventsRequeued", len(requeued), "traceIds", requeued)
 			}
 		}
 	}

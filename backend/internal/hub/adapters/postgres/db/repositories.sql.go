@@ -91,7 +91,7 @@ func (q *Queries) DeleteSubscription(ctx context.Context, arg DeleteSubscription
 }
 
 const events = `-- name: Events :many
-SELECT id, provider, action, commit_sha, ref, received_at
+SELECT id, provider, action, commit_sha, ref, received_at, trace_id
   FROM hub.events WHERE repository_id = $1 ORDER BY id DESC LIMIT $2::int
 `
 
@@ -107,6 +107,7 @@ type EventsRow struct {
 	CommitSHA  *string
 	Ref        *string
 	ReceivedAt time.Time
+	TraceID    string
 }
 
 func (q *Queries) Events(ctx context.Context, arg EventsParams) ([]EventsRow, error) {
@@ -125,6 +126,7 @@ func (q *Queries) Events(ctx context.Context, arg EventsParams) ([]EventsRow, er
 			&i.CommitSHA,
 			&i.Ref,
 			&i.ReceivedAt,
+			&i.TraceID,
 		); err != nil {
 			return nil, err
 		}

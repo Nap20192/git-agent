@@ -6,10 +6,10 @@ import (
 	"io"
 	"net/http"
 
-	"go.uber.org/zap"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
-func pipeSSE(w http.ResponseWriter, stream io.ReadCloser, label string, id int64) error {
+func pipeSSE(ctx context.Context, w http.ResponseWriter, stream io.ReadCloser, label string, id int64) error {
 	defer stream.Close()
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -34,9 +34,9 @@ func pipeSSE(w http.ResponseWriter, stream io.ReadCloser, label string, id int64
 		}
 		if err != io.EOF {
 			if errors.Is(err, context.Canceled) {
-				zap.S().Infow("instances: "+label+" stream closed by client", "instanceId", id)
+				trace.Logger(ctx).Infow("instances: "+label+" stream closed by client", "instanceId", id)
 			} else {
-				zap.S().Warnw("instances: "+label+" stream interrupted", "instanceId", id, "err", err)
+				trace.Logger(ctx).Warnw("instances: "+label+" stream interrupted", "instanceId", id, "err", err)
 			}
 		}
 		return nil

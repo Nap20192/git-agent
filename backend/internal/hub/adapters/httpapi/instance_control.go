@@ -22,7 +22,7 @@ func (s *Server) instanceActivity(w http.ResponseWriter, r *http.Request) error 
 	if err != nil {
 		return err
 	}
-	return pipeSSE(w, stream, "activity", id)
+	return pipeSSE(r.Context(), w, stream, "activity", id)
 }
 
 // POST /api/instances/{id}/stop.
@@ -88,7 +88,7 @@ func (s *Server) instanceChat(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return pipeSSE(w, stream, "chat", id)
+	return pipeSSE(r.Context(), w, stream, "chat", id)
 }
 
 // POST /api/instances/{id}/terminal.
@@ -110,5 +110,5 @@ func (s *Server) instanceTerminal(w http.ResponseWriter, r *http.Request) error 
 	if err != nil {
 		return err
 	}
-	return pipeSSE(w, stream, "terminal", id)
+	return pipeSSE(r.Context(), w, stream, "terminal", id)
 }

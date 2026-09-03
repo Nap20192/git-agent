@@ -16,6 +16,7 @@ type HubActivity struct {
 	Kind       string
 	Payload    []byte
 	CreatedAt  time.Time
+	TraceID    string
 }
 
 type HubAgentBuild struct {
@@ -62,6 +63,7 @@ type HubEvent struct {
 	Ref          *string
 	Payload      []byte
 	ReceivedAt   time.Time
+	TraceID      string
 }
 
 type HubFinding struct {

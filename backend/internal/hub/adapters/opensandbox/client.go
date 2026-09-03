@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
 const headerAPIKey = "OPEN-SANDBOX-API-KEY"
@@ -51,6 +52,9 @@ func (c *Client) do(ctx context.Context, apiKey, method, url string, body, out a
 	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
 	if err != nil {
 		return err
+	}
+	if id := trace.FromContext(ctx); id != "" {
+		req.Header.Set(trace.Header, id)
 	}
 	if apiKey != "" {
 		req.Header.Set(headerAPIKey, apiKey)

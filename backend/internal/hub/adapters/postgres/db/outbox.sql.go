@@ -11,9 +11,9 @@ import (
 
 const insertEvent = `-- name: InsertEvent :one
 
-INSERT INTO hub.events (provider, delivery_id, repository_id, action, commit_sha, ref, payload)
+INSERT INTO hub.events (provider, delivery_id, repository_id, action, commit_sha, ref, payload, trace_id)
 VALUES ($1, $2, $3, $4,
-        NULLIF($5::text, ''), NULLIF($6::text, ''), $7)
+        NULLIF($5::text, ''), NULLIF($6::text, ''), $7, $8)
 ON CONFLICT (provider, delivery_id) DO NOTHING
 RETURNING id
 `
@@ -26,6 +26,7 @@ type InsertEventParams struct {
 	CommitSHA    string
 	Ref          string
 	Payload      []byte
+	TraceID      string
 }
 
 // Ingest вебхука (одна транзакция в Store.Ingest) и transactional outbox
@@ -38,6 +39,7 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (int64
 		arg.CommitSHA,
 		arg.Ref,
 		arg.Payload,
+		arg.TraceID,
 	)
 	var id int64
 	err := row.Scan(&id)

@@ -17,6 +17,7 @@ import (
 	"github.com/vnkjd/git-agent/backend/internal/hub/app"
 	"github.com/vnkjd/git-agent/backend/internal/pkg/testdb"
 	"github.com/vnkjd/git-agent/backend/pkg/secrets"
+	"github.com/vnkjd/git-agent/backend/pkg/trace"
 )
 
 func githubSig(body []byte, secret string) string {
@@ -119,14 +120,15 @@ func TestWebhookIngest(t *testing.T) {
 	repoID := seed(t, db, box)
 
 	store := &pgstore.Store{Pool: db}
-	srv := httptest.NewServer(NewMux(&Server{
+	srv := httptest.NewServer(Logging(NewMux(&Server{
 		Webhook: &app.WebhookService{Repos: store, Subs: store, Ingestor: store, Secrets: box},
-	}))
+	})))
 	defer srv.Close()
 
 	body := []byte(`{"after":"abc123","ref":"refs/heads/main"}`)
 	send := func(url, delivery, sig string) *http.Response {
 		req, _ := http.NewRequest("POST", url, bytes.NewReader(body))
+		req.Header.Set(trace.Header, "0123456789abcdef0123456789abcdef")
 		req.Header.Set("X-GitHub-Delivery", delivery)
 		req.Header.Set("X-GitHub-Event", "push")
 		req.Header.Set("X-Hub-Signature-256", sig)
@@ -156,6 +158,14 @@ func TestWebhookIngest(t *testing.T) {
 	rk := "github." + strconv.FormatInt(repoID, 10) + ".push"
 	if n := count(t, db, `SELECT count(*) FROM hub.outbox WHERE routing_key = $1 AND published_at IS NULL`, rk); n != 1 {
 		t.Fatalf("outbox: %d", n)
+	}
+	// trace_id вебхука — в журнале События и в Rabbit-сообщении outbox
+	const traceID = "0123456789abcdef0123456789abcdef"
+	if n := count(t, db, `SELECT count(*) FROM hub.events WHERE delivery_id = 'd-1' AND trace_id = $1`, traceID); n != 1 {
+		t.Fatalf("events.trace_id: %d", n)
+	}
+	if n := count(t, db, `SELECT count(*) FROM hub.outbox WHERE payload->>'traceId' = $1`, traceID); n != 1 {
+		t.Fatalf("outbox traceId: %d", n)
 	}
 
 	// повтор той же доставки — no-op (дедуп по provider+delivery_id), но всё равно 200
