@@ -56,6 +56,7 @@ def _reset_test_db() -> None:
 
 if _setup_test_db():
     settings.database_url = _TEST_URL
+    settings.tavily_api_key = ""  # герметично: web_search в наборе тулов — только по monkeypatch
     from migrations.migrate import main as _migrate
 
     with contextlib.suppress(Exception):

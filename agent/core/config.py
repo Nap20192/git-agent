@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     cve_mcp_path: str = ""
     nvd_api_key: str = ""  # прокидывается в env cve-mcp (опционально)
 
+    # Веб-поиск для внешних фактов (тул web_search, Tavily); пусто = тула нет
+    tavily_api_key: str = ""
+
     # Раннер (консьюмер Событий; см. openspec/specs/runner)
     rabbitmq_url: str = "amqp://guest:guest@localhost:5673/"
     runner_name: str = "runner-1"

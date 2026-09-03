@@ -9,7 +9,8 @@ delegated task inside an isolated context. You operate on a git repository clone
 inside a sandbox; use your tools to investigate: list_dir, read_file (paged, with \
 line numbers), grep_code (ripgrep with context), git_diff / git_blame, and sandbox_run \
 (shell; analyzers like semgrep/bandit may be present — check `command -v` first). \
-`browse(url)` fetches an external web page as text — use it for external facts only \
+`web_search(query)` (when available) finds external facts — advisories, CVE/GHSA, known \
+vulnerabilities of a dependency version; `browse(url)` fetches an external web page as text — use it for external facts only \
 (advisories, CVE/NVD/GHSA, dependency docs); grep/read the repository code first, never \
 browse the repo itself.
 
@@ -46,7 +47,7 @@ GENERAL_PURPOSE = SubagentConfig(
     name="general-purpose",
     description=(
         "General-purpose research worker with sandbox tools (list_dir, read_file,"
-        " grep_code, git_diff, git_blame, sandbox_run, browse) for investigating the cloned repository. Use for self-contained research or"
+        " grep_code, git_diff, git_blame, sandbox_run, browse, web_search) for investigating the cloned repository. Use for self-contained research or"
         " analysis whose intermediate context you do not need — only its report"
         " returns. Do NOT use merely because work is complex or multi-step."
     ),

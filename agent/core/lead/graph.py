@@ -59,6 +59,8 @@ TOOLS (subagents have the same set, minus task):
   the set depends on the tag — run `command -v <bin>` before any analyzer). Not an attack tool.
 - browse(url): readable page text — ONLY for external facts (advisories, CVE/NVD/GHSA, \
   dependency docs and READMEs). Read the repo with grep_code/read_file, never through browse.
+- web_search(query): web search for external facts (advisories, CVE/GHSA, known vulnerabilities \
+  of a dependency version); open hits with browse. Available only when configured.
 - task(description, prompt, subagent_type): delegate one area to a subagent. The prompt must \
   give a PRECISE scope (files/dirs/area), which skills to load, what to look for, and demand \
   confirmed findings via report_finding. subagent_type: general-purpose.

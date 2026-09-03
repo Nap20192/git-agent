@@ -110,6 +110,9 @@ def build_sandbox_tools(sandbox: Sandbox) -> list[BaseTool]:
             ]
         return _clip("\n".join(lines))
 
+    from core.config import settings
+    from core.tools.web import build_web_search_tool
+
     return [
         sandbox_run,
         read_file,
@@ -117,4 +120,6 @@ def build_sandbox_tools(sandbox: Sandbox) -> list[BaseTool]:
         build_grep_tool(sandbox),
         *build_git_tools(sandbox),
         build_browse_tool(sandbox),
+        # веб-поиск (Tavily) — с хоста раннера; без TAVILY_API_KEY тула нет
+        *([build_web_search_tool(settings.tavily_api_key)] if settings.tavily_api_key else []),
     ]

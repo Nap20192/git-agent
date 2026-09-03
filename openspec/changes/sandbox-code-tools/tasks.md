@@ -6,6 +6,7 @@
 - [x] 1.3 `core/tools/sandbox/git.py`: `git_diff`, `git_blame`
 - [x] 1.5 `core/tools/sandbox/browse.py` + `html_text.py`: browse через python3 в Песочнице, промпты «browse — для внешних фактов»
 - [x] 1.4 `core/repo.py`: `--depth 2` при fetch коммита События
+- [x] 1.6 `core/tools/web/`: `web_search` (Tavily, Bearer `TAVILY_API_KEY`, с хоста раннера; без ключа не регистрируется), промпты, тесты
 
 ## 2. Wiring
 - [x] 2.1 `deps/container.py` → `load_mcp_tools()` → `EventExecutor(mcp_tools)` → `build_lead_profile(mcp_tools=…)`
