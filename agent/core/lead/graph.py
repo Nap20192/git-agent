@@ -179,8 +179,13 @@ def _lead_features(
     return features, capacity, (float(exec_timeout) if exec_timeout else None)
 
 
-def build_lead_profile(mcp_tools: list[BaseTool] = ()) -> GraphProfile:
+def build_lead_profile(
+    mcp_tools: list[BaseTool] = (), security_tools: list[BaseTool] | None = None
+) -> GraphProfile:
+    """security_tools — переопределение report_finding/load_skill (раннер подставляет
+    hub-персистящие варианты); None — стандартные build_security_tools()."""
     mcp_tools = list(mcp_tools)
+    injected_security_tools = list(security_tools) if security_tools is not None else None
 
     def _build(
         sandbox: Sandbox,
@@ -190,7 +195,7 @@ def build_lead_profile(mcp_tools: list[BaseTool] = ()) -> GraphProfile:
         limits: dict[str, Any] | None = None,
     ) -> Any:
         features, capacity, exec_timeout = _lead_features(limits or {})
-        security_tools = build_security_tools()
+        security_tools = injected_security_tools or build_security_tools()
         candidates = [*build_sandbox_tools(sandbox), *security_tools]
         if features.subagent:
             candidates.append(

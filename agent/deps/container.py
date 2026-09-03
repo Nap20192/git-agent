@@ -52,6 +52,83 @@ def _build_runtimes(*, checkpointer: Any, mcp_tools: list) -> dict[str, Any]:
     }
 
 
+@dataclass
+class RunnerDeps:
+    """Готовый к работе Раннер: сервис + фоновые циклы уже запущены."""
+
+    service: Any
+
+
+@asynccontextmanager
+async def runner_deps():
+    """Собрать Раннера (консьюмер Событий), при выходе — graceful shutdown.
+
+    Порядок гашения: фоновые циклы → Экземпляры (running→down) → HTTP-клиент →
+    чекпоинтер → пулы БД. Песочницы не трогаем (no-TTL).
+    """
+    from functools import partial
+
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+    from core.config import settings
+    from core.runner.crypto import decrypt
+    from core.runner.executor import EventExecutor
+    from core.runner.service import RunnerService
+    from infra.db.hub_store import HubInstanceStore
+    from infra.db.postgres import close_async_pool, close_pool
+    from infra.hub_client import HttpHubClient
+    from infra.rabbit import consume_events
+    from infra.sandbox.sandboxes import provision_hub_sandbox
+
+    store = HubInstanceStore()
+    hub = HttpHubClient(hub_url=settings.hub_url, token=settings.runner_token)
+    decrypt_key = partial(decrypt, key_b64=settings.hub_enc_key)
+    cp_cm = AsyncPostgresSaver.from_conn_string(settings.database_url)
+    checkpointer = await cp_cm.__aenter__()
+    service = RunnerService(
+        store=store,
+        hub=hub,
+        executor=EventExecutor(
+            store=store,
+            checkpointer=checkpointer,
+            provision_sandbox=lambda ctx: provision_hub_sandbox(store, ctx, decrypt_key),
+            decrypt=decrypt_key,
+        ),
+        name=settings.runner_name,
+        address=settings.runner_address,
+        slots=settings.runner_slots,
+        idle_timeout_seconds=settings.runner_idle_timeout_seconds,
+    )
+    tasks: list[asyncio.Task] = []
+    try:
+        await service.start()
+        tasks = [
+            asyncio.create_task(
+                consume_events(settings.rabbit_url, service.handle_event), name="runner-consumer"
+            ),
+            asyncio.create_task(service.heartbeat_loop(), name="runner-heartbeat"),
+            asyncio.create_task(service.idle_loop(), name="runner-idle"),
+        ]
+        log.info("runner deps ready", name=service.name, slots=service.slots)
+        yield RunnerDeps(service=service)
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        for step, closer in (
+            ("service shutdown", service.shutdown),
+            ("hub client close", hub.aclose),
+            ("checkpointer close", lambda: cp_cm.__aexit__(None, None, None)),
+            ("async pool close", close_async_pool),
+        ):
+            try:
+                await closer()
+            except Exception:
+                log.exception(f"runner {step} failed")
+        close_pool()
+        log.info("runner shutdown complete")
+
+
 @asynccontextmanager
 async def app_deps():
     """Собрать зависимости, отдать AppDeps, при выходе — graceful shutdown."""
