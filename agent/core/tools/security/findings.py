@@ -13,35 +13,84 @@ from typing import Any
 from langchain_core.messages import AIMessage
 
 SEVERITIES = ("critical", "high", "medium", "low", "info")
+CATEGORIES = (
+    "injection",
+    "auth",
+    "crypto",
+    "secrets",
+    "deps",
+    "config",
+    "xss",
+    "ssrf",
+    "path",
+    "logic",
+    "other",
+)
+CONFIDENCES = ("high", "medium", "low")
 FINDING_TOOL = "report_finding"
+# blame заполняет раннер (core/tools/security/blame.py), модель эти поля не передаёт
+BLAME_FIELDS = (
+    "blameAuthor",
+    "blameEmail",
+    "blameCommit",
+    "blameDate",
+    "blameCommitMessage",
+    "introducedBy",
+)
 
 
-def validate_finding(title: str, severity: str, description: str) -> str | None:
-    """Ошибка валидации Находки или None; общая для всех вариантов report_finding."""
+def validate_finding(title: str, severity: str, file: str = "") -> str | None:
+    """Ошибка валидации Находки или None; общая для всех вариантов report_finding.
+    Обязательны title, severity и file (контракт Находки v2)."""
     if severity.lower().strip() not in SEVERITIES:
         return f"report_finding: bad severity {severity!r}; use one of {', '.join(SEVERITIES)}"
-    if not title.strip() or not description.strip():
-        return "report_finding: title and description are required"
+    if not title.strip():
+        return "report_finding: title is required"
+    if not str(file or "").strip():
+        return (
+            "report_finding: file is required (path inside the repository; for repo-wide"
+            " issues name the closest manifest/config file)"
+        )
     return None
+
+
+def normalize_category(value: Any) -> str:
+    cat = str(value or "").lower().strip()
+    return cat if cat in CATEGORIES else "other"
+
+
+def _confidence(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    head = text.split()[0].lower().strip(":;,.")
+    return head if head in CONFIDENCES else text
 
 
 def finding_from_args(args: dict[str, Any]) -> dict[str, Any]:
     """Нормализация аргументов report_finding в camelCase-Находку."""
     sev = str(args.get("severity", "")).lower().strip()
-    return {
+    refs = args.get("references") or []
+    if isinstance(refs, str):
+        refs = [refs]
+    finding: dict[str, Any] = {
         "title": str(args.get("title", "")).strip(),
         "severity": sev if sev in SEVERITIES else "info",
         "description": str(args.get("description", "")).strip(),
+        "impact": str(args.get("impact", "")).strip() or None,
+        "confidence": _confidence(args.get("confidence")),
+        "category": normalize_category(args.get("category")),
         "file": str(args.get("file", "")).strip() or None,
-        "startLine": int(args.get("start_line") or 0) or None,
-        "endLine": int(args.get("end_line") or 0) or None,
+        "lineStart": int(args.get("start_line") or args.get("lineStart") or 0) or None,
+        "lineEnd": int(args.get("end_line") or args.get("lineEnd") or 0) or None,
         "cwe": str(args.get("cwe", "")).strip() or None,
         "cve": str(args.get("cve", "")).strip() or None,
-        "impact": str(args.get("impact", "")).strip() or None,
         "evidence": str(args.get("evidence", "")).strip() or None,
         "remediation": str(args.get("remediation", "")).strip() or None,
-        "confidence": str(args.get("confidence", "")).strip() or None,
+        "references": [str(r).strip() for r in refs if str(r).strip()],
     }
+    finding.update(dict.fromkeys(BLAME_FIELDS))
+    return finding
 
 
 _SEVERITY_ORDER = {s: i for i, s in enumerate(SEVERITIES)}
