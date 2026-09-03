@@ -92,10 +92,12 @@ func seed(t *testing.T, db *pgxpool.Pool, box *secrets.Box) int64 {
 		      SELECT id, 'llm', 'http://x', '\x00', 'm' FROM u RETURNING id, user_id),
 		s AS (INSERT INTO hub.sandbox_connections (name, domain) VALUES ('sbx', 'localhost:8090') RETURNING id),
 		b AS (INSERT INTO hub.agent_builds (user_id, name, llm_connection_id, sandbox_connection_id)
-		      SELECT l.user_id, 'default', l.id, s.id FROM l, s RETURNING id, user_id)
-		INSERT INTO hub.repositories (user_id, identity_id, provider, external_id, owner, name, build_id, webhook_secret_enc)
-		SELECT b.user_id, i.id, 'github', '100', 'acme', 'repo', b.id, $1 FROM b, i
-		RETURNING id`, enc).Scan(&repoID)
+		      SELECT l.user_id, 'default', l.id, s.id FROM l, s RETURNING id, user_id),
+		r AS (INSERT INTO hub.repositories (user_id, identity_id, provider, external_id, owner, name, webhook_secret_enc)
+		      SELECT b.user_id, i.id, 'github', '100', 'acme', 'repo', $1 FROM b, i RETURNING id)
+		INSERT INTO hub.build_subscriptions (build_id, repository_id)
+		SELECT b.id, r.id FROM b, r
+		RETURNING repository_id`, enc).Scan(&repoID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +119,7 @@ func TestWebhookIngest(t *testing.T) {
 	repoID := seed(t, db, box)
 
 	store := &pgstore.Store{Pool: db}
-	handler := &WebhookHandler{Service: &app.WebhookService{Repos: store, Ingestor: store, Secrets: box}}
+	handler := &WebhookHandler{Service: &app.WebhookService{Repos: store, Subs: store, Ingestor: store, Secrets: box}}
 	mux := http.NewServeMux()
 	mux.Handle("POST /hooks/{provider}/{repositoryId}", handler)
 	srv := httptest.NewServer(mux)
@@ -186,5 +188,52 @@ func TestWebhookIngest(t *testing.T) {
 	}
 	if n := count(t, db, `SELECT count(*) FROM hub.events`); n != 2 {
 		t.Fatalf("events after drops: %d", n)
+	}
+}
+
+// Репо вовсе без подписок обслуживает дефолтная Сборка (тикет 011).
+func TestWebhookDefaultBuildFallback(t *testing.T) {
+	db := testdb.Setup(t)
+	box, _ := secrets.New(bytes.Repeat([]byte{1}, 32))
+	repoID := seed(t, db, box)
+	ctx := context.Background()
+
+	// сносим подписку и заводим дефолтную Сборку того же пользователя
+	if _, err := db.Exec(ctx, `DELETE FROM hub.build_subscriptions`); err != nil {
+		t.Fatal(err)
+	}
+	var defaultBuild int64
+	if err := db.QueryRow(ctx, `
+		INSERT INTO hub.agent_builds (user_id, name, llm_connection_id, sandbox_connection_id, is_default)
+		SELECT user_id, 'fallback', llm_connection_id, sandbox_connection_id, true
+		  FROM hub.agent_builds LIMIT 1
+		RETURNING id`).Scan(&defaultBuild); err != nil {
+		t.Fatal(err)
+	}
+
+	store := &pgstore.Store{Pool: db}
+	handler := &WebhookHandler{Service: &app.WebhookService{Repos: store, Subs: store, Ingestor: store, Secrets: box}}
+	mux := http.NewServeMux()
+	mux.Handle("POST /hooks/{provider}/{repositoryId}", handler)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	body := []byte(`{"after":"abc","ref":"refs/heads/main"}`)
+	req, _ := http.NewRequest("POST", srv.URL+"/hooks/github/"+strconv.FormatInt(repoID, 10), bytes.NewReader(body))
+	req.Header.Set("X-GitHub-Delivery", "d-def")
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", githubSig(body, hookSecret))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if n := count(t, db,
+		`SELECT count(*) FROM hub.agent_instances WHERE build_id = $1`, defaultBuild); n != 1 {
+		t.Fatalf("instances for default build: %d", n)
+	}
+	if n := count(t, db, `SELECT count(*) FROM hub.outbox`); n != 1 {
+		t.Fatalf("outbox: %d", n)
 	}
 }

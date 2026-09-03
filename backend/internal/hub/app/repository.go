@@ -16,6 +16,7 @@ import (
 type RepositoryService struct {
 	Repos          domain.RepositoryAdmin
 	Identities     domain.IdentityStore
+	Subs           domain.SubscriptionStore
 	Provider       domain.ProviderClient
 	Secrets        *secrets.Box
 	WebhookBaseURL string
@@ -57,12 +58,23 @@ func (s *RepositoryService) Connect(ctx context.Context, userID, identityID int6
 		Name:             pr.Name,
 		DefaultBranch:    pr.DefaultBranch,
 		WebhookSecretEnc: secretEnc,
-		BuildID:          buildID,
 	}
 	// id репозитория нужен в URL хука — сначала строка, потом хук у провайдера
 	repo.ID, err = s.Repos.CreateRepository(ctx, repo)
 	if err != nil {
 		return nil, err
+	}
+	// buildId в запросе (deprecated) = подписка этой Сборки на все события
+	if buildID != nil {
+		if _, err := s.Subs.UpsertSubscription(ctx, &domain.BuildSubscription{
+			BuildID: *buildID, RepositoryID: repo.ID,
+		}); err != nil {
+			if delErr := s.Repos.DeleteRepository(ctx, repo.ID); delErr != nil {
+				slog.Error("repository: rollback after subscription failure", "repositoryId", repo.ID, "err", delErr)
+			}
+			return nil, err
+		}
+		repo.BuildID = buildID
 	}
 	hookURL := fmt.Sprintf("%s/hooks/%s/%d", s.WebhookBaseURL, ident.Provider, repo.ID)
 	hookID, err := s.Provider.CreateHook(ctx, ident.Provider, string(token), *pr, hookURL, hookSecret)

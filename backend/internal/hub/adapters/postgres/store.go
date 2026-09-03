@@ -27,10 +27,10 @@ var (
 func (s *Store) Find(ctx context.Context, id int64, provider string) (*domain.Repository, error) {
 	r := domain.Repository{ID: id, Provider: provider}
 	err := s.Pool.QueryRow(ctx,
-		`SELECT user_id, owner, name, build_id, webhook_secret_enc
+		`SELECT user_id, owner, name, webhook_secret_enc
 		   FROM hub.repositories WHERE id = $1 AND provider = $2`,
 		id, provider,
-	).Scan(&r.UserID, &r.Owner, &r.Name, &r.BuildID, &r.WebhookSecretEnc)
+	).Scan(&r.UserID, &r.Owner, &r.Name, &r.WebhookSecretEnc)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -40,9 +40,11 @@ func (s *Store) Find(ctx context.Context, id int64, provider string) (*domain.Re
 	return &r, nil
 }
 
-// Ingest — одна транзакция: журнал hub.events (дедуп по provider+delivery_id) +
-// upsert Экземпляра Агента + строка hub.outbox с тонким Событием (тикет 001).
-func (s *Store) Ingest(ctx context.Context, repo *domain.Repository, e domain.Event, payload []byte) (bool, error) {
+// Ingest — одна транзакция: журнал hub.events (дедуп по provider+delivery_id)
+// + веер (тикет 011): upsert Экземпляра каждой Сборки из buildIDs, журнал
+// instance_events, строка outbox на каждый Экземпляр (контракт тикета 010 —
+// в сообщении готовые instanceId/threadId). Ноль Сборок — только журнал.
+func (s *Store) Ingest(ctx context.Context, repo *domain.Repository, e domain.Event, payload []byte, buildIDs []int64) (bool, error) {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return false, err
@@ -64,17 +66,19 @@ func (s *Store) Ingest(ctx context.Context, repo *domain.Repository, e domain.Ev
 		return false, fmt.Errorf("insert event: %w", err)
 	}
 
-	if repo.BuildID != nil {
+	routingKey := domain.RoutingKey(repo.Provider, repo.ID, e.Action)
+	for _, buildID := range buildIDs {
 		var instanceID int64
+		var threadID string
 		err = tx.QueryRow(ctx,
 			`INSERT INTO hub.agent_instances (build_id, repository_id, thread_id)
 			 VALUES ($1, $2, $3)
 			 ON CONFLICT (build_id, repository_id) DO UPDATE SET updated_at = now()
-			 RETURNING id`,
-			*repo.BuildID, repo.ID, fmt.Sprintf("hub-%d-%d", *repo.BuildID, repo.ID),
-		).Scan(&instanceID)
+			 RETURNING id, thread_id`,
+			buildID, repo.ID, fmt.Sprintf("hub-%d-%d", buildID, repo.ID),
+		).Scan(&instanceID, &threadID)
 		if err != nil {
-			return false, fmt.Errorf("upsert instance: %w", err)
+			return false, fmt.Errorf("upsert instance (build %d): %w", buildID, err)
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO hub.instance_events (instance_id, event_id, dedup_key)
@@ -83,13 +87,12 @@ func (s *Store) Ingest(ctx context.Context, repo *domain.Repository, e domain.Ev
 		); err != nil {
 			return false, fmt.Errorf("insert instance event: %w", err)
 		}
-	}
-
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO hub.outbox (event_id, routing_key, payload) VALUES ($1, $2, $3)`,
-		eventID, domain.RoutingKey(repo.Provider, repo.ID, e.Action), domain.ThinPayload(eventID, repo, e),
-	); err != nil {
-		return false, fmt.Errorf("insert outbox: %w", err)
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO hub.outbox (event_id, routing_key, payload) VALUES ($1, $2, $3)`,
+			eventID, routingKey, domain.EventMessage(eventID, instanceID, threadID, repo, e),
+		); err != nil {
+			return false, fmt.Errorf("insert outbox: %w", err)
+		}
 	}
 	return false, tx.Commit(ctx)
 }

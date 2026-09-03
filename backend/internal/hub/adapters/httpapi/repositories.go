@@ -12,6 +12,7 @@ const eventsPageLimit = 100
 // RepositoriesHandler — подключённые Репозитории и их журнал Событий.
 type RepositoriesHandler struct {
 	Store   domain.RepositoryAdmin
+	Subs    domain.SubscriptionStore
 	Service *app.RepositoryService
 }
 
@@ -47,7 +48,8 @@ func (h *RepositoriesHandler) Connect(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, toRepositoryDTO(*repo))
 }
 
-// Patch — PATCH /api/repositories/{id}: привязать/отвязать Сборку.
+// Patch — PATCH /api/repositories/{id}. Deprecated (тикет 011): привязка
+// Сборок теперь подписками; {buildId} транслируется в подписку на все события.
 func (h *RepositoriesHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
@@ -59,11 +61,27 @@ func (h *RepositoriesHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	if err := h.Store.SetBuild(r.Context(), id, userID(r), req.BuildID); err != nil {
-		writeError(w, err)
+	if req.BuildID == nil {
+		http.Error(w, `{"error":"deprecated route: manage subscriptions via /api/repositories/{id}/subscriptions"}`,
+			http.StatusBadRequest)
 		return
 	}
 	repo, err := h.Store.Repository(r.Context(), id, userID(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if repo == nil {
+		writeError(w, domain.ErrNotFound)
+		return
+	}
+	if _, err := h.Subs.UpsertSubscription(r.Context(), &domain.BuildSubscription{
+		BuildID: *req.BuildID, RepositoryID: id,
+	}); err != nil {
+		writeError(w, err)
+		return
+	}
+	repo, err = h.Store.Repository(r.Context(), id, userID(r))
 	if err != nil || repo == nil {
 		writeError(w, err)
 		return

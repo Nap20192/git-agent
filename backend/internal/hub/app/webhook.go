@@ -11,10 +11,12 @@ import (
 )
 
 // WebhookService — приём События с вебхука (тикет 002): подлинность
-// per-repo секретом, дедуп доставок, транзакционный ingest.
+// per-repo секретом, дедуп доставок, транзакционный ingest веером по
+// подпискам Сборок (тикет 011).
 // Любой отказ — молчаливый дроп с внутренним логом; наружу адаптер всегда отвечает 200.
 type WebhookService struct {
 	Repos    domain.RepositoryStore
+	Subs     domain.SubscriptionStore
 	Ingestor domain.EventIngestor
 	Secrets  *secrets.Box
 }
@@ -39,12 +41,32 @@ func (s *WebhookService) Handle(ctx context.Context, provider string, repoID int
 		return
 	}
 
-	duplicate, err := s.Ingestor.Ingest(ctx, repo, e, body)
+	// веер (тикет 011): Сборки с совпавшей подпиской; репо вовсе без
+	// подписок обслуживает дефолтная Сборка на все события
+	subs, err := s.Subs.SubscriptionsByRepo(ctx, repo.ID)
+	if err != nil {
+		slog.Error("webhook: subscriptions lookup failed", "repositoryId", repoID, "err", err)
+		return
+	}
+	buildIDs := domain.MatchedBuilds(subs, e.Action, e.Ref)
+	if len(subs) == 0 {
+		if def, err := s.Subs.DefaultBuild(ctx, repo.UserID); err != nil {
+			slog.Error("webhook: default build lookup failed", "repositoryId", repoID, "err", err)
+			return
+		} else if def != nil {
+			buildIDs = []int64{def.ID}
+		}
+	}
+
+	duplicate, err := s.Ingestor.Ingest(ctx, repo, e, body, buildIDs)
 	if err != nil {
 		slog.Error("webhook: ingest failed", "repositoryId", repoID, "deliveryId", e.DeliveryID, "err", err)
 		return
 	}
 	if duplicate {
 		slog.Info("webhook: duplicate delivery", "provider", provider, "deliveryId", e.DeliveryID)
+	} else if len(buildIDs) == 0 {
+		slog.Info("webhook: no matching subscriptions, journaled only",
+			"repositoryId", repoID, "action", e.Action, "ref", e.Ref)
 	}
 }

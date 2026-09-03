@@ -12,12 +12,13 @@ import (
 )
 
 var (
-	_ domain.IdentityStore   = (*Store)(nil)
-	_ domain.RepositoryAdmin = (*Store)(nil)
-	_ domain.BuildStore      = (*Store)(nil)
-	_ domain.ConnectionStore = (*Store)(nil)
-	_ domain.InstanceStore   = (*Store)(nil)
-	_ domain.StaleRequeuer   = (*Store)(nil)
+	_ domain.IdentityStore     = (*Store)(nil)
+	_ domain.RepositoryAdmin   = (*Store)(nil)
+	_ domain.BuildStore        = (*Store)(nil)
+	_ domain.ConnectionStore   = (*Store)(nil)
+	_ domain.InstanceStore     = (*Store)(nil)
+	_ domain.StaleRequeuer     = (*Store)(nil)
+	_ domain.SubscriptionStore = (*Store)(nil)
 )
 
 func nilIfNoRows[T any](v *T, err error) (*T, error) {
@@ -84,8 +85,12 @@ func (s *Store) DeleteIdentity(ctx context.Context, id, userID int64) error {
 
 // ── Repositories ────────────────────────────────────────────────────────────
 
+// build_id — derived: Сборка первой подписки (deprecated wire-поле, тикет 011).
 const repoColumns = `id, user_id, identity_id, provider, external_id, owner, name,
-	default_branch, webhook_provider_id, webhook_secret_enc, build_id, connected_at`
+	default_branch, webhook_provider_id, webhook_secret_enc,
+	(SELECT bs.build_id FROM hub.build_subscriptions bs
+	  WHERE bs.repository_id = hub.repositories.id ORDER BY bs.id LIMIT 1),
+	connected_at`
 
 func (s *Store) Repositories(ctx context.Context, userID int64) ([]domain.Repository, error) {
 	rows, err := s.Pool.Query(ctx,
@@ -113,10 +118,10 @@ func (s *Store) CreateRepository(ctx context.Context, r *domain.Repository) (int
 	var id int64
 	err := s.Pool.QueryRow(ctx,
 		`INSERT INTO hub.repositories
-		   (user_id, identity_id, provider, external_id, owner, name, default_branch, webhook_secret_enc, build_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+		   (user_id, identity_id, provider, external_id, owner, name, default_branch, webhook_secret_enc)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
 		r.UserID, r.IdentityID, r.Provider, r.ExternalID, r.Owner, r.Name,
-		r.DefaultBranch, r.WebhookSecretEnc, r.BuildID,
+		r.DefaultBranch, r.WebhookSecretEnc,
 	).Scan(&id)
 	return id, err
 }
@@ -125,18 +130,6 @@ func (s *Store) SetWebhook(ctx context.Context, id int64, providerHookID string)
 	_, err := s.Pool.Exec(ctx,
 		`UPDATE hub.repositories SET webhook_provider_id = $2 WHERE id = $1`, id, providerHookID)
 	return err
-}
-
-func (s *Store) SetBuild(ctx context.Context, id, userID int64, buildID *int64) error {
-	tag, err := s.Pool.Exec(ctx,
-		`UPDATE hub.repositories SET build_id = $3 WHERE id = $1 AND user_id = $2`, id, userID, buildID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
 }
 
 func (s *Store) DeleteRepository(ctx context.Context, id int64) error {
@@ -156,6 +149,61 @@ func (s *Store) Events(ctx context.Context, repoID int64, limit int) ([]domain.E
 		err := r.Scan(&e.ID, &e.Provider, &e.Action, &e.CommitSHA, &e.Ref, &e.ReceivedAt)
 		return e, err
 	})
+}
+
+// ── Subscriptions (тикет 011) ───────────────────────────────────────────────
+
+func (s *Store) SubscriptionsByRepo(ctx context.Context, repositoryID int64) ([]domain.BuildSubscription, error) {
+	rows, err := s.Pool.Query(ctx,
+		`SELECT id, build_id, repository_id, actions, ref_mask, created_at
+		   FROM hub.build_subscriptions WHERE repository_id = $1 ORDER BY id`, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	return collect(rows, func(r pgx.Rows) (domain.BuildSubscription, error) {
+		var sub domain.BuildSubscription
+		err := r.Scan(&sub.ID, &sub.BuildID, &sub.RepositoryID, &sub.Actions, &sub.RefMask, &sub.CreatedAt)
+		return sub, err
+	})
+}
+
+func (s *Store) UpsertSubscription(ctx context.Context, sub *domain.BuildSubscription) (int64, error) {
+	var id int64
+	err := s.Pool.QueryRow(ctx,
+		`INSERT INTO hub.build_subscriptions (build_id, repository_id, actions, ref_mask)
+		 VALUES ($1, $2, COALESCE($3, '{}'), $4)
+		 ON CONFLICT (build_id, repository_id) DO UPDATE
+		   SET actions = COALESCE($3, '{}'), ref_mask = $4
+		 RETURNING id`,
+		sub.BuildID, sub.RepositoryID, sub.Actions, sub.RefMask,
+	).Scan(&id)
+	if isFKViolation(err) {
+		return 0, domain.ErrConflict
+	}
+	return id, err
+}
+
+func (s *Store) DeleteSubscription(ctx context.Context, id, userID int64) error {
+	tag, err := s.Pool.Exec(ctx,
+		`DELETE FROM hub.build_subscriptions bs
+		  USING hub.repositories r
+		  WHERE bs.id = $1 AND r.id = bs.repository_id AND r.user_id = $2`, id, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) DefaultBuild(ctx context.Context, userID int64) (*domain.AgentBuild, error) {
+	var b domain.AgentBuild
+	err := s.Pool.QueryRow(ctx,
+		`SELECT id, user_id, name FROM hub.agent_builds
+		  WHERE user_id = $1 AND is_default ORDER BY id LIMIT 1`, userID,
+	).Scan(&b.ID, &b.UserID, &b.Name)
+	return nilIfNoRows(&b, err)
 }
 
 // ── Builds ──────────────────────────────────────────────────────────────────

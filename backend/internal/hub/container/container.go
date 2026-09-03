@@ -64,10 +64,10 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 	providerClient := &provider.Client{}
 	runnerClient := &runnerapi.Client{}
 
-	webhook := &app.WebhookService{Repos: store, Ingestor: store, Secrets: box}
+	webhook := &app.WebhookService{Repos: store, Subs: store, Ingestor: store, Secrets: box}
 	outbox := &app.OutboxService{Store: store, Publisher: publisher}
 	repositories := &app.RepositoryService{
-		Repos: store, Identities: store, Provider: providerClient,
+		Repos: store, Identities: store, Subs: store, Provider: providerClient,
 		Secrets: box, WebhookBaseURL: cfg.WebhookBaseURL,
 	}
 	instances := &app.InstanceService{
@@ -77,14 +77,15 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 	heartbeat := &app.HeartbeatService{Store: store, Timeout: cfg.HeartbeatTimeout}
 
 	mux := httpapi.NewMux(httpapi.Handlers{
-		Session:      &httpapi.Session{DevUserID: devUserID},
-		Webhook:      &httpapi.WebhookHandler{Service: webhook},
-		Runners:      &httpapi.RunnersHandler{Store: store, Token: cfg.RunnerToken},
-		Identities:   &httpapi.IdentitiesHandler{Store: store, Provider: providerClient, Secrets: box},
-		Repositories: &httpapi.RepositoriesHandler{Store: store, Service: repositories},
-		Builds:       &httpapi.BuildsHandler{Store: store},
-		Connections:  &httpapi.ConnectionsHandler{Store: store, Secrets: box},
-		Instances:    &httpapi.InstancesHandler{Store: store, Service: instances},
+		Session:       &httpapi.Session{DevUserID: devUserID},
+		Webhook:       &httpapi.WebhookHandler{Service: webhook},
+		Runners:       &httpapi.RunnersHandler{Store: store, Token: cfg.RunnerToken},
+		Identities:    &httpapi.IdentitiesHandler{Store: store, Provider: providerClient, Secrets: box},
+		Repositories:  &httpapi.RepositoriesHandler{Store: store, Subs: store, Service: repositories},
+		Subscriptions: &httpapi.SubscriptionsHandler{Store: store, Repos: store},
+		Builds:        &httpapi.BuildsHandler{Store: store},
+		Connections:   &httpapi.ConnectionsHandler{Store: store, Secrets: box},
+		Instances:     &httpapi.InstancesHandler{Store: store, Service: instances},
 	})
 
 	return &Container{

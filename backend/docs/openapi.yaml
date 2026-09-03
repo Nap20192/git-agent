@@ -72,13 +72,21 @@ paths:
               properties:
                 identityId: { type: integer }
                 externalId: { type: string }
-                buildId: { type: [integer, "null"] }
+                buildId:
+                  type: [integer, "null"]
+                  deprecated: true
+                  description: "тикет 011: транслируется в подписку Сборки на все события"
       responses:
         "201":
           content: { application/json: { schema: { $ref: "#/components/schemas/Repository" } } }
   /api/repositories/{id}:
     patch:
-      summary: Привязать Сборку
+      summary: Привязать Сборку (deprecated — используй подписки)
+      deprecated: true
+      description: >
+        Тикет 011: привязка Сборок — подписками. {buildId} транслируется в
+        подписку этой Сборки на все события; buildId=null — 400
+        (управление — через /api/repositories/{id}/subscriptions).
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         content:
@@ -100,6 +108,42 @@ paths:
           content:
             application/json:
               schema: { type: array, items: { $ref: "#/components/schemas/Event" } }
+
+  /api/repositories/{id}/subscriptions:
+    get:
+      summary: Подписки Сборок на события репозитория (тикет 011)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/BuildSubscription" } }
+    post:
+      summary: Создать/обновить подписку (upsert по паре Сборка+репозиторий)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [buildId]
+              properties:
+                buildId: { type: integer }
+                actions:
+                  type: array
+                  items: { type: string }
+                  description: пустой список = все действия
+                refMask:
+                  type: [string, "null"]
+                  description: glob-маска ветки/тега без префикса refs/ ("release/*"); null = любой ref
+      responses:
+        "201":
+          content: { application/json: { schema: { $ref: "#/components/schemas/BuildSubscription" } } }
+  /api/subscriptions/{id}:
+    delete:
+      summary: Удалить подписку
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { description: ok } }
 
   # ── Webhook-приёмник (подпись per-repo; наружу всегда 200) ──────────
   /hooks/{provider}/{repositoryId}:
@@ -336,8 +380,21 @@ components:
         owner: { type: string }
         name: { type: string }
         defaultBranch: { type: [string, "null"] }
-        buildId: { type: [integer, "null"] }
+        buildId:
+          type: [integer, "null"]
+          deprecated: true
+          description: "тикет 011: Сборка первой подписки; истина — в /subscriptions"
         connectedAt: { type: string, format: date-time }
+    BuildSubscription:
+      type: object
+      required: [id, buildId, repositoryId, actions]
+      properties:
+        id: { type: integer }
+        buildId: { type: integer }
+        repositoryId: { type: integer }
+        actions: { type: array, items: { type: string }, description: пустой = все действия }
+        refMask: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
     Event:
       type: object
       required: [id, provider, action, receivedAt]

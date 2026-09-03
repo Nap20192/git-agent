@@ -12,11 +12,23 @@ type RepositoryStore interface {
 	Find(ctx context.Context, id int64, provider string) (*Repository, error)
 }
 
-// EventIngestor — приём События в одной транзакции: журнал events
-// (дедуп по provider+delivery_id) + upsert Экземпляра Агента + строка outbox.
+// EventIngestor — приём События в одной транзакции: журнал events (дедуп по
+// provider+delivery_id) + веер (тикет 011): upsert Экземпляра каждой Сборки
+// из buildIDs + строка outbox на каждый Экземпляр (в сообщении instanceId).
 type EventIngestor interface {
 	// Ingest возвращает duplicate=true для повторной доставки (no-op).
-	Ingest(ctx context.Context, repo *Repository, e Event, payload []byte) (duplicate bool, err error)
+	Ingest(ctx context.Context, repo *Repository, e Event, payload []byte, buildIDs []int64) (duplicate bool, err error)
+}
+
+// SubscriptionStore — подписки Сборок (тикет 011).
+type SubscriptionStore interface {
+	SubscriptionsByRepo(ctx context.Context, repositoryID int64) ([]BuildSubscription, error)
+	// UpsertSubscription — по unique (build, repo); обновляет actions/ref_mask.
+	UpsertSubscription(ctx context.Context, s *BuildSubscription) (int64, error)
+	DeleteSubscription(ctx context.Context, id, userID int64) error
+	// DefaultBuild — дефолтная Сборка пользователя (фолбэк для репо без
+	// подписок); nil — не задана.
+	DefaultBuild(ctx context.Context, userID int64) (*AgentBuild, error)
 }
 
 // OutboxMessage — неопубликованная строка hub.outbox.
@@ -75,7 +87,6 @@ type RepositoryAdmin interface {
 	CreateRepository(ctx context.Context, r *Repository) (int64, error)
 	// SetWebhook сохраняет id хука у провайдера после его создания.
 	SetWebhook(ctx context.Context, id int64, providerHookID string) error
-	SetBuild(ctx context.Context, id, userID int64, buildID *int64) error
 	DeleteRepository(ctx context.Context, id int64) error
 	Events(ctx context.Context, repoID int64, limit int) ([]EventRecord, error)
 }

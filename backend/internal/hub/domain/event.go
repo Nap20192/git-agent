@@ -16,7 +16,9 @@ type Event struct {
 	Ref        string
 }
 
-// Repository — подключённый Репозиторий.
+// Repository — подключённый Репозиторий. Привязка Сборок — подписками
+// (BuildSubscription, тикет 011); BuildID — derived-поле для deprecated
+// wire-контракта (Сборка первой подписки), не колонка.
 type Repository struct {
 	ID                int64
 	UserID            int64
@@ -46,17 +48,20 @@ func RoutingKey(provider string, repositoryID int64, action string) string {
 	return provider + "." + strconv.FormatInt(repositoryID, 10) + "." + safe
 }
 
-// ThinPayload — тело События в RabbitMQ (тикет 001): без секретов и LLM-конфига.
-func ThinPayload(eventID int64, repo *Repository, e Event) []byte {
+// EventMessage — тело сообщения в RabbitMQ (контракт тикета 010): тонкое
+// Событие с готовыми id — Экземпляр отрезолвлен backend'ом на вебхуке,
+// раннер тупо клеймит и исполняет. Без секретов и LLM-конфига.
+func EventMessage(eventID, instanceID int64, threadID string, repo *Repository, e Event) []byte {
 	b, _ := json.Marshal(map[string]any{
 		"eventId":      eventID,
-		"provider":     repo.Provider,
+		"instanceId":   instanceID,
+		"threadId":     threadID,
 		"repositoryId": repo.ID,
-		"repo":         repo.FullName(),
+		"provider":     repo.Provider,
 		"action":       e.Action,
 		"commitSha":    e.CommitSHA,
 		"ref":          e.Ref,
-		"userId":       repo.UserID,
+		"dedupKey":     DedupKey(eventID, e),
 	})
 	return b
 }

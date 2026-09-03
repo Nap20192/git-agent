@@ -24,16 +24,18 @@ func TestDedupKey(t *testing.T) {
 	}
 }
 
-func TestThinPayload(t *testing.T) {
-	uid := int64(3)
-	repo := &Repository{ID: 42, UserID: uid, Provider: "github", Owner: "acme", Name: "repo"}
+// Контракт сообщения — тикет 010: готовые id, dedupKey, без секретов.
+func TestEventMessage(t *testing.T) {
+	repo := &Repository{ID: 42, UserID: 3, Provider: "github", Owner: "acme", Name: "repo"}
 	var got map[string]any
-	if err := json.Unmarshal(ThinPayload(7, repo, Event{Action: "push", CommitSHA: "abc", Ref: "refs/heads/main"}), &got); err != nil {
+	msg := EventMessage(7, 15, "hub-9-42", repo, Event{Action: "push", CommitSHA: "abc", Ref: "refs/heads/main"})
+	if err := json.Unmarshal(msg, &got); err != nil {
 		t.Fatal(err)
 	}
 	for k, want := range map[string]any{
-		"eventId": float64(7), "provider": "github", "repositoryId": float64(42),
-		"repo": "acme/repo", "action": "push", "commitSha": "abc", "userId": float64(3),
+		"eventId": float64(7), "instanceId": float64(15), "threadId": "hub-9-42",
+		"repositoryId": float64(42), "provider": "github", "action": "push",
+		"commitSha": "abc", "ref": "refs/heads/main", "dedupKey": "abc",
 	} {
 		if got[k] != want {
 			t.Errorf("%s: got %v, want %v", k, got[k], want)

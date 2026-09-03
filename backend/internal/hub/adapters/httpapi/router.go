@@ -4,14 +4,15 @@ import "net/http"
 
 // Handlers — все хендлеры HTTP-поверхности hub (backend/docs/openapi.yaml).
 type Handlers struct {
-	Session      *Session
-	Webhook      *WebhookHandler
-	Runners      *RunnersHandler
-	Identities   *IdentitiesHandler
-	Repositories *RepositoriesHandler
-	Builds       *BuildsHandler
-	Connections  *ConnectionsHandler
-	Instances    *InstancesHandler
+	Session       *Session
+	Webhook       *WebhookHandler
+	Runners       *RunnersHandler
+	Identities    *IdentitiesHandler
+	Repositories  *RepositoriesHandler
+	Subscriptions *SubscriptionsHandler
+	Builds        *BuildsHandler
+	Connections   *ConnectionsHandler
+	Instances     *InstancesHandler
 }
 
 // NewMux собирает HTTP-поверхность hub. Пользовательские /api/* — за
@@ -36,6 +37,9 @@ func NewMux(h Handlers) *http.ServeMux {
 	mux.HandleFunc("PATCH /api/repositories/{id}", s(h.Repositories.Patch))
 	mux.HandleFunc("DELETE /api/repositories/{id}", s(h.Repositories.Disconnect))
 	mux.HandleFunc("GET /api/repositories/{id}/events", s(h.Repositories.Events))
+	mux.HandleFunc("GET /api/repositories/{id}/subscriptions", s(h.Subscriptions.List))
+	mux.HandleFunc("POST /api/repositories/{id}/subscriptions", s(h.Subscriptions.Create))
+	mux.HandleFunc("DELETE /api/subscriptions/{id}", s(h.Subscriptions.Delete))
 
 	mux.HandleFunc("GET /api/builds", s(h.Builds.List))
 	mux.HandleFunc("POST /api/builds", s(h.Builds.Create))

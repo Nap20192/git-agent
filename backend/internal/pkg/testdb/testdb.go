@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -59,12 +60,19 @@ func Setup(t *testing.T) *pgxpool.Pool {
 	})
 
 	_, self, _, _ := runtime.Caller(0)
-	sql, err := os.ReadFile(filepath.Join(filepath.Dir(self), "../../../../migrations/backend/001_init.sql"))
-	if err != nil {
-		t.Fatal(err)
+	files, err := filepath.Glob(filepath.Join(filepath.Dir(self), "../../../../migrations/backend/*.sql"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no backend migrations found: %v", err)
 	}
-	if _, err := pool.Exec(ctx, string(sql)); err != nil {
-		t.Fatal(err)
+	sort.Strings(files) // нумерованные SQL — применяются по порядку
+	for _, f := range files {
+		sql, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, string(sql)); err != nil {
+			t.Fatalf("apply %s: %v", filepath.Base(f), err)
+		}
 	}
 	return pool
 }
