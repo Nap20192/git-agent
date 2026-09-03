@@ -60,5 +60,6 @@ async def _handle(handler: Callable[[Event], Awaitable[str]], event: Event) -> N
             "event not processed; re-publish by hub will retry",
             event_id=event.event_id,
             instance_id=event.instance_id,
+            trace_id=event.trace_id,
             error=describe(exc),
         )

@@ -17,6 +17,7 @@ from uuid import UUID
 
 from langchain_core.callbacks import AsyncCallbackHandler
 
+from pkg import trace
 from pkg.errors import describe
 from pkg.logger import get_logger
 
@@ -198,4 +199,5 @@ class TurnTracer(AsyncCallbackHandler):
         )
 
     def summary(self) -> dict[str, Any]:
-        return self.stats.as_dict()
+        """Сводка хода; trace_id — явно, чтобы строка находилась по нему и вне контекста."""
+        return {trace.FIELD: trace.current_trace_id(), **self.stats.as_dict()}

@@ -23,7 +23,7 @@ def create_runner_app() -> FastAPI:
     from infra.server.runner_api import install_api
 
     app = FastAPI(title="git-agent runner", lifespan=_lifespan)
-    app.add_middleware(RequestContextMiddleware)  # X-Request-ID от hub → в лог-контекст
+    app.add_middleware(RequestContextMiddleware)  # X-Trace-Id от hub → в лог-контекст
     install_api(app)
     return app
 

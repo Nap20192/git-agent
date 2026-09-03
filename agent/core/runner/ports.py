@@ -70,9 +70,16 @@ class InstanceStore(Protocol):
     async def add_finding(self, instance_id: int, finding: dict[str, Any]) -> None: ...
 
     async def add_activity(
-        self, instance_id: int, *, event_id: int | None, seq: int, frame: dict[str, Any]
+        self,
+        instance_id: int,
+        *,
+        event_id: int | None,
+        seq: int,
+        frame: dict[str, Any],
+        trace_id: str = "",
     ) -> None:
-        """Кадр activity хода в hub.activity (тикет 012); event_id NULL — чат."""
+        """Кадр activity хода в hub.activity (тикет 012); event_id NULL — чат;
+        trace_id — сквозной id хода (колонка hub.activity.trace_id)."""
         ...
 
     async def list_activity(

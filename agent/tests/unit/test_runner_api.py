@@ -9,7 +9,9 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from core.runner.events import Event
+from infra.server.request_context import RequestContextMiddleware
 from infra.server.runner_api import install_api
+from pkg import trace
 
 WIRE = {
     "eventId": 7,
@@ -31,6 +33,7 @@ class FakeService:
         self.raise_status = "running"
         self.stop_ok = True
         self.events: list[Event] = []
+        self.trace_ids: list[str | None] = []
         self.chats: list[tuple[int, str]] = []
         self.terminals: list[tuple[int, str]] = []
         self.terminal_result: tuple[str, int | None, str | None] | Exception = ("ok", 0, "/repo")
@@ -43,6 +46,7 @@ class FakeService:
 
     async def handle_event(self, event: Event) -> str:
         self.events.append(event)
+        self.trace_ids.append(trace.current_trace_id())
         return "processed"
 
     async def terminal(self, instance_id: int, command: str):
@@ -75,9 +79,25 @@ def service() -> FakeService:
 @pytest.fixture
 def client(service: FakeService) -> TestClient:
     app = FastAPI()
+    app.add_middleware(RequestContextMiddleware)
     install_api(app)
     app.state.service = service
     return TestClient(app)
+
+
+def test_trace_id_accepted_or_generated_and_echoed(client, service):
+    """X-Trace-Id от hub → contextvars хода и тот же заголовок в ответе; без него — свой."""
+    given = "0123456789ABCDEF0123456789abcdef"
+    response = client.post("/instances/3/events", json=WIRE, headers={trace.HEADER: given})
+    assert response.headers[trace.HEADER] == given.lower()
+    assert service.trace_ids == [given.lower()]
+
+    response = client.post("/instances/3/events", json=WIRE)
+    generated = response.headers[trace.HEADER]
+    assert trace.is_valid(generated) and generated != given.lower()
+    assert service.trace_ids[1] == generated
+    # ошибка тоже несёт заголовок
+    assert trace.is_valid(client.post("/instances/9/events", json=WIRE).headers[trace.HEADER])
 
 
 def test_health(client, service):
@@ -166,6 +186,7 @@ def test_terminal_unavailable_instance_is_error_frames(client, service):
 
     service.terminal_result = InstanceUnavailableError(3, "missing")
     frames = _terminal_frames(client, "ls")
+    assert trace.is_valid(frames[0].pop("traceId"))  # кадр-ошибка несёт trace_id запроса
     assert frames[0] == {"kind": "output", "text": "instance 3 unavailable: missing"}
     assert frames[1] == {"kind": "exit", "code": None, "cwd": None}
     assert frames[2] == {"kind": "done"}

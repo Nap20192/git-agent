@@ -7,6 +7,7 @@ import os
 from typing import Any
 
 import pytest
+from structlog.contextvars import get_contextvars
 
 from core.runner.crypto import decrypt, encrypt
 from core.runner.events import Event, parse_event
@@ -23,6 +24,7 @@ WIRE = {
     "commitSha": "abc123",
     "ref": "refs/heads/main",
     "dedupKey": "abc123",
+    "traceId": "0123456789abcdef0123456789abcdef",
 }
 
 
@@ -38,6 +40,7 @@ def test_parse_event_roundtrip():
         dedup_key="abc123",
         commit_sha="abc123",
         ref="refs/heads/main",
+        trace_id="0123456789abcdef0123456789abcdef",
     )
     assert parse_event(event.to_wire()) == event
 
@@ -88,6 +91,7 @@ class MemStore:
         self.journal: dict[tuple[int, str], bool] = {}  # -> processed?
         self.contexts: dict[int, dict[str, Any]] = {}
         self.activity: list[tuple[int, int | None, int, dict[str, Any]]] = []
+        self.activity_traces: list[str] = []
 
     async def register_runner(self, *, name: str, address: str, slots: int) -> int:
         return 1
@@ -140,8 +144,9 @@ class MemStore:
     async def add_finding(self, instance_id, finding) -> None:
         pass
 
-    async def add_activity(self, instance_id, *, event_id, seq, frame) -> None:
+    async def add_activity(self, instance_id, *, event_id, seq, frame, trace_id="") -> None:
         self.activity.append((instance_id, event_id, seq, frame))
+        self.activity_traces.append(trace_id)
 
     async def list_activity(self, instance_id, *, event_id=None, latest=False):
         rows = [r for r in self.activity if r[0] == instance_id]
@@ -172,8 +177,10 @@ class FakeExecutor:
         self.processed: list[Event] = []
         self.terminal_calls: list[tuple[str, str | None]] = []
         self.chunks: list[tuple[str, Any]] = []  # стрим-чанки хода для on_chunk
+        self.contexts: list[dict[str, Any]] = []
 
     async def process_event(self, ctx, event, on_chunk=None):
+        self.contexts.append(get_contextvars())  # лог-контекст хода (trace_id и др.)
         if self.error:
             raise self.error
         if on_chunk is not None:
@@ -222,6 +229,31 @@ def test_event_processed_and_marked():
         assert store.journal[(3, "abc123")] is True
         assert store.instances[3] == {"status": "running", "runner_id": 1}
         assert service.busy == 1
+
+    asyncio.run(run())
+
+
+def test_trace_id_from_message_binds_turn_context():
+    """traceId Rabbit-сообщения → contextvars хода, activity-кадры и hub.activity.trace_id."""
+
+    async def run():
+        store = MemStore()
+        seed(store)
+        executor = FakeExecutor()
+        service = await started(make_service(store, executor=executor))
+        await service.handle_event(parse_event(WIRE))
+        trace_id = WIRE["traceId"]
+        assert executor.contexts[0]["trace_id"] == trace_id
+        assert executor.contexts[0]["event_id"] == 7
+        assert store.activity_traces and set(store.activity_traces) == {trace_id}
+        assert all(frame["traceId"] == trace_id for (_, _, _, frame) in store.activity)
+
+        # сообщение без traceId (до миграции 004) — ход получает свежий 32-hex id
+        await service.handle_event(
+            parse_event({**WIRE, "eventId": 8, "dedupKey": "def", "traceId": ""})
+        )
+        generated = executor.contexts[1]["trace_id"]
+        assert generated != trace_id and len(generated) == 32 and int(generated, 16) >= 0
 
     asyncio.run(run())
 

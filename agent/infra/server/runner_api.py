@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from core.runner import RunnerService, parse_event
 from core.runner.ports import InstanceUnavailableError, SandboxNotProvisionedError
+from pkg import trace
 from pkg.errors import describe
 from pkg.logger import get_logger
 
@@ -76,6 +77,11 @@ def install_api(app: FastAPI) -> None:
 
 def _sse(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+
+
+def _failed(frame: dict[str, Any]) -> dict[str, Any]:
+    """Кадр-ошибка внутри SSE несёт trace_id запроса: по нему ищутся логи и трейсы."""
+    return {**frame, "traceId": trace.current_or_new()}
 
 
 async def _preflight(service: RunnerService, instance_id: int) -> None:
@@ -165,7 +171,7 @@ async def chat(instance_id: int, request: Request):
                 for frame in chat_events(mode, data):
                     yield _sse(frame)
         except Exception as exc:  # заголовки уже ушли: ошибка — кадром, стрим закрывается штатно
-            yield _sse({"kind": "activity", "text": f"error: {describe(exc)}"})
+            yield _sse(_failed({"kind": "activity", "text": f"error: {describe(exc)}"}))
         yield _sse({"kind": "done"})
 
     return StreamingResponse(sse(), media_type="text/event-stream", headers=_SSE_HEADERS)
@@ -184,7 +190,7 @@ async def activity(instance_id: int, request: Request, eventId: int | None = Non
                 yield _sse(frame)
         except Exception as exc:
             log.exception("activity stream failed", instance_id=instance_id, error=describe(exc))
-            yield _sse({"kind": "run_failed", "description": describe(exc)})
+            yield _sse(_failed({"kind": "run_failed", "description": describe(exc)}))
         yield _sse({"kind": "done"})
 
     return StreamingResponse(sse(), media_type="text/event-stream", headers=_SSE_HEADERS)
@@ -206,11 +212,11 @@ async def terminal(instance_id: int, request: Request):
         try:
             output, code, cwd = await service.terminal(instance_id, command)
         except (SandboxNotProvisionedError, InstanceUnavailableError) as exc:
-            yield _sse({"kind": "output", "text": str(exc)})
+            yield _sse(_failed({"kind": "output", "text": str(exc)}))
             yield _sse({"kind": "exit", "code": None, "cwd": None})
         except Exception as exc:
             log.exception("terminal command failed", instance_id=instance_id, error=describe(exc))
-            yield _sse({"kind": "output", "text": describe(exc)})
+            yield _sse(_failed({"kind": "output", "text": describe(exc)}))
             yield _sse({"kind": "exit", "code": None, "cwd": None})
         else:
             if output:

@@ -136,3 +136,9 @@ def test_langfuse_metadata_lifecycle(monkeypatch):
     inject_langfuse_metadata(config, thread_id="42", model_name="m")
     assert config["metadata"]["langfuse_session_id"] == "upstream"
     assert config["metadata"]["langfuse_tags"] == ["model:m"]
+
+    # сквозной trace_id хода — тег и поле
+    config = {}
+    inject_langfuse_metadata(config, thread_id="42", trace_id="c" * 32)
+    assert config["metadata"]["langfuse_tags"] == ["trace:" + "c" * 32]
+    assert config["metadata"]["trace_id"] == "c" * 32

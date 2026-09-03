@@ -44,8 +44,11 @@ class OpenSandboxAdapter:
         elapsed = round(time.monotonic() - started, 2)
         # трейсинг: медленные команды видны в логе без отладчика
         log.info(
-            "sandbox cmd", cmd=command[:120], seconds=elapsed,
-            exit=execution.exit_code, sandbox=self.id,
+            "sandbox cmd",
+            cmd=command[:120],
+            seconds=elapsed,
+            exit=execution.exit_code,
+            sandbox=self.id,
         )
         stdout = "\n".join(line.text.rstrip("\n") for line in execution.logs.stdout)
         stderr = "\n".join(line.text.rstrip("\n") for line in execution.logs.stderr)

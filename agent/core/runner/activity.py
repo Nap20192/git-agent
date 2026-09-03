@@ -1,7 +1,7 @@
 """Activity-кадры хода (тикет 012): граф Рана «Лид → Сабагенты» в Playground.
 
 Контракт кадра — ActivityEvent в backend/docs/openapi.yaml (camelCase):
-{kind, taskId?, description?, status?, findingsCount?, ts}. Коллектор — чистое
+{kind, taskId?, description?, status?, findingsCount?, ts, traceId}. Коллектор — чистое
 свёртывание стрим-чанков графа в кадры; фид — live-буфер хода с подписчиками
 (SSE runner_api) поверх персиста в hub.activity.
 """
@@ -126,8 +126,9 @@ Persist = Callable[[int, dict[str, Any]], Awaitable[None]]
 class ActivityTurn:
     """Один ход: seq-нумерация, персист, буфер и live-подписчики."""
 
-    def __init__(self, event_id: int | None, persist: Persist) -> None:
+    def __init__(self, event_id: int | None, persist: Persist, trace_id: str = "") -> None:
         self.event_id = event_id
+        self.trace_id = trace_id
         self.done = False
         self._persist = persist
         self._seq = 0
@@ -135,6 +136,8 @@ class ActivityTurn:
         self._subscribers: list[asyncio.Queue] = []
 
     async def emit(self, frame: dict[str, Any]) -> None:
+        if self.trace_id:
+            frame.setdefault("traceId", self.trace_id)
         self._seq += 1
         await self._persist(self._seq, frame)
         self._frames.append(frame)
@@ -173,8 +176,10 @@ class ActivityFeed:
     def __init__(self) -> None:
         self._turns: dict[int, ActivityTurn] = {}
 
-    def begin(self, instance_id: int, event_id: int | None, persist: Persist) -> ActivityTurn:
-        turn = ActivityTurn(event_id, persist)
+    def begin(
+        self, instance_id: int, event_id: int | None, persist: Persist, *, trace_id: str = ""
+    ) -> ActivityTurn:
+        turn = ActivityTurn(event_id, persist, trace_id)
         self._turns[instance_id] = turn
         return turn
 

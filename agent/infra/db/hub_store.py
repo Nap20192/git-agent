@@ -178,14 +178,20 @@ class HubInstanceStore:
             )
 
     async def add_activity(
-        self, instance_id: int, *, event_id: int | None, seq: int, frame: dict[str, Any]
+        self,
+        instance_id: int,
+        *,
+        event_id: int | None,
+        seq: int,
+        frame: dict[str, Any],
+        trace_id: str = "",
     ) -> None:
         pool = await get_async_pool()
         async with pool.connection() as conn:
             await conn.execute(
-                "INSERT INTO hub.activity (instance_id, event_id, seq, kind, payload)"
-                " VALUES (%s, %s, %s, %s, %s)",
-                (instance_id, event_id, seq, frame.get("kind", ""), Json(frame)),
+                "INSERT INTO hub.activity (instance_id, event_id, seq, kind, payload, trace_id)"
+                " VALUES (%s, %s, %s, %s, %s, %s)",
+                (instance_id, event_id, seq, frame.get("kind", ""), Json(frame), trace_id),
             )
 
     async def list_activity(

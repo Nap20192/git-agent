@@ -18,6 +18,7 @@ from core.runner.ports import (
     InstanceUnavailableError,
     SandboxNotProvisionedError,
 )
+from pkg import trace
 from pkg.errors import describe
 from pkg.logger import get_logger
 
@@ -180,7 +181,12 @@ class RunnerService:
         ре-публикация backend'а.
         """
         started = time.monotonic()
-        with bound_contextvars(instance_id=event.instance_id, event_id=event.event_id):
+        # trace_id: из сообщения (вебхук/trigger → outbox → Rabbit) либо из HTTP-контекста
+        # форварда; сообщение до миграции 004 — новый
+        trace_id = event.trace_id or trace.current_or_new()
+        with bound_contextvars(
+            instance_id=event.instance_id, event_id=event.event_id, trace_id=trace_id
+        ):
             log.info(
                 "event received",
                 provider=event.provider,
@@ -287,7 +293,9 @@ class RunnerService:
         который переводит её в кадр стрима.
         """
         started = time.monotonic()
-        with bound_contextvars(instance_id=instance_id, turn="chat"):
+        with bound_contextvars(
+            instance_id=instance_id, turn="chat", trace_id=trace.current_or_new()
+        ):
             raised = await self._raise(instance_id)
             if isinstance(raised, ClaimResult):
                 raise InstanceUnavailableError(instance_id, raised.outcome)
@@ -319,15 +327,19 @@ class RunnerService:
                 raised.touch()
 
     def _begin_turn(self, instance_id: int, event_id: int | None) -> ActivityTurn:
-        """Открыть activity-ход; персист кадров best-effort (ход важнее журнала)."""
+        """Открыть activity-ход; персист кадров best-effort (ход важнее журнала).
+        trace_id хода (contextvars) — в каждый кадр и в hub.activity.trace_id."""
+        trace_id = trace.current_or_new()
 
         async def persist(seq: int, frame: dict) -> None:
             try:
-                await self._store.add_activity(instance_id, event_id=event_id, seq=seq, frame=frame)
+                await self._store.add_activity(
+                    instance_id, event_id=event_id, seq=seq, frame=frame, trace_id=trace_id
+                )
             except Exception as exc:
                 log.warning("activity persist failed", seq=seq, error=describe(exc))
 
-        return self._activity.begin(instance_id, event_id, persist)
+        return self._activity.begin(instance_id, event_id, persist, trace_id=trace_id)
 
     async def activity(self, instance_id: int, *, event_id: int | None = None):
         """Кадры хода: живой — реплей буфера + live; завершённый — из hub.activity
@@ -344,7 +356,9 @@ class RunnerService:
 
     async def terminal(self, instance_id: int, command: str) -> tuple[str, int | None, str | None]:
         """Команда стрим-консоли в песочнице Экземпляра; поднимает его при необходимости."""
-        with bound_contextvars(instance_id=instance_id, turn="terminal"):
+        with bound_contextvars(
+            instance_id=instance_id, turn="terminal", trace_id=trace.current_or_new()
+        ):
             raised = await self._raise(instance_id)
             if isinstance(raised, ClaimResult):
                 raise InstanceUnavailableError(instance_id, raised.outcome)

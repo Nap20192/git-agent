@@ -14,6 +14,7 @@ from core.ports import Sandbox, SandboxCommandError
 from core.runner.events import Event
 from core.runner.ports import InstanceStore
 from core.tracing import TurnTracer, inject_langfuse_metadata
+from pkg import trace
 from pkg.logger import get_logger
 
 log = get_logger(__name__)
@@ -120,13 +121,20 @@ class EventExecutor:
         self, ctx: dict[str, Any], profile: Any, tracer: TurnTracer, *, turn: str
     ) -> dict[str, Any]:
         """Конфиг корневого astream: тред Экземпляра, коллбэки (наш трейсер +
-        провайдеры), метаданные для UI провайдеров. Наследуется всеми вложенными
-        вызовами — тулами и Сабагентами."""
+        провайдеры), метаданные для UI провайдеров (trace_id хода — metadata и тег
+        `trace:<id>`; session остаётся thread Экземпляра). Наследуется всеми
+        вложенными вызовами — тулами и Сабагентами."""
+        trace_id = trace.current_or_new()
         config: dict[str, Any] = {
             "configurable": {"thread_id": ctx["thread_id"]},
             "callbacks": [tracer, *self._tracing_callbacks],
-            "metadata": {"instance_id": ctx["id"], "turn": turn, "model": ctx["llm_model"]},
-            "tags": [f"instance:{ctx['id']}", f"turn:{turn}"],
+            "metadata": {
+                "instance_id": ctx["id"],
+                "turn": turn,
+                "model": ctx["llm_model"],
+                trace.FIELD: trace_id,
+            },
+            "tags": [f"instance:{ctx['id']}", f"turn:{turn}", f"trace:{trace_id}"],
             **profile.run_config,
         }
         inject_langfuse_metadata(
@@ -134,6 +142,7 @@ class EventExecutor:
             thread_id=str(ctx["thread_id"]),
             trace_name=f"instance-{ctx['id']}:{turn}",
             model_name=ctx["llm_model"],
+            trace_id=trace_id,
         )
         return config
 

@@ -6,9 +6,11 @@ import asyncio
 import json
 
 import httpx
+from structlog.contextvars import bound_contextvars
 
 from core.runner.events import Event
 from infra.hub_client import HttpHubClient
+from pkg import trace
 
 
 def _client(handler) -> HttpHubClient:
@@ -36,6 +38,28 @@ def test_register_and_heartbeat_ok():
             ("POST", "/api/runners", "s3cret"),
             ("POST", "/api/runners/7/heartbeat", "s3cret"),
         ]
+
+    asyncio.run(run())
+
+
+def test_trace_header_on_every_call():
+    """X-Trace-Id: из контекста хода (heartbeat/регистрация — свой), форвард — trace_id События."""
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers[trace.HEADER])
+        return httpx.Response(201, json={"id": 7})
+
+    async def run():
+        client = _client(handler)
+        await client.register(name="r1", address="a", slots=1)
+        await client.heartbeat(runner_id=7)
+        with bound_contextvars(trace_id="a" * 32):
+            await client.heartbeat(runner_id=7)
+        event = Event(1, 3, "t", 5, "github", "push", "d", trace_id="b" * 32)
+        assert await client.forward_event("http://peer", event) is True
+        assert all(trace.is_valid(t) for t in seen) and seen[0] != seen[1]
+        assert seen[2] == "a" * 32 and seen[3] == "b" * 32
 
     asyncio.run(run())
 

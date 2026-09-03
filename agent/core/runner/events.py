@@ -17,6 +17,7 @@ class Event:
     dedup_key: str
     commit_sha: str | None = None
     ref: str | None = None
+    trace_id: str = ""  # сквозной trace_id (pkg/trace); "" — сообщение до миграции 004
 
     def to_wire(self) -> dict[str, Any]:
         return {
@@ -29,6 +30,7 @@ class Event:
             "dedupKey": self.dedup_key,
             "commitSha": self.commit_sha,
             "ref": self.ref,
+            "traceId": self.trace_id,
         }
 
 
@@ -45,6 +47,7 @@ def parse_event(data: dict[str, Any]) -> Event:
             dedup_key=str(data["dedupKey"]),
             commit_sha=data.get("commitSha") or None,
             ref=data.get("ref") or None,
+            trace_id=str(data.get("traceId") or ""),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"bad event message: {exc!r}") from exc
