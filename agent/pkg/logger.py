@@ -62,6 +62,11 @@ def _setup() -> None:
     root.handlers = handlers
     root.setLevel(_LEVEL)
 
+    # Болтливые сторонние логгеры (per-request debug HTTP-клиента, телеметрия
+    # OpenSandbox) молчат до WARNING даже когда наш код в DEBUG.
+    for noisy in ("httpx", "httpcore", "opensandbox", "urllib3", "asyncio"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
 
 _setup()
 get_logger = structlog.get_logger
