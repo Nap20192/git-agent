@@ -122,6 +122,11 @@ tasks:
     cmds:
       - go test ./...
 
+  sandbox:image:
+    desc: Собрать образ Песочницы с инструментами (git, rg, semgrep, bandit, gosec, osv-scanner, node, go)
+    cmds:
+      - docker build -t git-agent/sandbox:latest deploy/sandbox
+
   diagrams:
     desc: Отрендерить sequence-диаграммы docs/flows.md → docs/flows/*.png
     cmds:
