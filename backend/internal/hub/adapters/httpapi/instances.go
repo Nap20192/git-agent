@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -23,26 +24,12 @@ type instanceDTO struct {
 }
 
 type reportDTO struct {
-	ID         int64     `json:"id"`
-	InstanceID int64     `json:"instanceId"`
-	EventID    *int64    `json:"eventId"`
-	Summary    string    `json:"summary"`
-	CreatedAt  time.Time `json:"createdAt"`
-}
-
-type findingDTO struct {
-	ID          int64     `json:"id"`
-	InstanceID  int64     `json:"instanceId"`
-	ReportID    *int64    `json:"reportId"`
-	Severity    string    `json:"severity"`
-	CWE         *string   `json:"cwe"`
-	CVE         *string   `json:"cve"`
-	File        *string   `json:"file"`
-	LineStart   *int      `json:"lineStart"`
-	LineEnd     *int      `json:"lineEnd"`
-	Evidence    *string   `json:"evidence"`
-	Remediation *string   `json:"remediation"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID         int64           `json:"id"`
+	InstanceID int64           `json:"instanceId"`
+	EventID    *int64          `json:"eventId"`
+	Summary    string          `json:"summary"`
+	CreatedAt  time.Time       `json:"createdAt"`
+	Structured json.RawMessage `json:"structured"` // ReportStructured (openapi); null у старых
 }
 
 func (s *Server) instance(r *http.Request) (*domain.AgentInstance, error) {
@@ -86,17 +73,4 @@ func (s *Server) instanceReports(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return respond(w, http.StatusOK, mapSlice(reports, func(rep domain.Report) reportDTO { return reportDTO(rep) }))
-}
-
-// GET /api/instances/{id}/findings.
-func (s *Server) instanceFindings(w http.ResponseWriter, r *http.Request) error {
-	inst, err := s.instance(r)
-	if err != nil {
-		return err
-	}
-	findings, err := s.Store.Findings(r.Context(), inst.ID)
-	if err != nil {
-		return err
-	}
-	return respond(w, http.StatusOK, mapSlice(findings, func(f domain.Finding) findingDTO { return findingDTO(f) }))
 }

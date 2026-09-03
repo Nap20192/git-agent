@@ -195,11 +195,11 @@ sequenceDiagram
             else ok
                 LLM-->>RN: tool calls
                 RN->>SB: sandbox.run(cmd) (лог длительности)
-                RN->>DB: report_finding → hub.findings
+                RN->>DB: report_finding + blame → hub.findings v2 (title/category/confidence, blame_*, introduced_by, event_id)
                 RN->>DB: activity (task_started/finished, node) — SSE в Playground
             end
         end
-        RN->>DB: write_report → hub.reports · processed_at = now
+        RN->>DB: write_report → hub.reports (summary + structured) · processed_at = now
         RN->>DB: idle-таймаут → status=down (чекпоинт и песочница живут)
     end
     Note over RN,H: heartbeat каждые N с · раннер умер → hub: Экземпляры→down, необработанные События → снова в outbox → другой раннер продолжает с чекпоинта
