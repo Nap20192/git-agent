@@ -66,6 +66,11 @@ erDiagram
         text delivery_id UK
         text action
         text commit_sha
+        text before_sha "push: parent диапазона"
+        text base_sha "PR/MR"
+        text head_sha "PR/MR"
+        int pr_number
+        jsonb changed_files
         jsonb payload
     }
     outbox {
