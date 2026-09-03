@@ -49,6 +49,16 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: git-agent-hub-rabbitmq
+    ports:
+      - "5673:5672" # 5672 на хосте занят rabbit соседнего проекта
+      - "15673:15672"
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    restart: unless-stopped
+
   postgres:
     image: postgres:17
     container_name: git-agent-postgres
@@ -64,3 +74,4 @@ services:
 
 volumes:
   pgdata:
+  rabbitmqdata:

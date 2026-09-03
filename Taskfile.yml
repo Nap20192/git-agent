@@ -103,6 +103,12 @@ tasks:
     cmds:
       - go run ./cmd/hub
 
+  backend:test:
+    desc: Тесты Go-бекенда (интеграционные скипаются без Postgres)
+    dir: backend
+    cmds:
+      - go test ./...
+
   front:
     desc: Фронтенд (vite dev, :5173) с http-адаптером к беку
     dir: frontend
