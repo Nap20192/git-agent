@@ -76,7 +76,9 @@ class InstanceStore(Protocol):
         """summary — markdown-рендер Отчёта (старый UI), structured — hub.reports.structured."""
         ...
 
-    async def add_finding(self, instance_id: int, finding: dict[str, Any]) -> None: ...
+    async def add_finding(
+        self, instance_id: int, finding: dict[str, Any], *, event_id: int | None = None
+    ) -> None: ...
 
     async def add_activity(
         self,

@@ -133,10 +133,11 @@ def test_scope_range_by_event_type():
 
 class Store:
     def __init__(self):
-        self.findings, self.reports = [], []
+        self.findings, self.reports, self.event_ids = [], [], []
 
-    async def add_finding(self, instance_id, finding):
+    async def add_finding(self, instance_id, finding, *, event_id=None):
         self.findings.append(finding)
+        self.event_ids.append(event_id)  # Находка ↔ Событие хода
 
     async def add_report(self, instance_id, *, event_id, summary, structured=None):
         self.reports.append((summary, structured))
@@ -170,6 +171,7 @@ def test_report_finding_enriches_blame_and_write_report_structured():
         )
         assert "blame: Alice @ 2024-06-01 aaaaaaa — introduced by this event" in result
         f = store.findings[0]
+        assert store.event_ids == [7]  # event_id хода уходит в hub.findings.event_id
         assert (
             f["blameAuthor"] == "Alice"
             and f["blameCommit"] == a

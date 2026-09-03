@@ -141,7 +141,7 @@ class MemStore:
     async def add_report(self, instance_id, *, event_id, summary, structured=None) -> int:
         return 1
 
-    async def add_finding(self, instance_id, finding) -> None:
+    async def add_finding(self, instance_id, finding, *, event_id=None) -> None:
         pass
 
     async def add_activity(self, instance_id, *, event_id, seq, frame, trace_id="") -> None:

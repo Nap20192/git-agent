@@ -59,7 +59,7 @@ def build_hub_security_tools(
                 await resolver.resolve(finding["file"], finding["lineStart"], finding["lineEnd"])
             )
         recorded.append(finding)
-        await store.add_finding(instance_id, finding)
+        await store.add_finding(instance_id, finding, event_id=event_id)  # Находка ↔ Событие хода
         if finding.get("blameCommit"):
             introduced = {"this_event": "introduced by this event", "earlier": "pre-existing"}.get(
                 finding.get("introducedBy") or "", "origin unknown"

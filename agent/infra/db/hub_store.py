@@ -179,7 +179,9 @@ class HubInstanceStore:
                 ).fetchone()
         return row["id"]
 
-    async def add_finding(self, instance_id: int, finding: dict[str, Any]) -> None:
+    async def add_finding(
+        self, instance_id: int, finding: dict[str, Any], *, event_id: int | None = None
+    ) -> None:
         pool = await get_async_pool()
         v1 = (
             instance_id,
@@ -211,22 +213,22 @@ class HubInstanceStore:
         async with pool.connection() as conn:
             try:
                 await conn.execute(
-                    "INSERT INTO hub.findings (instance_id, severity, cwe, cve, file,"
+                    "INSERT INTO hub.findings (instance_id, event_id, severity, cwe, cve, file,"
                     " line_start, line_end, evidence, remediation, title, description, impact,"
                     ' confidence, category, "references", blame_author, blame_email,'
                     " blame_commit, blame_date, blame_commit_message, introduced_by)"
-                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
                     " %s, %s, %s, %s, %s)",
-                    (*v1, *v2),
+                    (v1[0], event_id, *v1[1:], *v2),
                 )
             except UndefinedColumn:  # колонки Находки v2 — миграция 007 hub'а ещё не применена
                 await conn.rollback()
                 _warn_schema_v1("hub.findings v2 columns")
                 await conn.execute(
-                    "INSERT INTO hub.findings (instance_id, severity, cwe, cve, file,"
+                    "INSERT INTO hub.findings (instance_id, event_id, severity, cwe, cve, file,"
                     " line_start, line_end, evidence, remediation)"
-                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                    v1,
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (v1[0], event_id, *v1[1:]),
                 )
 
     async def add_activity(
