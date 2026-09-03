@@ -197,8 +197,7 @@ def test_load_context_sees_hub_linked_sandbox():
         assert ctx["sandbox_status"] == "alive"
         with _conn() as conn:
             conn.execute(
-                "UPDATE hub.sandbox_instances SET status = 'dead', killed_at = now()"
-                " WHERE id = %s",
+                "UPDATE hub.sandbox_instances SET status = 'dead', killed_at = now() WHERE id = %s",
                 (si,),
             )
         assert (await store.load_context(ids["instance"]))["sandbox_status"] == "dead"
@@ -210,9 +209,7 @@ def test_results_written():
     async def main():
         ids = _seed()
         store = HubInstanceStore()
-        report_id = await store.add_report(
-            ids["instance"], event_id=ids["event"], summary="итог"
-        )
+        report_id = await store.add_report(ids["instance"], event_id=ids["event"], summary="итог")
         await store.add_finding(
             ids["instance"],
             {

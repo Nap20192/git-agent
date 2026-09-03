@@ -1,22 +1,19 @@
 """Тесты lean-ядра тулинга (core/tools/): порт self-check из референса."""
 
-import asyncio
 import json
 from types import SimpleNamespace
 
 import pytest
 from langchain_core.tools import tool
 
-from core.tools import (
+from core.tools.mcp import (
     DeferredToolCatalog,
     DeferredToolSetup,
     assemble_deferred_tools,
-    get_available_tools,
     get_deferred_tools_prompt_section,
     tag_mcp_tool,
 )
-from core.tools.sync import ensure_sync_invocable_tool
-from core.tools.tool_search import MAX_RESULTS
+from core.tools.mcp.tool_search import MAX_RESULTS
 
 
 def mk(name, desc="tool"):
@@ -31,44 +28,6 @@ def mk(name, desc="tool"):
 
 def cfg_entry(t, group=None, use=None):
     return (SimpleNamespace(name=t.name, group=group, use=use), t)
-
-
-def test_dedup_config_beats_builtin():
-    tools = get_available_tools(
-        [cfg_entry(mk("echo", "config echo"))], [mk("echo", "builtin echo")]
-    )
-    assert len(tools) == 1 and tools[0].description == "config echo"
-
-
-def test_host_bash_filter_both_predicates():
-    entries = [
-        cfg_entry(mk("b1"), group="bash"),
-        cfg_entry(mk("b2"), use="core.tools.sandbox:bash_tool"),
-        cfg_entry(mk("safe")),
-    ]
-    assert {t.name for t in get_available_tools(entries, [], host_bash_allowed=False)} == {"safe"}
-    assert {t.name for t in get_available_tools(entries, [], host_bash_allowed=True)} == {
-        "b1",
-        "b2",
-        "safe",
-    }
-
-
-def test_sync_wrapper_outside_and_inside_loop():
-    @tool
-    async def only_async(x: str) -> str:
-        """async only."""
-        await asyncio.sleep(0)
-        return f"a:{x}"
-
-    only_async.func = None
-    ensure_sync_invocable_tool(only_async)
-    assert only_async.func("1") == "a:1"
-
-    async def in_loop():
-        return only_async.func("2")
-
-    assert asyncio.run(in_loop()) == "a:2"
 
 
 def _mcp_pool(n=7):
@@ -122,12 +81,12 @@ def test_prompt_section_escapes_crafted_name():
     assert get_deferred_tools_prompt_section() == ""
 
 
-def test_mcp_tools_get_tagged_by_assembler():
-    from core.tools import is_mcp_tool
+def test_mcp_tools_get_tagged():
+    from core.tools.mcp import is_mcp_tool
 
     plain = mk("mcp_like")
     assert not is_mcp_tool(plain)
-    get_available_tools([], [], [plain])
+    tag_mcp_tool(plain)
     assert is_mcp_tool(plain)
     fake = mk("fake")
     fake.metadata = {"git_agent_mcp": "yes"}
@@ -140,7 +99,7 @@ def test_fail_closed_guard():
     mcp = [tag_mcp_tool(mk("m1"))]
     with (
         patch(
-            "core.tools.tool_search.build_deferred_tool_setup",
+            "core.tools.mcp.tool_search.build_deferred_tool_setup",
             return_value=DeferredToolSetup(None, frozenset(), None),
         ),
         pytest.raises(RuntimeError, match="fail-closed"),

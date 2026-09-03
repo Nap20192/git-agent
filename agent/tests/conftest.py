@@ -1,6 +1,6 @@
 """Герметичность тестов: трейсинг выключен + вся работа с БД — в тестовой БД.
 
-Тестовые Раны/события/сэндбоксы пишутся в отдельную БД (`<db>_test`), а не в
+Тестовые Экземпляры/События/чекпоинты пишутся в отдельную БД (`<db>_test`), а не в
 рабочую. Настройка на импорте conftest (до сбора тестов), чтобы `_pg_available`
 интеграционных тестов видел уже созданную тестовую БД. PG недоступен → остаёмся
 на рабочем URL, интеграционные/e2e тесты скипаются сами.
@@ -47,21 +47,11 @@ def _setup_test_db() -> bool:
 
 
 def _reset_test_db() -> None:
-    """Чистый старт: снести операционные данные, засеять репозиторий id=1.
-
-    Тесты клеймят Раны с repository_id=1 — сид гарантирует FK. Пресеты sandboxes
-    (migration 003) не трогаем.
-    """
+    """Чистый старт: снести чекпоинты (hub.* чистят сами интеграционные тесты)."""
     import psycopg
 
     with psycopg.connect(_TEST_URL, autocommit=True, connect_timeout=2) as conn:
-        conn.execute(
-            "TRUNCATE runs, repositories, run_events, sandbox_instances RESTART IDENTITY CASCADE"
-        )
         conn.execute("TRUNCATE checkpoints, checkpoint_writes, checkpoint_blobs")
-        conn.execute(
-            "INSERT INTO repositories (url, name) VALUES ('test://seed', 'test-seed')"
-        )
 
 
 if _setup_test_db():

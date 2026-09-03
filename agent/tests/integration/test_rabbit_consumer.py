@@ -14,7 +14,7 @@ from core.config import settings
 def _rabbit_available() -> bool:
     import socket
 
-    host_port = settings.rabbit_url.rsplit("@", 1)[-1].rstrip("/")
+    host_port = settings.rabbitmq_url.rsplit("@", 1)[-1].rstrip("/")
     host, _, port = host_port.partition(":")
     try:
         with socket.create_connection((host, int(port or 5672)), timeout=2):
@@ -53,8 +53,8 @@ def test_consume_garbage_then_event(monkeypatch):
             done.set()
             return "processed"
 
-        consumer = asyncio.create_task(rabbit.consume_events(settings.rabbit_url, handler))
-        connection = await aio_pika.connect_robust(settings.rabbit_url)
+        consumer = asyncio.create_task(rabbit.consume_events(settings.rabbitmq_url, handler))
+        connection = await aio_pika.connect_robust(settings.rabbitmq_url)
         try:
             async with connection:
                 channel = await connection.channel()
@@ -69,11 +69,12 @@ def test_consume_garbage_then_event(monkeypatch):
                 exchange = await channel.declare_exchange(
                     rabbit.EXCHANGE, aio_pika.ExchangeType.TOPIC, durable=True
                 )
-                for body in (b"not json", json.dumps({"eventId": 1}).encode(),
-                             json.dumps(WIRE).encode()):
-                    await exchange.publish(
-                        aio_pika.Message(body), routing_key="github.5.push"
-                    )
+                for body in (
+                    b"not json",
+                    json.dumps({"eventId": 1}).encode(),
+                    json.dumps(WIRE).encode(),
+                ):
+                    await exchange.publish(aio_pika.Message(body), routing_key="github.5.push")
                 await asyncio.wait_for(done.wait(), timeout=10)
                 # мусор отброшен, валидное Событие разобрано
                 assert [e.event_id for e in received] == [7]

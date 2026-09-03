@@ -40,7 +40,7 @@ func (h *RepositoriesHandler) Connect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.IdentityID == 0 || req.ExternalID == "" {
-		http.Error(w, `{"error":"identityId and externalId are required"}`, http.StatusBadRequest)
+		badRequest(w, "identityId and externalId are required")
 		return
 	}
 	repo, err := h.Service.Connect(r.Context(), userID(r), req.IdentityID, req.ExternalID, req.BuildID)
@@ -65,8 +65,7 @@ func (h *RepositoriesHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.BuildID == nil {
-		http.Error(w, `{"error":"deprecated route: manage subscriptions via /api/repositories/{id}/subscriptions"}`,
-			http.StatusBadRequest)
+		badRequest(w, "deprecated route: manage subscriptions via /api/repositories/{id}/subscriptions")
 		return
 	}
 	repo, err := h.Store.Repository(r.Context(), id, userID(r))
@@ -119,11 +118,11 @@ func (h *RepositoriesHandler) Trigger(w http.ResponseWriter, r *http.Request) {
 		Mode      string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		http.Error(w, `{"error":"bad json"}`, http.StatusBadRequest)
+		badRequest(w, "invalid JSON body: "+err.Error())
 		return
 	}
 	if req.Mode != "" && req.Mode != "manual" && req.Mode != "full" {
-		http.Error(w, `{"error":"mode must be manual or full"}`, http.StatusBadRequest)
+		badRequest(w, "mode must be manual or full")
 		return
 	}
 	res, err := h.Service.Trigger(r.Context(), userID(r), id, req.Ref, req.CommitSHA, req.Mode)

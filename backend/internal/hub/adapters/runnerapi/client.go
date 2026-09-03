@@ -58,12 +58,12 @@ func (c *Client) post(ctx context.Context, url string, body any) (*http.Response
 	}
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("runner unreachable: %v: %w", err, domain.ErrUpstream)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		resp.Body.Close()
-		return nil, fmt.Errorf("runner %s: status %d: %s", url, resp.StatusCode, msg)
+		return nil, fmt.Errorf("runner %s: status %d: %s: %w", url, resp.StatusCode, msg, domain.ErrUpstream)
 	}
 	return resp, nil
 }
@@ -117,12 +117,12 @@ func (c *Client) Chat(ctx context.Context, addr string, instanceID int64, messag
 	streamClient := &http.Client{} // без Timeout — иначе он убьёт долгий чат
 	resp, err := streamClient.Do(req)
 	if err != nil {
-		return fail(err)
+		return fail(fmt.Errorf("runner unreachable: %v: %w", err, domain.ErrUpstream))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		resp.Body.Close()
-		return fail(fmt.Errorf("runner chat: status %d: %s", resp.StatusCode, msg))
+		return fail(fmt.Errorf("runner chat: status %d: %s: %w", resp.StatusCode, msg, domain.ErrUpstream))
 	}
 
 	// заголовки могли прийти сразу, а первый кадр — после очереди:
@@ -152,12 +152,12 @@ func (c *Client) Terminal(ctx context.Context, addr string, instanceID int64, co
 	streamClient := &http.Client{} // без Timeout — иначе он убьёт долгую команду
 	resp, err := streamClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("runner unreachable: %v: %w", err, domain.ErrUpstream)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		resp.Body.Close()
-		return nil, fmt.Errorf("runner terminal: status %d: %s", resp.StatusCode, msg)
+		return nil, fmt.Errorf("runner terminal: status %d: %s: %w", resp.StatusCode, msg, domain.ErrUpstream)
 	}
 	return resp.Body, nil
 }
@@ -178,12 +178,12 @@ func (c *Client) Activity(ctx context.Context, addr string, instanceID int64, ev
 	streamClient := &http.Client{} // без Timeout — живой ход стримится долго
 	resp, err := streamClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("runner unreachable: %v: %w", err, domain.ErrUpstream)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		resp.Body.Close()
-		return nil, fmt.Errorf("runner activity: status %d: %s", resp.StatusCode, msg)
+		return nil, fmt.Errorf("runner activity: status %d: %s: %w", resp.StatusCode, msg, domain.ErrUpstream)
 	}
 	return resp.Body, nil
 }

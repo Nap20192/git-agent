@@ -20,7 +20,6 @@ def build_agent(
     middleware: list[AgentMiddleware] | None = None,
     features: RuntimeFeatures | None = None,
     extra_middleware: list[AgentMiddleware] | None = None,
-    plan_mode: bool = False,
     state_schema: type | None = None,
     checkpointer: BaseCheckpointSaver | Literal[False] | None = None,
     name: str = "default",
@@ -44,7 +43,6 @@ def build_agent(
         effective_middleware = assemble_from_features(
             features or RuntimeFeatures(),
             model,
-            plan_mode=plan_mode,
             extra_middleware=extra_middleware or [],
         )
 

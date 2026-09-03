@@ -12,8 +12,8 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 
-# Зеркало core.runtime.schemas / событий (НЕ импортируется — R1; дрифт ловит
-# tests/unit/eval/test_signal_mirror.py)
+# Зеркало констант приложения (НЕ импортируется — R1). Фаза платного прогона
+# (run_battery) удалена вместе с durable-gateway; вернётся поверх раннера.
 RUN_TERMINAL_STATUSES = ("succeeded", "failed", "interrupted")
 USAGE_EVENT_KIND = "usage"
 TASK_STARTED_TYPE = "task_started"

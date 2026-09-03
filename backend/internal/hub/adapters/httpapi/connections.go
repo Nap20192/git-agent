@@ -56,7 +56,7 @@ func (h *ConnectionsHandler) CreateLlm(w http.ResponseWriter, r *http.Request) {
 	req.Name, req.APIBase = strings.TrimSpace(req.Name), strings.TrimSpace(req.APIBase)
 	req.APIKey, req.Model = strings.TrimSpace(req.APIKey), strings.TrimSpace(req.Model)
 	if req.Name == "" || req.APIBase == "" || req.APIKey == "" || req.Model == "" {
-		http.Error(w, `{"error":"name, apiBase, apiKey and model are required"}`, http.StatusBadRequest)
+		badRequest(w, "name, apiBase, apiKey and model are required")
 		return
 	}
 	enc, err := h.Secrets.Encrypt([]byte(req.APIKey))
@@ -127,7 +127,7 @@ func (h *ConnectionsHandler) CreateSandbox(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	if req.Name == "" || req.Domain == "" {
-		http.Error(w, `{"error":"name and domain are required"}`, http.StatusBadRequest)
+		badRequest(w, "name and domain are required")
 		return
 	}
 	c := &domain.SandboxConnection{Name: req.Name, Domain: req.Domain, Image: req.Image}

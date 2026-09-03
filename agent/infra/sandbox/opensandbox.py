@@ -40,25 +40,11 @@ class OpenSandboxAdapter:
         await self._sandbox.destroy()
 
 
-def _connection_config(
-    domain: str | None = None, api_key: str | None = None
-) -> ConnectionConfig:
+def _connection_config(domain: str | None = None, api_key: str | None = None) -> ConnectionConfig:
     return ConnectionConfig(
         domain=domain or settings.opensandbox_domain,
         api_key=api_key or settings.opensandbox_api_key or None,
     )
-
-
-async def create_sandbox(
-    image: str | None = None, *, domain: str | None = None, api_key: str | None = None
-) -> OpenSandboxAdapter:
-    """domain/api_key — переопределение endpoint'а (sandbox connection Сборки)."""
-    sandbox = await _OpenSandbox.create(
-        image or settings.sandbox_image,
-        timeout=None,
-        connection_config=_connection_config(domain, api_key),
-    )
-    return OpenSandboxAdapter(sandbox)
 
 
 async def connect_sandbox(

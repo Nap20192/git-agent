@@ -18,24 +18,19 @@ class Settings(BaseSettings):
     # Postgres
     database_url: str = "postgresql://git_agent:git_agent@localhost:5433/git_agent"
 
-    # HTTP-gateway (main.py:app)
-    server_host: str = "0.0.0.0"
-    server_port: int = 8080
-
     # LLM (OpenAI-совместимый endpoint; переопределяются флагами CLI на каждый ран)
     llm_api_base: str = ""
     llm_api_key: str = ""
     llm_model: str = ""
 
     # Образ песочницы для сканирования (нужен git + coreutils)
-    sandbox_image: str = "alpine/git:latest"
 
     # MCP: путь к cve-mcp-server (stdio через `uv run --project`); пусто = выкл.
     cve_mcp_path: str = ""
     nvd_api_key: str = ""  # прокидывается в env cve-mcp (опционально)
 
     # Раннер (консьюмер Событий; см. openspec/specs/runner)
-    rabbit_url: str = "amqp://guest:guest@localhost:5673/"
+    rabbitmq_url: str = "amqp://guest:guest@localhost:5673/"
     runner_name: str = "runner-1"
     runner_address: str = "http://localhost:8082"
     runner_port: int = 8082  # 8081 занят hub'ом

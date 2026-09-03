@@ -11,11 +11,11 @@ from core.runner.executor import (
     TERMINAL_MARKER,
     EventExecutor,
     _event_prompt,
-    build_hub_security_tools,
     parse_terminal_output,
     repo_url,
     wrap_terminal_command,
 )
+from core.tools.security import build_hub_security_tools
 
 
 class RecordingStore:
@@ -90,8 +90,12 @@ def test_write_report_persists():
 
 
 def test_repo_url():
-    assert repo_url({"provider": "github", "owner": "a", "name": "b"}) == "https://github.com/a/b.git"
-    assert repo_url({"provider": "gitlab", "owner": "a", "name": "b"}) == "https://gitlab.com/a/b.git"
+    assert (
+        repo_url({"provider": "github", "owner": "a", "name": "b"}) == "https://github.com/a/b.git"
+    )
+    assert (
+        repo_url({"provider": "gitlab", "owner": "a", "name": "b"}) == "https://gitlab.com/a/b.git"
+    )
 
 
 def test_wrap_terminal_command():
@@ -157,7 +161,9 @@ def test_terminal_runs_in_cwd_and_moves_it():
         assert sandbox.closed
         # следующая команда — из новой cwd
         sandbox2 = FakeSandbox(f"{TERMINAL_MARKER} 0 /repo/sub")
-        output, code, cwd = await _terminal_executor(sandbox2).terminal({"id": 3}, "ls", "/repo/sub")
+        output, code, cwd = await _terminal_executor(sandbox2).terminal(
+            {"id": 3}, "ls", "/repo/sub"
+        )
         assert "cd /repo/sub 2>/dev/null" in sandbox2.commands[0]
         assert cwd == "/repo/sub"
 

@@ -8,7 +8,7 @@ from typing import Any
 from langchain_core.tools import BaseTool
 
 from core.config import settings
-from core.tools import tag_mcp_tool
+from core.tools.mcp import tag_mcp_tool
 from pkg.logger import get_logger
 
 log = get_logger(__name__)

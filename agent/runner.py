@@ -19,10 +19,10 @@ async def _lifespan(app: FastAPI):
 
 
 def create_runner_app() -> FastAPI:
-    from infra.server.runner_api import api
+    from infra.server.runner_api import install_api
 
     app = FastAPI(title="git-agent runner", lifespan=_lifespan)
-    app.include_router(api)
+    install_api(app)
     return app
 
 
@@ -34,7 +34,8 @@ def main() -> None:
 
     from core.config import settings
 
-    uvicorn.run(app, port=settings.runner_port, timeout_graceful_shutdown=30)
+    # log_config=None: uvicorn не переопределяет логирование — всё идёт через pkg.logger
+    uvicorn.run(app, port=settings.runner_port, timeout_graceful_shutdown=30, log_config=None)
 
 
 if __name__ == "__main__":

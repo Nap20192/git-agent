@@ -15,4 +15,9 @@ var (
 	// ErrTimeout — раннер не начал отвечать за отведённое время
 	// (он ставит запросы в очередь при занятых слотах): 504 наружу.
 	ErrTimeout = errors.New("timeout")
+	// ErrInvalid — невалидный ввод: 400, текст обёртки уходит клиенту.
+	ErrInvalid = errors.New("invalid")
+	// ErrUpstream — внешняя система (провайдер, Раннер, OpenSandbox) не
+	// ответила или ответила ошибкой: 502, текст обёртки уходит клиенту.
+	ErrUpstream = errors.New("upstream")
 )

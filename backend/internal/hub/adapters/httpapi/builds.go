@@ -28,13 +28,13 @@ var knownLimitKeys = []string{"maxSubagents", "maxTotalSubagents", "subagentTime
 
 func (in *buildInput) validate(w http.ResponseWriter) bool {
 	if in.Name == "" || in.LlmConnectionID == 0 || in.SandboxConnectionID == 0 {
-		http.Error(w, `{"error":"name, llmConnectionId and sandboxConnectionId are required"}`, http.StatusBadRequest)
+		badRequest(w, "name, llmConnectionId and sandboxConnectionId are required")
 		return false
 	}
 	if len(in.Limits) > 0 {
 		var m map[string]any
 		if err := json.Unmarshal(in.Limits, &m); err != nil {
-			http.Error(w, `{"error":"limits must be a JSON object"}`, http.StatusBadRequest)
+			badRequest(w, "limits must be a JSON object")
 			return false
 		}
 		for _, k := range knownLimitKeys {
@@ -43,7 +43,7 @@ func (in *buildInput) validate(w http.ResponseWriter) bool {
 				continue
 			}
 			if n, isNum := v.(float64); !isNum || n <= 0 {
-				http.Error(w, `{"error":"limits.`+k+` must be a positive number"}`, http.StatusBadRequest)
+				badRequest(w, "limits."+k+" must be a positive number")
 				return false
 			}
 		}
