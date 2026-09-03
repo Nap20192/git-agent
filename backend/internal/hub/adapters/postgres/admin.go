@@ -16,7 +16,8 @@ var (
 	_ domain.RepositoryAdmin   = (*Store)(nil)
 	_ domain.BuildStore        = (*Store)(nil)
 	_ domain.ConnectionStore   = (*Store)(nil)
-	_ domain.InstanceStore     = (*Store)(nil)
+	_ domain.InstanceStore        = (*Store)(nil)
+	_ domain.SandboxInstanceStore = (*Store)(nil)
 	_ domain.StaleRequeuer     = (*Store)(nil)
 	_ domain.SubscriptionStore = (*Store)(nil)
 	_ domain.AuthStore         = (*Store)(nil)
@@ -383,11 +384,21 @@ func (s *Store) SandboxConnections(ctx context.Context) ([]domain.SandboxConnect
 	if err != nil {
 		return nil, err
 	}
-	return collect(rows, func(r pgx.Rows) (domain.SandboxConnection, error) {
-		var c domain.SandboxConnection
-		err := r.Scan(&c.ID, &c.Name, &c.Domain, &c.APIKeyEnc, &c.Image, &c.CreatedAt)
-		return c, err
-	})
+	return collect(rows, scanSandboxConnection)
+}
+
+func (s *Store) SandboxConnection(ctx context.Context, id int64) (*domain.SandboxConnection, error) {
+	rows, err := s.Pool.Query(ctx,
+		`SELECT id, name, domain, api_key_enc, image, created_at
+		   FROM hub.sandbox_connections WHERE id = $1`, id)
+	if err != nil {
+		return nil, err
+	}
+	list, err := collect(rows, scanSandboxConnection)
+	if err != nil || len(list) == 0 {
+		return nil, err
+	}
+	return &list[0], nil
 }
 
 func (s *Store) CreateSandboxConnection(ctx context.Context, c *domain.SandboxConnection) (int64, error) {
@@ -417,12 +428,15 @@ func (s *Store) DeleteSandboxConnection(ctx context.Context, id int64) error {
 // ── Instances ───────────────────────────────────────────────────────────────
 
 const instanceColumns = `i.id, i.build_id, i.repository_id, i.sandbox_instance_id,
-	i.thread_id, i.status, i.runner_id, i.updated_at`
+	si.external_id, si.status, i.thread_id, i.status, i.runner_id, i.updated_at`
+
+const instanceJoins = ` FROM hub.agent_instances i
+	JOIN hub.repositories r ON r.id = i.repository_id
+	LEFT JOIN hub.sandbox_instances si ON si.id = i.sandbox_instance_id`
 
 func (s *Store) Instances(ctx context.Context, userID int64, repositoryID *int64) ([]domain.AgentInstance, error) {
 	rows, err := s.Pool.Query(ctx,
-		`SELECT `+instanceColumns+`
-		   FROM hub.agent_instances i JOIN hub.repositories r ON r.id = i.repository_id
+		`SELECT `+instanceColumns+instanceJoins+`
 		  WHERE r.user_id = $1 AND ($2::bigint IS NULL OR i.repository_id = $2)
 		  ORDER BY i.id`, userID, repositoryID)
 	if err != nil {
@@ -433,8 +447,7 @@ func (s *Store) Instances(ctx context.Context, userID int64, repositoryID *int64
 
 func (s *Store) Instance(ctx context.Context, id, userID int64) (*domain.AgentInstance, error) {
 	rows, err := s.Pool.Query(ctx,
-		`SELECT `+instanceColumns+`
-		   FROM hub.agent_instances i JOIN hub.repositories r ON r.id = i.repository_id
+		`SELECT `+instanceColumns+instanceJoins+`
 		  WHERE i.id = $1 AND r.user_id = $2`, id, userID)
 	if err != nil {
 		return nil, err
@@ -444,6 +457,67 @@ func (s *Store) Instance(ctx context.Context, id, userID int64) (*domain.AgentIn
 		return nil, err
 	}
 	return &list[0], nil
+}
+
+// ── Sandbox instances (владение — юзер/hub; раннер только читает) ──────────
+
+func (s *Store) SandboxInstances(ctx context.Context) ([]domain.SandboxInstance, error) {
+	rows, err := s.Pool.Query(ctx,
+		`SELECT id, external_id, sandbox_connection_id, status, created_at, killed_at
+		   FROM hub.sandbox_instances ORDER BY id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	return collect(rows, scanSandboxInstance)
+}
+
+func (s *Store) SandboxInstance(ctx context.Context, id int64) (*domain.SandboxInstance, error) {
+	rows, err := s.Pool.Query(ctx,
+		`SELECT id, external_id, sandbox_connection_id, status, created_at, killed_at
+		   FROM hub.sandbox_instances WHERE id = $1`, id)
+	if err != nil {
+		return nil, err
+	}
+	list, err := collect(rows, scanSandboxInstance)
+	if err != nil || len(list) == 0 {
+		return nil, err
+	}
+	return &list[0], nil
+}
+
+func (s *Store) CreateSandboxInstance(ctx context.Context, externalID string, connectionID int64) (int64, error) {
+	var id int64
+	err := s.Pool.QueryRow(ctx,
+		`INSERT INTO hub.sandbox_instances (external_id, sandbox_connection_id)
+		 VALUES ($1, $2) RETURNING id`, externalID, connectionID).Scan(&id)
+	if isFKViolation(err) {
+		return 0, domain.ErrConflict
+	}
+	return id, err
+}
+
+func (s *Store) MarkSandboxInstanceDead(ctx context.Context, id int64) error {
+	_, err := s.Pool.Exec(ctx,
+		`UPDATE hub.sandbox_instances SET status = 'dead', killed_at = now() WHERE id = $1`, id)
+	return err
+}
+
+func (s *Store) LinkInstanceSandbox(ctx context.Context, instanceID, sandboxInstanceID, userID int64) error {
+	tag, err := s.Pool.Exec(ctx,
+		`UPDATE hub.agent_instances i SET sandbox_instance_id = $2, updated_at = now()
+		   FROM hub.repositories r
+		  WHERE i.id = $1 AND r.id = i.repository_id AND r.user_id = $3`,
+		instanceID, sandboxInstanceID, userID)
+	if isFKViolation(err) {
+		return domain.ErrConflict
+	}
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) Reports(ctx context.Context, instanceID int64) ([]domain.Report, error) {
@@ -597,8 +671,21 @@ func scanRepository(r pgx.Rows) (domain.Repository, error) {
 func scanInstance(r pgx.Rows) (domain.AgentInstance, error) {
 	var i domain.AgentInstance
 	err := r.Scan(&i.ID, &i.BuildID, &i.RepositoryID, &i.SandboxInstanceID,
+		&i.SandboxExternalID, &i.SandboxStatus,
 		&i.ThreadID, &i.Status, &i.RunnerID, &i.UpdatedAt)
 	return i, err
+}
+
+func scanSandboxConnection(r pgx.Rows) (domain.SandboxConnection, error) {
+	var c domain.SandboxConnection
+	err := r.Scan(&c.ID, &c.Name, &c.Domain, &c.APIKeyEnc, &c.Image, &c.CreatedAt)
+	return c, err
+}
+
+func scanSandboxInstance(r pgx.Rows) (domain.SandboxInstance, error) {
+	var si domain.SandboxInstance
+	err := r.Scan(&si.ID, &si.ExternalID, &si.SandboxConnectionID, &si.Status, &si.CreatedAt, &si.KilledAt)
+	return si, err
 }
 
 func scanRunner(r pgx.Rows) (domain.Runner, error) {

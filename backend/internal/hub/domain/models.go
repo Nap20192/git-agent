@@ -74,12 +74,26 @@ type SandboxConnection struct {
 	CreatedAt time.Time
 }
 
+// SandboxInstance — Экземпляр Сэндбокса (CONTEXT.md): реально провиженная
+// песочница (no-TTL). Создаёт/убивает hub по команде юзера; раннер только
+// подключается по external_id.
+type SandboxInstance struct {
+	ID                  int64
+	ExternalID          string
+	SandboxConnectionID int64
+	Status              string // alive | dead
+	CreatedAt           time.Time
+	KilledAt            *time.Time
+}
+
 // AgentInstance — Экземпляр Агента (CONTEXT.md): долгоживущий агент Репозитория.
 type AgentInstance struct {
 	ID                int64
 	BuildID           int64
 	RepositoryID      int64
 	SandboxInstanceID *int64
+	SandboxExternalID *string // derived: привязанный Экземпляр Сэндбокса
+	SandboxStatus     *string
 	ThreadID          string
 	Status            string // down | running
 	RunnerID          *int64

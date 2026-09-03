@@ -20,6 +20,7 @@ import type {
   TerminalEvent,
   TriggerResult,
   SandboxConnection,
+  SandboxInstance,
   Subscription,
 } from "./contract.ts";
 
@@ -71,6 +72,14 @@ export interface HubApi {
   listSandboxConnections(): Promise<SandboxConnection[]>;
   createSandboxConnection(input: { name: string; domain: string; apiKey?: string; image?: string }): Promise<SandboxConnection>;
   deleteSandboxConnection(id: number): Promise<void>;
+
+  // Экземпляры Сэндбоксов — создаёт/убивает юзер, раннер только подключается
+  listSandboxInstances(): Promise<SandboxInstance[]>;
+  /** Hub calls OpenSandbox create (no-TTL) on that connection. */
+  createSandboxInstance(input: { sandboxConnectionId: number }): Promise<SandboxInstance>;
+  killSandboxInstance(id: number): Promise<void>;
+  /** Bind an Экземпляр Агента to a sandbox (agent_instances.sandbox_instance_id). */
+  setInstanceSandbox(instanceId: number, sandboxInstanceId: number): Promise<void>;
 
   // Экземпляры
   listInstances(repositoryId?: number): Promise<AgentInstance[]>;

@@ -14,6 +14,7 @@ type Handlers struct {
 	Builds        *BuildsHandler
 	Connections   *ConnectionsHandler
 	Instances     *InstancesHandler
+	Sandboxes     *SandboxInstancesHandler
 }
 
 // NewMux собирает HTTP-поверхность hub. Пользовательские /api/* — за
@@ -59,6 +60,11 @@ func NewMux(h Handlers) *http.ServeMux {
 	mux.HandleFunc("GET /api/connections/sandbox", s(h.Connections.ListSandbox))
 	mux.HandleFunc("POST /api/connections/sandbox", s(h.Connections.CreateSandbox))
 	mux.HandleFunc("DELETE /api/connections/sandbox/{id}", s(h.Connections.DeleteSandbox))
+
+	mux.HandleFunc("GET /api/sandbox-instances", s(h.Sandboxes.List))
+	mux.HandleFunc("POST /api/sandbox-instances", s(h.Sandboxes.Create))
+	mux.HandleFunc("DELETE /api/sandbox-instances/{id}", s(h.Sandboxes.Kill))
+	mux.HandleFunc("POST /api/instances/{id}/sandbox", s(h.Sandboxes.Link))
 
 	mux.HandleFunc("GET /api/instances", s(h.Instances.List))
 	mux.HandleFunc("GET /api/instances/{id}", s(h.Instances.Get))

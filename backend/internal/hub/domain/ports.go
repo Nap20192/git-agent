@@ -106,8 +106,27 @@ type ConnectionStore interface {
 	CreateLlmConnection(ctx context.Context, c *LlmConnection) (int64, error)
 	DeleteLlmConnection(ctx context.Context, id, userID int64) error
 	SandboxConnections(ctx context.Context) ([]SandboxConnection, error)
+	// SandboxConnection — nil, nil для незнакомого id.
+	SandboxConnection(ctx context.Context, id int64) (*SandboxConnection, error)
 	CreateSandboxConnection(ctx context.Context, c *SandboxConnection) (int64, error)
 	DeleteSandboxConnection(ctx context.Context, id int64) error
+}
+
+// SandboxInstanceStore — Экземпляры Сэндбоксов (владение — hub/юзер, не раннер).
+type SandboxInstanceStore interface {
+	SandboxInstances(ctx context.Context) ([]SandboxInstance, error)
+	SandboxInstance(ctx context.Context, id int64) (*SandboxInstance, error)
+	CreateSandboxInstance(ctx context.Context, externalID string, connectionID int64) (int64, error)
+	MarkSandboxInstanceDead(ctx context.Context, id int64) error
+	// LinkInstanceSandbox — привязать Экземпляр Агента юзера к песочнице.
+	LinkInstanceSandbox(ctx context.Context, instanceID, sandboxInstanceID, userID int64) error
+}
+
+// SandboxLifecycle — lifecycle-API OpenSandbox (create no-TTL / destroy) по
+// координатам sandbox-подключения. Раннер этим НЕ пользуется.
+type SandboxLifecycle interface {
+	CreateSandbox(ctx context.Context, domain, apiKey, image string) (externalID string, err error)
+	DeleteSandbox(ctx context.Context, domain, apiKey, externalID string) error
 }
 
 // InstanceStore — Экземпляры Агентов и их результаты.

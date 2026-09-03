@@ -151,6 +151,8 @@ type instanceDTO struct {
 	BuildID           int64     `json:"buildId"`
 	RepositoryID      int64     `json:"repositoryId"`
 	SandboxInstanceID *int64    `json:"sandboxInstanceId"`
+	SandboxExternalID *string   `json:"sandboxExternalId"`
+	SandboxStatus     *string   `json:"sandboxStatus"`
 	ThreadID          string    `json:"threadId"`
 	Status            string    `json:"status"`
 	RunnerID          *int64    `json:"runnerId"`
@@ -160,9 +162,24 @@ type instanceDTO struct {
 func toInstanceDTO(i domain.AgentInstance) instanceDTO {
 	return instanceDTO{
 		ID: i.ID, BuildID: i.BuildID, RepositoryID: i.RepositoryID,
-		SandboxInstanceID: i.SandboxInstanceID, ThreadID: i.ThreadID,
-		Status: i.Status, RunnerID: i.RunnerID, UpdatedAt: i.UpdatedAt,
+		SandboxInstanceID: i.SandboxInstanceID,
+		SandboxExternalID: i.SandboxExternalID, SandboxStatus: i.SandboxStatus,
+		ThreadID: i.ThreadID,
+		Status:   i.Status, RunnerID: i.RunnerID, UpdatedAt: i.UpdatedAt,
 	}
+}
+
+type sandboxInstanceDTO struct {
+	ID                  int64      `json:"id"`
+	ExternalID          string     `json:"externalId"`
+	SandboxConnectionID int64      `json:"sandboxConnectionId"`
+	Status              string     `json:"status"`
+	CreatedAt           time.Time  `json:"createdAt"`
+	KilledAt            *time.Time `json:"killedAt"`
+}
+
+func toSandboxInstanceDTO(si domain.SandboxInstance) sandboxInstanceDTO {
+	return sandboxInstanceDTO(si)
 }
 
 type runnerDTO struct {

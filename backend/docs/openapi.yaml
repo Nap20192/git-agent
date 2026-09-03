@@ -292,6 +292,41 @@ paths:
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses: { "204": { description: ok } }
 
+  # ── Экземпляры Сэндбоксов (владение — юзер/hub; раннер только подключается) ─
+  /api/sandbox-instances:
+    get:
+      summary: Экземпляры Сэндбоксов
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/SandboxInstance" } }
+    post:
+      summary: Создать Экземпляр Сэндбокса (OpenSandbox create, no-TTL)
+      description: >
+        Hub зовёт OpenSandbox POST /v1/sandboxes с timeout:null (no-TTL) по
+        координатам sandbox-подключения (domain/apiKey/image) и пишет строку
+        hub.sandbox_instances (status=alive). Раннер песочницы НЕ создаёт.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sandboxConnectionId]
+              properties:
+                sandboxConnectionId: { type: integer }
+      responses:
+        "201":
+          content: { application/json: { schema: { $ref: "#/components/schemas/SandboxInstance" } } }
+        "400": { description: у подключения не настроен image }
+        "404": { description: незнакомое sandbox-подключение }
+  /api/sandbox-instances/{id}:
+    delete:
+      summary: Убить Экземпляр Сэндбокса (OpenSandbox destroy + status=dead)
+      description: Идемпотентно; 404 у OpenSandbox (уже нет) — тоже успех.
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { description: ok } }
+
   # ── Экземпляры ──────────────────────────────────────────────────────
   /api/instances:
     get:
@@ -364,6 +399,21 @@ paths:
       summary: Опустить Экземпляр (через раннер)
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses: { "204": { description: ok } }
+  /api/instances/{id}/sandbox:
+    post:
+      summary: Привязать Экземпляр Агента к Экземпляру Сэндбокса
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sandboxInstanceId]
+              properties:
+                sandboxInstanceId: { type: integer }
+      responses:
+        "204": { description: ok }
+        "409": { description: незнакомый sandboxInstanceId (FK) }
   /api/instances/{id}/reports:
     get:
       summary: Отчёты Экземпляра
@@ -518,6 +568,16 @@ components:
         domain: { type: string }
         apiKeyMasked: { type: [string, "null"] }
         image: { type: [string, "null"] }
+    SandboxInstance:
+      type: object
+      required: [id, externalId, sandboxConnectionId, status]
+      properties:
+        id: { type: integer }
+        externalId: { type: string, description: id песочницы у OpenSandbox }
+        sandboxConnectionId: { type: integer }
+        status: { type: string, enum: [alive, dead] }
+        createdAt: { type: string, format: date-time }
+        killedAt: { type: [string, "null"], format: date-time }
     AgentInstance:
       type: object
       required: [id, buildId, repositoryId, status]
@@ -526,6 +586,8 @@ components:
         buildId: { type: integer }
         repositoryId: { type: integer }
         sandboxInstanceId: { type: [integer, "null"] }
+        sandboxExternalId: { type: [string, "null"], description: derived из привязанного Экземпляра Сэндбокса }
+        sandboxStatus: { type: [string, "null"], enum: [alive, dead, null] }
         threadId: { type: string }
         status: { type: string, enum: [down, running] }
         runnerId: { type: [integer, "null"] }

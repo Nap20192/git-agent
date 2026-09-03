@@ -85,12 +85,29 @@ export interface SandboxConnection {
 
 export type InstanceStatus = "down" | "running";
 
+/**
+ * Экземпляр Сэндбокса — a really-provisioned sandbox (no-TTL). Created and
+ * killed by the hub on the user's command; the runner only connects by
+ * externalId and never manages the lifecycle.
+ */
+export interface SandboxInstance {
+  id: number;
+  externalId: string;
+  sandboxConnectionId: number;
+  status: "alive" | "dead";
+  createdAt?: string;
+  killedAt?: string | null;
+}
+
 /** Экземпляр Агента — the long-lived per-repository agent. */
 export interface AgentInstance {
   id: number;
   buildId: number;
   repositoryId: number;
   sandboxInstanceId?: number | null;
+  /** Derived from the linked Экземпляр Сэндбокса. */
+  sandboxExternalId?: string | null;
+  sandboxStatus?: "alive" | "dead" | null;
   threadId?: string;
   status: InstanceStatus;
   runnerId?: number | null;

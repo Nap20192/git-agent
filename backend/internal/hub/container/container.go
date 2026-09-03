@@ -15,6 +15,7 @@ import (
 	"github.com/vnkjd/git-agent/backend/cmd/hub/config"
 	"github.com/vnkjd/git-agent/backend/internal/hub/adapters/httpapi"
 	"github.com/vnkjd/git-agent/backend/internal/hub/adapters/oauth"
+	"github.com/vnkjd/git-agent/backend/internal/hub/adapters/opensandbox"
 	pgstore "github.com/vnkjd/git-agent/backend/internal/hub/adapters/postgres"
 	"github.com/vnkjd/git-agent/backend/internal/hub/adapters/provider"
 	rmq "github.com/vnkjd/git-agent/backend/internal/hub/adapters/rabbitmq"
@@ -57,6 +58,7 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 
 	publisher := &rmq.Publisher{URL: cfg.RabbitMQURL}
 	providerClient := &provider.Client{}
+	sandboxClient := &opensandbox.Client{}
 	runnerClient := &runnerapi.Client{FirstByteTimeout: cfg.ChatFirstByteTimeout}
 	oauthClient := &oauth.Client{
 		GitHub: oauth.App{ClientID: cfg.GitHubOAuthID, ClientSecret: cfg.GitHubOAuthSecret},
@@ -94,6 +96,9 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 		Builds:        &httpapi.BuildsHandler{Store: store},
 		Connections:   &httpapi.ConnectionsHandler{Store: store, Secrets: box},
 		Instances:     &httpapi.InstancesHandler{Store: store, Service: instances},
+		Sandboxes: &httpapi.SandboxInstancesHandler{
+			Store: store, Connections: store, Sandboxes: sandboxClient, Secrets: box,
+		},
 	})
 
 	return &Container{

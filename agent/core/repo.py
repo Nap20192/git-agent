@@ -33,6 +33,13 @@ async def resolve_commit_sha(repo_url: str) -> str:
         return "unknown"
 
 
+async def repo_present(sandbox: Sandbox) -> bool:
+    """Репозиторий уже склонирован в песочнице? (песочницу создаёт юзер, не раннер)"""
+    repo_dir = shlex.quote(sandbox.repo_dir)
+    out = await sandbox.run(f"[ -d {repo_dir}/.git ] && echo yes || echo no")
+    return out.strip().endswith("yes")
+
+
 async def advance_repo(sandbox: Sandbox, checkout_ref: str) -> None:
     """Продвинуть УЖЕ склонированный репозиторий на ref без переклона (reuse песочницы)."""
     repo_dir = shlex.quote(sandbox.repo_dir)

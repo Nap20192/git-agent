@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import os
 from typing import Any
 
 import psycopg
 import pytest
+from psycopg.rows import dict_row
 
 from core.config import settings
 from core.runner.crypto import decrypt, encrypt
 from core.runner.events import Event
 from infra.db.hub_store import HubInstanceStore
 
-KEY = base64.b64encode(b"k" * 32).decode()
+KEY = (b"k" * 32).hex()  # SECRETS_KEY — hex (см. core/runner/crypto.py)
 
 
 def _pg_available() -> bool:
@@ -32,6 +32,10 @@ def _pg_available() -> bool:
 
 
 pytestmark = pytest.mark.skipif(not _pg_available(), reason="postgres/hub schema is not available")
+
+
+def _conn():
+    return psycopg.connect(settings.database_url, autocommit=True, row_factory=dict_row)
 
 
 def _seed() -> dict[str, Any]:
@@ -172,17 +176,31 @@ def test_load_context_and_decrypt():
     asyncio.run(main())
 
 
-def test_link_sandbox_and_mark_dead():
+def test_load_context_sees_hub_linked_sandbox():
+    """Экземпляр Сэндбокса создаёт hub (по команде юзера); раннер видит его в контексте."""
+
     async def main():
         ids = _seed()
+        with _conn() as conn:
+            si = conn.execute(
+                "INSERT INTO hub.sandbox_instances (external_id, sandbox_connection_id)"
+                " VALUES ('sb-42', %s) RETURNING id",
+                (ids["sandbox_conn"],),
+            ).fetchone()["id"]
+            conn.execute(
+                "UPDATE hub.agent_instances SET sandbox_instance_id = %s WHERE id = %s",
+                (si, ids["instance"]),
+            )
         store = HubInstanceStore()
-        await store.link_sandbox(
-            ids["instance"], external_id="sb-42", sandbox_connection_id=ids["sandbox_conn"]
-        )
         ctx = await store.load_context(ids["instance"])
         assert ctx["sandbox_external_id"] == "sb-42"
         assert ctx["sandbox_status"] == "alive"
-        await store.mark_sandbox_dead(ctx["sandbox_instance_id"])
+        with _conn() as conn:
+            conn.execute(
+                "UPDATE hub.sandbox_instances SET status = 'dead', killed_at = now()"
+                " WHERE id = %s",
+                (si,),
+            )
         assert (await store.load_context(ids["instance"]))["sandbox_status"] == "dead"
 
     asyncio.run(main())

@@ -139,15 +139,11 @@ def _terminal_executor(sandbox: FakeSandbox) -> EventExecutor:
     async def connect(ctx):
         return sandbox
 
-    async def provision(ctx):
-        raise AssertionError("terminal must be connect-only, no provisioning")
-
     return EventExecutor(
         store=RecordingStore(),
         checkpointer=None,
-        provision_sandbox=provision,
-        decrypt=lambda b: None,
         connect_sandbox=connect,
+        decrypt=lambda b: None,
     )
 
 
@@ -182,6 +178,7 @@ def test_connect_hub_sandbox_is_connect_only(monkeypatch):
     """Терминал НЕ создаёт песочницу: нет живой — ошибка; мёртвая — метится dead."""
     import pytest
 
+    from core.runner.ports import SandboxNotProvisionedError
     from infra.sandbox import sandboxes
 
     dead: list[int] = []
@@ -190,23 +187,28 @@ def test_connect_hub_sandbox_is_connect_only(monkeypatch):
         async def mark_sandbox_dead(self, sandbox_instance_id):
             dead.append(sandbox_instance_id)
 
+    monkeypatch.setattr(sandboxes, "HubInstanceStore", Store)
+
     async def run():
-        with pytest.raises(RuntimeError, match="no live sandbox"):
-            await sandboxes.connect_hub_sandbox(Store(), {"sandbox_external_id": None}, lambda b: None)
+        with pytest.raises(SandboxNotProvisionedError, match="not provisioned"):
+            await sandboxes.connect_hub_sandbox(
+                {"id": 1, "sandbox_external_id": None}, lambda b: None
+            )
 
         async def broken_connect(external_id, *, domain, api_key):
             raise ConnectionError("gone")
 
         monkeypatch.setattr(sandboxes, "connect_sandbox", broken_connect)
         ctx = {
+            "id": 1,
             "sandbox_external_id": "sb-1",
             "sandbox_status": "alive",
             "sandbox_instance_id": 9,
             "sandbox_domain": "x",
             "sandbox_api_key_enc": None,
         }
-        with pytest.raises(RuntimeError, match="sandbox is dead"):
-            await sandboxes.connect_hub_sandbox(Store(), ctx, lambda b: None)
+        with pytest.raises(SandboxNotProvisionedError, match="sandbox is dead"):
+            await sandboxes.connect_hub_sandbox(ctx, lambda b: None)
         assert dead == [9]
 
     asyncio.run(run())

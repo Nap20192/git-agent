@@ -10,7 +10,7 @@ import pytest
 
 from core.runner.crypto import decrypt, encrypt
 from core.runner.events import Event, parse_event
-from core.runner.ports import ClaimResult
+from core.runner.ports import ClaimResult, SandboxNotProvisionedError
 from core.runner.service import RunnerService
 
 WIRE = {
@@ -102,12 +102,6 @@ class MemStore:
 
     async def load_context(self, instance_id: int) -> dict[str, Any] | None:
         return self.contexts.get(instance_id)
-
-    async def link_sandbox(self, instance_id, *, external_id, sandbox_connection_id):
-        pass
-
-    async def mark_sandbox_dead(self, sandbox_instance_id):
-        pass
 
     async def add_report(self, instance_id, *, event_id, summary) -> int:
         return 1
@@ -216,6 +210,22 @@ def test_unprocessed_republish_is_reprocessed():
         error.error = None
         assert await service.handle_event(event) == "processed"
         assert store.journal[(3, "abc123")] is True
+
+    asyncio.run(run())
+
+
+def test_sandbox_not_provisioned_drops_without_processed():
+    async def run():
+        store = MemStore()
+        seed(store)
+        executor = FakeExecutor(error=SandboxNotProvisionedError("instance 3: sandbox not provisioned"))
+        service = await started(make_service(store, executor=executor))
+        event = parse_event(WIRE)
+        assert await service.handle_event(event) == "dropped"
+        assert store.journal[(3, "abc123")] is False  # ре-публикация доисполнит
+        # юзер создал песочницу — то же Событие обрабатывается
+        executor.error = None
+        assert await service.handle_event(event) == "processed"
 
     asyncio.run(run())
 

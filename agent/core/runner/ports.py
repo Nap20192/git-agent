@@ -8,6 +8,10 @@ from typing import Any, Protocol
 from core.runner.events import Event
 
 
+class SandboxNotProvisionedError(RuntimeError):
+    """У Экземпляра Агента нет живого Экземпляра Сэндбокса — раннер сам НЕ создаёт."""
+
+
 @dataclass(frozen=True)
 class ClaimResult:
     """Итог клейма Экземпляра: claimed | held_by_self | held_by_other | missing."""
@@ -43,14 +47,6 @@ class InstanceStore(Protocol):
     async def load_context(self, instance_id: int) -> dict[str, Any] | None:
         """Экземпляр + Сборка + connections + Репозиторий одной выборкой."""
         ...
-
-    async def link_sandbox(
-        self, instance_id: int, *, external_id: str, sandbox_connection_id: int
-    ) -> None:
-        """Записать Экземпляр Сэндбокса и привязать к Экземпляру Агента."""
-        ...
-
-    async def mark_sandbox_dead(self, sandbox_instance_id: int) -> None: ...
 
     async def add_report(self, instance_id: int, *, event_id: int | None, summary: str) -> int: ...
 
