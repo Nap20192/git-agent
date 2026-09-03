@@ -10,6 +10,10 @@ export function useRun(id: string) {
   const api = useApi();
   return useAsync(() => api.getRun(id), [id]);
 }
+export function useReports() {
+  const api = useApi();
+  return useAsync(() => api.listReports(), []);
+}
 export function useReport(runId: string) {
   const api = useApi();
   return useAsync(() => api.getReport(runId), [runId]);

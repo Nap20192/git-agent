@@ -260,6 +260,19 @@ export interface ReportMeta {
   filesReviewed: number;
 }
 
+/** A finished run's report, for the Reports list page. */
+export interface ReportCard {
+  runId: string;
+  repo: string;
+  repoUrl: string;
+  commit: string;
+  model: string;
+  status: RunStatus;
+  finishedAt: string | null;
+  /** Findings severity summary (agent runs); null for pipeline reports. */
+  findings: { severityCounts: Record<Severity, number>; total: number; agents: string[] } | null;
+}
+
 export interface Report {
   repoUrl: string;
   commit: string;

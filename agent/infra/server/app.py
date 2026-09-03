@@ -103,6 +103,23 @@ def _register_routes(application: FastAPI) -> None:
         rows = await asyncio.to_thread(list_runs_with_repo)
         return {"runs": [wire.run_to_wire(row) for row in rows]}
 
+    @api.get("/api/reports")
+    async def list_reports(request: Request) -> dict[str, Any]:
+        # карточки завершённых Отчётов + severity-сводка Находок (из событий)
+        from core.agents.findings import collect_findings_from_events, summarize_findings
+        from infra.db.postgres import list_runs_with_repo
+
+        rows = await asyncio.to_thread(list_runs_with_repo)
+        cards = []
+        for row in rows:
+            if row.get("report") is None:
+                continue
+            events = await _runtime(request, "agent").events(row["id"])
+            findings = collect_findings_from_events(events)
+            meta = summarize_findings(findings) if findings else None
+            cards.append(wire.report_card_to_wire(row, meta))
+        return {"reports": cards}
+
     @api.get("/api/runs/{run_id}")
     async def get_run(request: Request, run_id: str) -> dict[str, Any]:
         row = await _run_row_or_404(request, run_id)
@@ -194,6 +211,27 @@ def _register_routes(application: FastAPI) -> None:
         if not deleted:
             raise _error(404, "not_found", f"run {run_id}")
 
+    async def _findings_payload(request: Request, run_id: int) -> dict[str, Any]:
+        """Находки + meta из событий Рана (работает и на живом Ране, не только терминале)."""
+        from core.agents.findings import collect_findings_from_events, summarize_findings
+
+        events = await _runtime(request, "agent").events(run_id)
+        findings = collect_findings_from_events(events)
+        return {
+            "findings": findings,
+            "meta": {
+                **summarize_findings(findings),
+                "toolCalls": _lead_tool_calls(events),
+                "filesReviewed": len({f["file"] for f in findings if f.get("file")}),
+            },
+        }
+
+    @api.get("/api/runs/{run_id}/findings")
+    async def get_findings(request: Request, run_id: str) -> dict[str, Any]:
+        # live: Находки видны сразу, как только агент их зафиксировал (без гейта отчёта)
+        await _run_row_or_404(request, run_id)
+        return await _findings_payload(request, int(run_id))
+
     @api.get("/api/runs/{run_id}/report")
     async def get_report(request: Request, run_id: str) -> dict[str, Any]:
         row = await _run_row_or_404(request, run_id)
@@ -201,16 +239,7 @@ def _register_routes(application: FastAPI) -> None:
             raise _error(404, "not_found", f"run {run_id} has no report")
         report = wire.report_to_wire(row["report"])
         if "findings" in report:
-            from core.agents.findings import collect_findings_from_events, summarize_findings
-
-            events = await _runtime(request, "agent").events(int(run_id))
-            findings = collect_findings_from_events(events)
-            report["findings"] = findings
-            report["meta"] = {
-                **summarize_findings(findings),
-                "toolCalls": _lead_tool_calls(events),
-                "filesReviewed": len({f["file"] for f in findings if f.get("file")}),
-            }
+            report.update(await _findings_payload(request, int(run_id)))
         return report
 
     @api.get("/api/runs/{run_id}/graph")

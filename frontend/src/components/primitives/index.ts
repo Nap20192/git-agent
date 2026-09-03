@@ -8,6 +8,7 @@ export { TextInput } from "./TextInput.tsx";
 export type { TextInputProps } from "./TextInput.tsx";
 export { StatusDot } from "./StatusDot.tsx";
 export type { StatusDotProps } from "./StatusDot.tsx";
+export { Markdown } from "./Markdown.tsx";
 export { Sparkline } from "./Sparkline.tsx";
 export type { SparklineProps } from "./Sparkline.tsx";
 export { Meter } from "./Meter.tsx";

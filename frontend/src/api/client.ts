@@ -6,9 +6,12 @@
 import type {
   Capability,
   Connection,
+  Finding,
   MemoryPreset,
   NodeSpec,
   Report,
+  ReportCard,
+  ReportMeta,
   Run,
   RunEvent,
   RunGraph,
@@ -40,7 +43,10 @@ export interface GitAgentApi {
   deleteRun(id: string): Promise<void>;
 
   // report
+  listReports(): Promise<ReportCard[]>;
   getReport(runId: string): Promise<Report>;
+  /** Live findings from report_finding events — available before the run finishes. */
+  getFindings(runId: string): Promise<{ findings: Finding[]; meta: ReportMeta }>;
 
   // graph + node specs
   getGraph(runId: string): Promise<RunGraph>;

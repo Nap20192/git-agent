@@ -233,6 +233,23 @@ def run_to_wire(row: dict[str, Any], events: list[dict[str, Any]] | None = None)
     }
 
 
+def report_card_to_wire(
+    row: dict[str, Any], findings_meta: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Карточка Отчёта для страницы Reports (findings_meta = summarize_findings | None)."""
+    url = row.get("repo_url") or ""
+    return {
+        "runId": str(row["id"]),
+        "repo": repo_slug(url),
+        "repoUrl": url,
+        "commit": row.get("commit_sha", ""),
+        "model": row.get("llm_model", ""),
+        "status": str(row.get("status")),
+        "finishedAt": _iso(row.get("finished_at")),
+        "findings": findings_meta,
+    }
+
+
 def report_to_wire(report: dict[str, Any]) -> dict[str, Any]:
     description = report.get("description", "") or report.get("answer", "")
     structure = report.get("structure") or {}

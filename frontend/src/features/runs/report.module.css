@@ -53,6 +53,9 @@
   line-height: 1.7;
   color: var(--text);
 }
+.summaryBody {
+  padding-top: 4px;
+}
 .error {
   font-size: 13px;
   line-height: 1.6;

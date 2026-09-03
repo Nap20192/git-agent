@@ -56,6 +56,23 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ApiError" }
 
+  /reports:
+    get:
+      summary: List finished runs' reports with a findings severity summary
+      operationId: listReports
+      responses:
+        "200":
+          description: Report cards
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reports]
+                properties:
+                  reports:
+                    type: array
+                    items: { $ref: "#/components/schemas/ReportCard" }
+
   /runs/{id}:
     get:
       summary: Get one run (RunStore.get — redact the key)
@@ -96,6 +113,27 @@ paths:
         "200":
           description: The report
           content: { application/json: { schema: { $ref: "#/components/schemas/Report" } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /runs/{id}/findings:
+    get:
+      summary: >
+        Live findings from report_finding events — available before the run
+        finishes (not gated on the completed report). Same shape/collection as
+        the report's findings; poll while the run is live.
+      operationId: getFindings
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      responses:
+        "200":
+          description: Findings + meta
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [findings, meta]
+                properties:
+                  findings: { type: array, items: { $ref: "#/components/schemas/Finding" } }
+                  meta: { $ref: "#/components/schemas/ReportMeta" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /runs/{id}/graph:
@@ -512,6 +550,58 @@ components:
         dependencies: { type: array, items: { type: string } }
         skippedFiles: { type: array, items: { type: string } }
         error: { type: string }
+        # agent runs additionally carry summary/findings/meta (see /findings)
+        summary: { type: string }
+        findings: { type: array, items: { $ref: "#/components/schemas/Finding" } }
+        meta: { $ref: "#/components/schemas/ReportMeta" }
+
+    Severity: { type: string, enum: [critical, high, medium, low, info] }
+    ReportCard:
+      type: object
+      required: [runId, repo, repoUrl, commit, model, status, finishedAt, findings]
+      properties:
+        runId: { type: string }
+        repo: { type: string }
+        repoUrl: { type: string }
+        commit: { type: string }
+        model: { type: string }
+        status: { $ref: "#/components/schemas/RunStatus" }
+        finishedAt: { type: [string, "null"], format: date-time }
+        findings:
+          oneOf:
+            - type: object
+              required: [severityCounts, total, agents]
+              properties:
+                severityCounts: { type: object, additionalProperties: { type: integer } }
+                total: { type: integer }
+                agents: { type: array, items: { type: string } }
+            - type: "null"
+    Finding:
+      type: object
+      required: [title, severity, description]
+      properties:
+        title: { type: string }
+        severity: { $ref: "#/components/schemas/Severity" }
+        description: { type: string }
+        file: { type: [string, "null"] }
+        startLine: { type: [integer, "null"] }
+        endLine: { type: [integer, "null"] }
+        cwe: { type: [string, "null"] }
+        cve: { type: [string, "null"] }
+        impact: { type: [string, "null"] }
+        evidence: { type: [string, "null"] }
+        remediation: { type: [string, "null"] }
+        confidence: { type: [string, "null"] }
+        agent: { type: string, description: "lead or sub-agent type" }
+    ReportMeta:
+      type: object
+      required: [severityCounts, total, agents, toolCalls, filesReviewed]
+      properties:
+        severityCounts: { type: object, additionalProperties: { type: integer } }
+        total: { type: integer }
+        agents: { type: array, items: { type: string } }
+        toolCalls: { type: integer }
+        filesReviewed: { type: integer }
 
     # ── graph + node spec ──
     NodeStatus: { type: string, enum: [pending, running, completed, error] }

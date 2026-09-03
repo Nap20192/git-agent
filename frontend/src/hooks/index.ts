@@ -4,6 +4,7 @@ export {
   useRuns,
   useRun,
   useReport,
+  useReports,
   useGraph,
   useNodeSpec,
   useConnections,

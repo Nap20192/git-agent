@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 git-agent — агентская система на LangChain/LangGraph для сканирования и разбора репозиториев. Python 3.13, управляется через `uv`.
 
+## Монорепа
+
+Верхний уровень: `agent/` (Python-агент — всё описанное ниже: core/infra/deps/pkg/tests/evals/formal, pyproject), `backend/` (Go-сервис «hub»: мониторинг GitHub/GitLab, пользователи+OAuth-связки, создание сэндбоксов, Таски в RabbitMQ; модуль `github.com/vnkjd/git-agent/backend`, `cmd/hub`), `frontend/`, `deploy/` (общая инфраструктура), `migrations/` (`migrations/agent/` — SQL агента, симлинк `agent/migrations` для `python -m migrations.migrate`; `migrations/backend/` появится с первой миграцией). Общие наверху: `CONTEXT.md`, `openspec/`, `.wayfinder/` (карта планирования backend), `Taskfile.yml` (python-таски исполняются с `dir: agent`; `task backend:build|run`). Пути в разделах ниже — относительно `agent/`.
+
 Зависимости: langchain 1.x, langgraph 1.x, langfuse, langsmith, pydantic-settings.
 
 - `core/config.py` — единая точка конфигурации: `load_dotenv()` + `Settings` (pydantic-settings), синглтон `settings`. Новые ключи добавляй туда и в `.env.example`.

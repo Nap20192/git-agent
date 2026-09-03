@@ -7,9 +7,12 @@
 import type {
   Capability,
   Connection,
+  Finding,
   MemoryPreset,
+  ReportMeta,
   NodeSpec,
   Report,
+  ReportCard,
   Run,
   RunEvent,
   RunGraph,
@@ -60,7 +63,12 @@ export function createHttpApi(): GitAgentApi {
       await req<void>(`/runs/${id}`, { method: "DELETE" });
     },
 
+    async listReports() {
+      return (await req<{ reports: ReportCard[] }>("/reports")).reports;
+    },
     getReport: (runId) => req<Report>(`/runs/${runId}/report`),
+    getFindings: (runId) =>
+      req<{ findings: Finding[]; meta: ReportMeta }>(`/runs/${runId}/findings`),
     getGraph: (runId) => req<RunGraph>(`/runs/${runId}/graph`),
     getNodeSpec: (runId, nodeId) => req<NodeSpec>(`/runs/${runId}/nodes/${nodeId}`),
 

@@ -12,6 +12,7 @@ import { AgentList } from "./AgentList.tsx";
 import { NodeInspector } from "./NodeInspector.tsx";
 import { EventStream } from "./EventStream.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
+import { LiveFindings } from "./LiveFindings.tsx";
 import styles from "./run.module.css";
 
 export function RunDetailScreen() {
@@ -149,7 +150,11 @@ export function RunDetailScreen() {
             )}
           </div>
         </Panel>
-        <NodeInspector runId={id} node={selectedNode} events={selected ? stream.eventsByNode[selected] ?? [] : []} onClose={() => setSelected(null)} />
+        {!selected && nodes.some((n) => n.id === "lead") ? (
+          <LiveFindings runId={id} live={live} />
+        ) : (
+          <NodeInspector runId={id} node={selectedNode} events={selected ? stream.eventsByNode[selected] ?? [] : []} onClose={() => setSelected(null)} />
+        )}
       </div>
 
       {/* event stream + post-run chat (agent runs, once finished) share the row */}
