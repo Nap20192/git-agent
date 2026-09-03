@@ -39,40 +39,16 @@ GitHub ──webhook──▶ relay/tunnel ──▶ hub ──outbox──▶ R
   Rabbit, а в БД + чекпоинтах: умер раннер — другой продолжит с чекпоинта.
 - **Песочницу** создаёт пользователь (hub → OpenSandbox), раннер только подключается.
 
-## Потоки (sequence-диаграммы)
+## Потоки
 
-Источник — [`docs/flows.md`](docs/flows.md) (Mermaid, с ветками ошибок). Пересборка PNG: `task diagrams`.
-
-### 1. Вход через GitHub/GitLab
-![OAuth](docs/flows/1.png)
-
-### 2. Подключение репозитория — hub сам ставит webhook
-![Connect](docs/flows/2.png)
-
-### 3. Вебхук → transactional outbox → RabbitMQ
-![Webhook](docs/flows/3.png)
-
-### 4. Раннер: исполнение События агентом
-![Runner](docs/flows/4.png)
-
-### 5. Ручной запуск и полный скан
-![Trigger](docs/flows/5.png)
-
-### 6. Чат с агентом
-![Chat](docs/flows/6.png)
-
-### 7. Остановить ход / продолжить с чекпоинта
-![Stop/Resume](docs/flows/7.png)
-
-### 8. Жизненный цикл песочницы
-![Sandbox](docs/flows/8.png)
+Sequence-диаграммы всех потоков (OAuth, подключение репо, вебхук → outbox → Rabbit, исполнение
+События, ручной запуск, чат, stop/resume, жизненный цикл песочницы) — [`docs/flows.md`](docs/flows.md)
+(Mermaid, с ветками ошибок). Пересборка PNG: `task diagrams`.
 
 ## Схема данных
 
 Схема `hub.*` в Postgres — [`migrations/backend/001_init.sql`](migrations/backend/001_init.sql) и далее;
-диаграмма — [`docs/ERD.md`](docs/ERD.md).
-
-![ERD](docs/ERD.png)
+ERD — [`docs/ERD.md`](docs/ERD.md).
 
 ## Быстрый старт
 

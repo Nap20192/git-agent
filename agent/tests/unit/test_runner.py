@@ -61,16 +61,16 @@ def test_event_prompt_full_scan():
         ctx, parse_event({**WIRE, "action": "full_scan", "dedupKey": "full-abc123"})
     )
     for marker in (
-        "ПОЛНЫЙ security-аудит",
-        "план",
-        "Сабагенту",
+        "FULL security audit",
+        "plan the areas",
+        "subagent",
         "task",
         "report_finding",
         "write_report",
     ):
         assert marker in full
     assert "Сборка: смотри в оба" in full  # промпт Сборки остаётся
-    assert "ПОЛНЫЙ" not in _event_prompt(ctx, parse_event(WIRE))
+    assert "FULL security audit" not in _event_prompt(ctx, parse_event(WIRE))
 
 
 def test_crypto_roundtrip():
@@ -553,8 +553,8 @@ def test_event_prompt_by_action():
         "bbb111..abc123",
         "git_diff(ref='abc123', base='bbb111', stat=true)",
         "git log",
-        "ТОЛЬКО затронутого",
-        "не сканировать",
+        "ONLY the touched code",
+        "Do not scan the whole",
         "a.py, b/c.go",
         "report_finding",
         "write_report",
@@ -572,24 +572,22 @@ def test_event_prompt_by_action():
         "Adds password login",
         "mb0...head33",
         "git_diff(ref='head33', base='mb0', stat=true)",
-        "РЕЖИМ РЕВЬЮ",
+        "REVIEW MODE",
         "attack surface",
-        "PR-ревью",
-        "не сканировать",
+        "PR review",
+        "do not scan",
     ):
         assert marker in pr, marker
     pr_no_mb = _event_prompt(ctx, parse_event({**SCOPE_WIRE, "action": "merge_request"}))
-    assert "base22...head33" in pr_no_mb and "база PR" in pr_no_mb
+    assert "base22...head33" in pr_no_mb and "PR base" in pr_no_mb
     manual = _event_prompt(ctx, parse_event({**WIRE, "action": "manual"}))
-    assert (
-        "Ручной запуск" in manual and "предыдущий коммит" in manual and "не сканировать" in manual
-    )
+    assert "Manual run" in manual and "previous commit" in manual and "do not scan" in manual
     full = _event_prompt(ctx, parse_event({**WIRE, "action": "full_scan"}))
-    assert "ПОЛНЫЙ" in full and "не сканировать" not in full
+    assert "FULL security audit" in full and "scan the whole" not in full
     long_body = _event_prompt(
         ctx, parse_event({**SCOPE_WIRE, "action": "pull_request", "prBody": "x" * 5000})
     )
-    assert "[обрезано]" in long_body and "x" * 2001 not in long_body
+    assert "[truncated]" in long_body and "x" * 2001 not in long_body
 
 
 def test_event_without_commit_skipped_and_marked_processed():
