@@ -17,6 +17,15 @@ SEVERITIES = ("critical", "high", "medium", "low", "info")
 _FINDING_TOOL = "report_finding"
 
 
+def validate_finding(title: str, severity: str, description: str) -> str | None:
+    """Ошибка валидации Находки или None; общая для всех вариантов report_finding."""
+    if severity.lower().strip() not in SEVERITIES:
+        return f"report_finding: bad severity {severity!r}; use one of {', '.join(SEVERITIES)}"
+    if not title.strip() or not description.strip():
+        return "report_finding: title and description are required"
+    return None
+
+
 @tool(_FINDING_TOOL)
 def report_finding(
     title: str,
@@ -51,16 +60,15 @@ def report_finding(
         remediation: как исправить.
         confidence: уверенность (high/medium/low) с кратким обоснованием.
     """
-    sev = severity.lower().strip()
-    if sev not in SEVERITIES:
-        return f"report_finding: bad severity {severity!r}; use one of {', '.join(SEVERITIES)}"
-    if not title.strip() or not description.strip():
-        return "report_finding: title and description are required"
+    error = validate_finding(title, severity, description)
+    if error:
+        return error
     where = f" [{file}:{start_line}]" if file else ""
-    return f"recorded {sev} finding: {title.strip()}{where}"
+    return f"recorded {severity.lower().strip()} finding: {title.strip()}{where}"
 
 
-def _finding_from_args(args: dict[str, Any]) -> dict[str, Any]:
+def finding_from_args(args: dict[str, Any]) -> dict[str, Any]:
+    """Нормализация аргументов report_finding в camelCase-Находку."""
     sev = str(args.get("severity", "")).lower().strip()
     return {
         "title": str(args.get("title", "")).strip(),
@@ -94,7 +102,7 @@ def collect_findings(messages: list[Any]) -> list[dict[str, Any]]:
         for call in message.tool_calls or []:
             if call.get("name") != _FINDING_TOOL:
                 continue
-            finding = _finding_from_args(call.get("args") or {})
+            finding = finding_from_args(call.get("args") or {})
             if not finding["title"]:
                 continue
             findings[(finding["title"], finding["file"])] = finding
@@ -144,7 +152,7 @@ def collect_findings_from_events(events: list[dict[str, Any]]) -> list[dict[str,
                         continue
                     for call in msg.get("tool_calls") or []:
                         if call.get("name") == _FINDING_TOOL:
-                            add(_finding_from_args(call.get("args") or {}), "lead")
+                            add(finding_from_args(call.get("args") or {}), "lead")
     return sorted(merged.values(), key=lambda f: _SEVERITY_ORDER.get(f["severity"], 99))
 
 
@@ -162,8 +170,8 @@ def summarize_findings(findings: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def build_security_tools() -> list[BaseTool]:
-    """Инструменты, общие для Лида и Сабагентов в security-режиме."""
+def build_load_skill_tool() -> BaseTool:
+    """Тулза load_skill: справочник методик из core/skills."""
     from core.skills import load_skills, validate_requested_skills
 
     @tool
@@ -186,4 +194,9 @@ def build_security_tools() -> list[BaseTool]:
             return "load_skill: nothing loaded"
         return "\n\n---\n\n".join(f"## Skill: {name}\n\n{body}" for name, body in contents.items())
 
-    return [report_finding, load_skill]
+    return load_skill
+
+
+def build_security_tools() -> list[BaseTool]:
+    """Инструменты, общие для Лида и Сабагентов в security-режиме."""
+    return [report_finding, build_load_skill_tool()]

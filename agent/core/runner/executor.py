@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from langchain_core.messages import HumanMessage
-from langchain_core.tools import BaseTool, tool
+from langchain_core.tools import BaseTool, StructuredTool, tool
 
-from core.agents.findings import SEVERITIES, _finding_from_args
+from core.agents.findings import (
+    build_load_skill_tool,
+    finding_from_args,
+    report_finding,
+    validate_finding,
+)
 from core.agents.llm import make_model
 from core.ports import Sandbox
 from core.runner.events import Event
@@ -19,7 +24,7 @@ log = get_logger(__name__)
 
 _HOSTS = {"github": "github.com", "gitlab": "gitlab.com"}
 
-# провижининг песочницы Экземпляра: (ctx) -> (sandbox, reused); собирается в composition root
+# провижининг песочницы Экземпляра: (ctx) -> (sandbox, reused); собирается в deps
 SandboxProvision = Callable[[dict[str, Any]], Awaitable[tuple[Sandbox, bool]]]
 
 
@@ -32,52 +37,26 @@ def build_hub_security_tools(
     store: InstanceStore, instance_id: int, event_id: int | None
 ) -> list[BaseTool]:
     """report_finding/write_report, пишущие в hub.findings/hub.reports (тикет 001:
-    «результат агент пишет в БД сам, через тулзу»). Схема report_finding — как в
-    core/agents/findings.py, но с реальной вставкой."""
+    «результат агент пишет в БД сам, через тулзу»). Схема и описание report_finding —
+    канонические из core/agents/findings, здесь только добавляется персист."""
 
-    @tool("report_finding")
-    async def report_finding(
-        title: str,
-        severity: str,
-        description: str,
-        file: str = "",
-        start_line: int = 0,
-        end_line: int = 0,
-        cwe: str = "",
-        cve: str = "",
-        impact: str = "",
-        evidence: str = "",
-        remediation: str = "",
-        confidence: str = "",
-    ) -> str:
-        """Зафиксировать security-находку по коду репозитория.
+    async def _report_finding(**kwargs: Any) -> str:
+        result = report_finding.func(**kwargs)
+        if (
+            validate_finding(
+                kwargs.get("title", ""), kwargs.get("severity", ""), kwargs.get("description", "")
+            )
+            is None
+        ):
+            await store.add_finding(instance_id, finding_from_args(kwargs))
+        return result
 
-        Вызывай по одному разу на подтверждённую уязвимость, опираясь на реально
-        прочитанный код (не на догадку). Находка сохраняется в базу немедленно.
-
-        Args:
-            title: краткое название (например «SQL-инъекция в user login»).
-            severity: одно из critical/high/medium/low/info.
-            description: что за уязвимость и почему это уязвимость.
-            file: путь к файлу внутри репозитория (если применимо).
-            start_line: первая строка уязвимого участка (0 — неизвестно).
-            end_line: последняя строка участка (0 — неизвестно).
-            cwe: класс уязвимости, например «CWE-89».
-            cve: связанный CVE, если есть, например «CVE-2024-1234».
-            impact: к чему приводит эксплуатация.
-            evidence: цитата уязвимого кода / доказательство.
-            remediation: как исправить.
-            confidence: уверенность (high/medium/low) с кратким обоснованием.
-        """
-        sev = severity.lower().strip()
-        if sev not in SEVERITIES:
-            return f"report_finding: bad severity {severity!r}; use one of {', '.join(SEVERITIES)}"
-        if not title.strip() or not description.strip():
-            return "report_finding: title and description are required"
-        finding = _finding_from_args(dict(locals()))
-        await store.add_finding(instance_id, finding)
-        where = f" [{file}:{start_line}]" if file else ""
-        return f"recorded {sev} finding: {title.strip()}{where}"
+    persisting_report_finding = StructuredTool(
+        name=report_finding.name,
+        description=report_finding.description,
+        args_schema=report_finding.args_schema,
+        coroutine=_report_finding,
+    )
 
     @tool("write_report")
     async def write_report(summary: str) -> str:
@@ -94,10 +73,7 @@ def build_hub_security_tools(
         report_id = await store.add_report(instance_id, event_id=event_id, summary=summary.strip())
         return f"report {report_id} saved"
 
-    from core.agents.findings import build_security_tools
-
-    load_skill = next(t for t in build_security_tools() if t.name == "load_skill")
-    return [report_finding, load_skill, write_report]
+    return [persisting_report_finding, build_load_skill_tool(), write_report]
 
 
 def _event_prompt(ctx: dict[str, Any], event: Event) -> str:
@@ -128,17 +104,21 @@ class EventExecutor:
         checkpointer: Any,
         provision_sandbox: SandboxProvision,
         decrypt: Callable[[bytes | None], str | None],
+        make_model: Callable[..., Any] = make_model,
     ) -> None:
         self._store = store
         self._checkpointer = checkpointer
         self._provision = provision_sandbox
         self._decrypt = decrypt
+        self._make_model = make_model
 
-    def _graph(self, ctx: dict[str, Any], sandbox: Sandbox, event_id: int | None) -> Any:
+    def _graph(
+        self, ctx: dict[str, Any], sandbox: Sandbox, event_id: int | None
+    ) -> tuple[Any, Any]:
         from core.lead import build_lead_profile
 
         tools = build_hub_security_tools(self._store, ctx["id"], event_id)
-        model = make_model(
+        model = self._make_model(
             model=ctx["llm_model"],
             api_base=ctx["llm_api_base"],
             api_key=self._decrypt(ctx["llm_api_key_enc"]),
@@ -165,7 +145,9 @@ class EventExecutor:
         finally:
             await sandbox.close()
 
-    async def chat_stream(self, ctx: dict[str, Any], message: str):
+    async def chat_stream(
+        self, ctx: dict[str, Any], message: str
+    ) -> AsyncIterator[tuple[str, Any]]:
         """Ход чата в тред Экземпляра; yield (mode, serialized chunk)."""
         from core.runtime.serialization import serialize
 

@@ -1,9 +1,11 @@
 """Создание/переподключение песочницы по имени из таблицы sandboxes."""
 
 import asyncio
+from collections.abc import Callable
 from typing import Any
 
 from core.ports import Sandbox
+from core.runner.ports import InstanceStore
 from infra.db.postgres import get_pool
 from infra.sandbox.instances import (
     alive_instance_for_run,
@@ -67,7 +69,11 @@ async def provision_sandbox(
     return sandbox, False
 
 
-async def provision_hub_sandbox(store: Any, ctx: dict[str, Any], decrypt: Any) -> tuple[Sandbox, bool]:
+async def provision_hub_sandbox(
+    store: InstanceStore,
+    ctx: dict[str, Any],
+    decrypt: Callable[[bytes | None], str | None],
+) -> tuple[Sandbox, bool]:
     """Песочница Экземпляра Агента из sandbox connection Сборки (hub.*).
 
     Reconnect к живому Экземпляру Сэндбокса, иначе новый + запись/линк в hub;

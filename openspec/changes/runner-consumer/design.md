@@ -20,7 +20,7 @@
 - **Расшифровка `*_enc`**: AES-GCM, формат `nonce(12) || ciphertext`, ключ — env `HUB_ENC_KEY` (base64, 32 байта). Backend пишется после — формат фиксируется здесь и в `.env.example`. `cryptography` уже в venv (транзитивно) — поднимаем в прямые зависимости.
 - **Sandbox per Экземпляр** из `hub.sandbox_connections` (domain/api_key/image): `create_sandbox()` получает опциональные `domain/api_key`; внешний id пишем в `hub.sandbox_instances` + линкуем `agent_instances.sandbox_instance_id`; при подъёме сперва пробуем reconnect к живому. Repo URL строим из `hub.repositories` (`https://{host}/{owner}/{name}`).
 - **Чекпоинтер** — тот же `AsyncPostgresSaver` (одна БД); треды Экземпляров не пересекаются с тредами Ранов, т.к. `thread_id` приходит от hub'а (`threadId` События).
-- **Точка входа** — `runner.py` (`app = create_runner_app()`, uvicorn): FastAPI со `lifespan`, поднимающим консьюмер, heartbeat и idle-цикл. Отдельный от `main.py` — раннер и gateway деплоятся независимо.
+- **Точка входа** — `runner.py` (`app = create_runner_app()`, uvicorn): тонкий адаптер по образцу `main.py`; композиция и graceful-разбор — в `deps.runner_deps()` (единственный композиционный корень проекта), lifespan лишь связывает сервис с `app.state`. Отдельный от `main.py` — раннер и gateway деплоятся независимо.
 - **Форвард не ретраится и не буферизуется**: запись дедуп-журнала уже есть (вставили до форварда? нет — вставляет держатель). Решение: журнал пишет ТОТ, кто исполняет; форвардер при недоступности держателя — warn, Событие потеряно до ре-публикации backend'ом (его надзор за heartbeat — вне скоупа).
 
 ## Risks / Trade-offs
