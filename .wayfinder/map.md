@@ -35,6 +35,9 @@ label: wayfinder:map
 - [Схема БД v1 + миграции](tickets/006-db-schema.md) — одна база `git_agent`, backend в Postgres-схеме `hub.*`; 15 таблиц ([001_init.sql](../migrations/backend/001_init.sql), [ERD](../migrations/backend/ERD.md)); мигратор — нумерованные SQL + `backend/cmd/migrate` (`task backend:migrate`); применено и идемпотентно.
 - [Топология RabbitMQ](tickets/005-rabbit-topology.md) — свой rabbitmq:4 в deploy (порты 5673/15673); topic exchange `events` (`provider.repo.action`), одна durable-очередь `#`, competing consumers; outbox-паблишер с publisher confirm (at-least-once), ре-публикация по heartbeat-таймауту раннера.
 
+- [HTTP-поверхность backend v1](tickets/009-http-surface.md) — полный контракт в `backend/docs/openapi.yaml`: auth/связки, репозитории+вебхук-приёмник `/hooks/{provider}/{repoId}`, сборки/подключения, экземпляры (chat SSE), раннеры (`X-Runner-Token`).
+- [Контракты между сервисами](tickets/010-service-contracts.md) — Экземпляр резолвит backend на вебхуке (в Событии готовые instanceId/threadId); событие для поднятого Экземпляра форвардится держателю по HTTP; API раннера: raise/events/chat(SSE)/stop/health + регистрация и heartbeat в backend; тулзы report_finding/write_report → hub.findings/reports; везде camelCase + OpenAPI.
+
 ## Not yet specified
 
 - Деплой: сервис в deploy/docker-compose.yml — добавить сам Go-сервис (Rabbit решён в 005).

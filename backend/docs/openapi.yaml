@@ -1,0 +1,421 @@
+openapi: 3.1.0
+info:
+  title: git-agent hub
+  version: 0.1.0
+  description: >
+    Go-бекенд (hub): пользователи и OAuth-связки, подключение репозиториев,
+    приём вебхуков, Сборки/Экземпляры Агентов, раннеры. Решения — .wayfinder/map.md.
+    Auth: session cookie (роуты /api/*, кроме раннерных), раннеры — заголовок
+    X-Runner-Token (общий секрет RUNNER_TOKEN), вебхуки — подпись провайдера.
+
+paths:
+  # ── Auth ────────────────────────────────────────────────────────────
+  /api/auth/{provider}/login:
+    get:
+      summary: Redirect на OAuth провайдера (вход или добавление связки под сессией)
+      parameters: [{ $ref: "#/components/parameters/Provider" }]
+      responses: { "302": { description: redirect } }
+  /api/auth/{provider}/callback:
+    get:
+      summary: OAuth callback — создаёт user+связку (или добавляет связку), ставит cookie
+      parameters: [{ $ref: "#/components/parameters/Provider" }]
+      responses: { "302": { description: redirect на фронт } }
+  /api/auth/logout:
+    post: { summary: Завершить сессию, responses: { "204": { description: ok } } }
+  /api/me:
+    get:
+      summary: Текущий пользователь со связками
+      responses:
+        "200":
+          content: { application/json: { schema: { $ref: "#/components/schemas/Me" } } }
+
+  /api/identities:
+    get:
+      summary: Связки пользователя
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Identity" } }
+  /api/identities/{id}:
+    delete:
+      summary: Удалить связку
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { description: ok } }
+  /api/identities/{id}/repos:
+    get:
+      summary: Репозитории, видимые связке (прокси API провайдера)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ProviderRepo" } }
+
+  # ── Репозитории и События ───────────────────────────────────────────
+  /api/repositories:
+    get:
+      summary: Подключённые репозитории
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Repository" } }
+    post:
+      summary: Подключить репозиторий (создаёт webhook у провайдера)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identityId, externalId]
+              properties:
+                identityId: { type: integer }
+                externalId: { type: string }
+                buildId: { type: [integer, "null"] }
+      responses:
+        "201":
+          content: { application/json: { schema: { $ref: "#/components/schemas/Repository" } } }
+  /api/repositories/{id}:
+    patch:
+      summary: Привязать Сборку
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { buildId: { type: integer } } }
+      responses:
+        "200":
+          content: { application/json: { schema: { $ref: "#/components/schemas/Repository" } } }
+    delete:
+      summary: Отключить (снимает webhook)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { description: ok } }
+  /api/repositories/{id}/events:
+    get:
+      summary: Журнал Событий репозитория
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Event" } }
+
+  # ── Webhook-приёмник (подпись per-repo; наружу всегда 200) ──────────
+  /hooks/{provider}/{repositoryId}:
+    post:
+      summary: Приём вебхука; журнал+outbox в одной транзакции
+      parameters:
+        - { $ref: "#/components/parameters/Provider" }
+        - { name: repositoryId, in: path, required: true, schema: { type: integer } }
+      responses: { "200": { description: всегда 200 } }
+
+  # ── Сборки и подключения ────────────────────────────────────────────
+  /api/builds:
+    get:
+      summary: Сборки Агентов
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/AgentBuild" } }
+    post:
+      summary: Создать Сборку
+      requestBody:
+        content: { application/json: { schema: { $ref: "#/components/schemas/AgentBuildInput" } } }
+      responses:
+        "201":
+          content: { application/json: { schema: { $ref: "#/components/schemas/AgentBuild" } } }
+  /api/builds/{id}:
+    patch:
+      summary: Изменить Сборку
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        content: { application/json: { schema: { $ref: "#/components/schemas/AgentBuildInput" } } }
+      responses:
+        "200":
+          content: { application/json: { schema: { $ref: "#/components/schemas/AgentBuild" } } }
+    delete:
+      summary: Удалить Сборку
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { description: ok } }
+
+  /api/connections/llm:
+    get:
+      summary: LLM-подключения (ключи маской)
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/LlmConnection" } }
+    post:
+      summary: Создать LLM-подключение
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, apiBase, apiKey, model]
+              properties:
+                name: { type: string }
+                apiBase: { type: string }
+                apiKey: { type: string }
+                model: { type: string }
+      responses:
+        "201":
+          content: { application/json: { schema: { $ref: "#/components/schemas/LlmConnection" } } }
+  /api/connections/llm/{id}:
+    delete:
+      summary: Удалить LLM-подключение
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { description: ok } }
+  /api/connections/sandbox:
+    get:
+      summary: Sandbox-подключения (ключи маской)
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/SandboxConnection" } }
+    post:
+      summary: Создать sandbox-подключение
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, domain]
+              properties:
+                name: { type: string }
+                domain: { type: string }
+                apiKey: { type: [string, "null"] }
+                image: { type: [string, "null"] }
+      responses:
+        "201":
+          content: { application/json: { schema: { $ref: "#/components/schemas/SandboxConnection" } } }
+  /api/connections/sandbox/{id}:
+    delete:
+      summary: Удалить sandbox-подключение
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { description: ok } }
+
+  # ── Экземпляры ──────────────────────────────────────────────────────
+  /api/instances:
+    get:
+      summary: Экземпляры Агентов
+      parameters:
+        - { name: repositoryId, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/AgentInstance" } }
+  /api/instances/{id}:
+    get:
+      summary: Экземпляр
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          content: { application/json: { schema: { $ref: "#/components/schemas/AgentInstance" } } }
+  /api/instances/{id}/chat:
+    post:
+      summary: Чат с агентом (SSE; поднимает down-Экземпляр через раннер и проксирует)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, required: [message], properties: { message: { type: string } } }
+      responses:
+        "200": { description: "text/event-stream: события chat" }
+  /api/instances/{id}/stop:
+    post:
+      summary: Опустить Экземпляр (через раннер)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { description: ok } }
+  /api/instances/{id}/reports:
+    get:
+      summary: Отчёты Экземпляра
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Report" } }
+  /api/instances/{id}/findings:
+    get:
+      summary: Находки Экземпляра
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Finding" } }
+
+  # ── Раннеры (auth: X-Runner-Token) ──────────────────────────────────
+  /api/runners:
+    get:
+      summary: Список раннеров (UI/отладка; session cookie)
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Runner" } }
+    post:
+      summary: Саморегистрация раннера при старте
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, address, slots]
+              properties:
+                name: { type: string }
+                address: { type: string }
+                slots: { type: integer }
+      responses:
+        "201":
+          content: { application/json: { schema: { $ref: "#/components/schemas/Runner" } } }
+  /api/runners/{id}/heartbeat:
+    post:
+      summary: Heartbeat раннера
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "204": { description: ok } }
+
+components:
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: integer } }
+    Provider:
+      name: provider
+      in: path
+      required: true
+      schema: { type: string, enum: [github, gitlab] }
+  schemas:
+    Me:
+      type: object
+      required: [id, displayName, identities]
+      properties:
+        id: { type: integer }
+        displayName: { type: string }
+        identities: { type: array, items: { $ref: "#/components/schemas/Identity" } }
+    Identity:
+      type: object
+      required: [id, provider, username]
+      properties:
+        id: { type: integer }
+        provider: { type: string, enum: [github, gitlab] }
+        username: { type: string }
+        createdAt: { type: string, format: date-time }
+    ProviderRepo:
+      type: object
+      required: [externalId, owner, name]
+      properties:
+        externalId: { type: string }
+        owner: { type: string }
+        name: { type: string }
+        defaultBranch: { type: [string, "null"] }
+        private: { type: boolean }
+    Repository:
+      type: object
+      required: [id, provider, owner, name, identityId]
+      properties:
+        id: { type: integer }
+        identityId: { type: integer }
+        provider: { type: string, enum: [github, gitlab] }
+        externalId: { type: string }
+        owner: { type: string }
+        name: { type: string }
+        defaultBranch: { type: [string, "null"] }
+        buildId: { type: [integer, "null"] }
+        connectedAt: { type: string, format: date-time }
+    Event:
+      type: object
+      required: [id, provider, action, receivedAt]
+      properties:
+        id: { type: integer }
+        provider: { type: string }
+        action: { type: string }
+        commitSha: { type: [string, "null"] }
+        ref: { type: [string, "null"] }
+        receivedAt: { type: string, format: date-time }
+    AgentBuildInput:
+      type: object
+      properties:
+        name: { type: string }
+        llmConnectionId: { type: integer }
+        sandboxConnectionId: { type: integer }
+        prompt: { type: [string, "null"] }
+        memoryPreset: { type: [string, "null"] }
+        limits: { type: object }
+        isDefault: { type: boolean }
+    AgentBuild:
+      allOf:
+        - { $ref: "#/components/schemas/AgentBuildInput" }
+        - type: object
+          required: [id, name]
+          properties:
+            id: { type: integer }
+            createdAt: { type: string, format: date-time }
+    LlmConnection:
+      type: object
+      required: [id, name, apiBase, apiKeyMasked, model]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        apiBase: { type: string }
+        apiKeyMasked: { type: string, description: "инвариант redaction — только маска" }
+        model: { type: string }
+    SandboxConnection:
+      type: object
+      required: [id, name, domain]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        domain: { type: string }
+        apiKeyMasked: { type: [string, "null"] }
+        image: { type: [string, "null"] }
+    AgentInstance:
+      type: object
+      required: [id, buildId, repositoryId, status]
+      properties:
+        id: { type: integer }
+        buildId: { type: integer }
+        repositoryId: { type: integer }
+        sandboxInstanceId: { type: [integer, "null"] }
+        threadId: { type: string }
+        status: { type: string, enum: [down, running] }
+        runnerId: { type: [integer, "null"] }
+        updatedAt: { type: string, format: date-time }
+    Runner:
+      type: object
+      required: [id, name, address, slots]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        address: { type: string }
+        slots: { type: integer }
+        lastHeartbeatAt: { type: string, format: date-time }
+    Report:
+      type: object
+      required: [id, instanceId, summary, createdAt]
+      properties:
+        id: { type: integer }
+        instanceId: { type: integer }
+        eventId: { type: [integer, "null"] }
+        summary: { type: string }
+        createdAt: { type: string, format: date-time }
+    Finding:
+      type: object
+      required: [id, instanceId, severity]
+      properties:
+        id: { type: integer }
+        instanceId: { type: integer }
+        reportId: { type: [integer, "null"] }
+        severity: { type: string }
+        cwe: { type: [string, "null"] }
+        cve: { type: [string, "null"] }
+        file: { type: [string, "null"] }
+        lineStart: { type: [integer, "null"] }
+        lineEnd: { type: [integer, "null"] }
+        evidence: { type: [string, "null"] }
+        remediation: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
