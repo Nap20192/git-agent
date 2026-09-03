@@ -179,6 +179,36 @@ export interface TerminalEvent {
   cwd?: string | null;
 }
 
+/** Subagent state as painted by the run graph (ticket 012). */
+export type ActivityStatus = "queued" | "working" | "done" | "failed" | "timeout";
+
+/**
+ * One SSE frame of GET /api/instances/{id}/activity (openapi.yaml,
+ * ActivityEvent) — the run-graph feed «Лид → Сабагенты» of one ход.
+ * run_started/run_finished/run_failed — turn boundaries; node — a lead node
+ * finished (description = node name); task_started — a Сабагент
+ * (status queued → working); task_finished/task_failed — its terminal state
+ * (description = error, findingsCount = its Находки); task_report — the
+ * Сабагент's self-report text (description); done — stream closes.
+ */
+export interface ActivityEvent {
+  kind:
+    | "run_started"
+    | "node"
+    | "task_started"
+    | "task_finished"
+    | "task_failed"
+    | "task_report"
+    | "run_finished"
+    | "run_failed"
+    | "done";
+  taskId?: string | null;
+  description?: string | null;
+  status?: ActivityStatus | null;
+  findingsCount?: number | null;
+  ts?: string | null;
+}
+
 /**
  * Подписка Сборки на События Репозитория (ticket 011). Empty actions = all
  * actions; null refMask = any ref (mask is a glob over the short ref, e.g.

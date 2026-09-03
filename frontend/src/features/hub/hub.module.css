@@ -603,3 +603,142 @@
   flex-direction: column;
   gap: 10px;
 }
+
+/* ── Run graph (ticket 012): star «Лид → Сабагенты» ─────────────────── */
+.graphCanvas {
+  position: relative;
+  height: 280px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 22% 50%, rgba(255, 175, 0, 0.04), transparent 40%),
+    var(--bg-deep);
+}
+.graphFullscreen {
+  position: fixed;
+  inset: 16px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.7);
+}
+.graphFullscreen .graphCanvas {
+  flex: 1;
+  height: auto;
+}
+.graphEmpty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.graphEdges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.graphNode {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  min-width: 130px;
+  max-width: 200px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 11px;
+}
+.graphLead {
+  border-color: var(--amber);
+  box-shadow: 0 0 12px rgba(255, 175, 0, 0.12);
+}
+.graphTask {
+  cursor: pointer;
+}
+.graphTask:hover {
+  border-color: var(--amber);
+  background: var(--hover);
+}
+.graphNodeHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.graphNodeLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.graphCount {
+  margin-left: auto;
+  color: var(--med);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.graphNodeMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.graphNodeError {
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--crit);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graphHeadRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.graphHeadBtn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  padding: 2px 7px;
+}
+.graphHeadBtn:hover {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+.graphDrawer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 12px;
+}
+.graphDrawerRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.graphDrawerMeta {
+  color: var(--muted);
+  font-size: 11px;
+}
+.graphReport {
+  white-space: pre-wrap;
+  line-height: 1.55;
+  color: var(--text);
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+}
+.tlClickable {
+  cursor: pointer;
+}
+.tlClickable:hover {
+  background: var(--hover);
+}
+.tlSelected {
+  background: var(--hover-2);
+  box-shadow: inset 2px 0 0 var(--amber);
+}

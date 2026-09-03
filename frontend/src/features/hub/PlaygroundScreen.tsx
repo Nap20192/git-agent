@@ -1,11 +1,13 @@
 /** Playground — live view of one agent Экземпляр, Railway-deploy style:
- *  status strip (runner, sandbox, slots, pulse), Событие timeline with
- *  processing status, activity log, findings as they land, and chat.
- *  Liveness is a 5s poll — the hub contract has no status/activity stream yet
- *  (only chat SSE); the gaps are listed in frontend/PLAYGROUND-TODO.md. */
+ *  status strip (runner, sandbox, slots, pulse), run graph «Лид → Сабагенты»
+ *  fed by the activity SSE (ticket 012), Событие timeline (click an event to
+ *  replay its ход on the graph), activity log, findings, chat. Entity lists
+ *  still poll at 5s — only activity streams. */
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { RepoEvent, Report } from "@/api/hub";
+import { activityLine, useInstanceActivity } from "./activity.ts";
+import { InstanceGraphPanel } from "./InstanceGraphPanel.tsx";
 import {
   useBuilds,
   useHubRepositories,
@@ -47,6 +49,9 @@ export function PlaygroundScreen() {
   const reportsQ = useInstanceReports(id);
 
   const [activity, setActivity] = useState<ActivityLine[]>([]);
+  // null = follow the live/latest ход; a Событие id pins the graph to its replay
+  const [graphEventId, setGraphEventId] = useState<number | null>(null);
+  const { frames, done: turnDone } = useInstanceActivity(id, graphEventId);
   const [triggering, setTriggering] = useState(false);
   const [triggerError, setTriggerError] = useState<string | null>(null);
   const [sandboxBusy, setSandboxBusy] = useState(false);
@@ -95,6 +100,12 @@ export function PlaygroundScreen() {
 
   const events = eventsQ.data ?? [];
   const reports = reportsQ.data ?? [];
+  // activity log = локальные действия экрана + строки activity-стрима хода
+  const streamLines = frames.flatMap((f) => {
+    const text = activityLine(f);
+    return text ? [{ at: f.ts ? new Date(f.ts) : new Date(), text }] : [];
+  });
+  const log = [...activity, ...streamLines].sort((a, b) => a.at.getTime() - b.at.getTime());
   const findings = [...(findingsQ.data ?? [])].reverse();
   const reportFor = (e: RepoEvent): Report | undefined => reports.find((r) => r.eventId === e.id);
   const running = inst.status === "running";
@@ -220,6 +231,14 @@ export function PlaygroundScreen() {
           </div>
         </div>
 
+        <InstanceGraphPanel
+          frames={frames}
+          done={turnDone}
+          live={graphEventId == null}
+          turnLabel={graphEventId != null ? `Событие #${graphEventId}` : "live"}
+          onBackToLive={() => setGraphEventId(null)}
+        />
+
         <div className={styles.repoGrid}>
           <div className={styles.rail}>
             <Panel>
@@ -239,7 +258,12 @@ export function PlaygroundScreen() {
                 {events.map((e) => {
                   const report = reportFor(e);
                   return (
-                    <div key={e.id} className={styles.tlRow}>
+                    <div
+                      key={e.id}
+                      className={`${styles.tlRow} ${styles.tlClickable} ${graphEventId === e.id ? styles.tlSelected : ""}`}
+                      title="показать ход этого События на графе"
+                      onClick={() => setGraphEventId(graphEventId === e.id ? null : e.id)}
+                    >
                       <span className={`${styles.tlDot} ${report ? styles.tlDone : running ? styles.tlPending : ""}`} />
                       <div className={styles.tlBody}>
                         <div className={styles.tlHead}>
@@ -268,17 +292,16 @@ export function PlaygroundScreen() {
               <PanelHeader
                 icon="⚙"
                 title="ACTIVITY"
-                right={<span className={styles.cell}>{activity.length}</span>}
+                right={<span className={styles.cell}>{log.length}</span>}
               />
               <div className={styles.activityLog}>
-                {activity.length === 0 && (
+                {log.length === 0 && (
                   <div className={styles.panelEmpty}>
-                    No activity captured yet. The hub streams agent activity only inside chat for now — talk to the
-                    agent and its working steps land here. A per-Событие activity stream is on the backend wishlist
-                    (PLAYGROUND-TODO.md).
+                    No activity yet for this ход. Trigger the agent (or click a Событие in the timeline) and the
+                    activity stream lands here and on the graph above.
                   </div>
                 )}
-                {activity.map((a, i) => (
+                {log.map((a, i) => (
                   <div key={i} className={styles.activityRow}>
                     <span className={styles.activityTime}>{a.at.toLocaleTimeString()}</span>
                     <span className={styles.activityText}>{a.text}</span>

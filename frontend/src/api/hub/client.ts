@@ -3,6 +3,7 @@
  * backend) and mock.ts (executable spec, default until the backend lands).
  */
 import type {
+  ActivityEvent,
   AgentBuild,
   AgentBuildInput,
   AgentInstance,
@@ -91,6 +92,16 @@ export interface HubApi {
   chat(instanceId: number, message: string, onEvent: (e: ChatEvent) => void): Promise<void>;
   /** Runs one stream-console command in the Экземпляр's sandbox (running only). */
   terminal(instanceId: number, command: string, onEvent: (e: TerminalEvent) => void): Promise<void>;
+  /**
+   * Streams activity frames of one ход (run graph, ticket 012). eventId null =
+   * live/latest turn; resolves when the stream ends (kind=done included).
+   */
+  activity(
+    instanceId: number,
+    eventId: number | null,
+    onEvent: (e: ActivityEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void>;
 
   // Раннеры (UI/debug view)
   listRunners(): Promise<Runner[]>;
