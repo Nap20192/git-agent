@@ -1,0 +1,31 @@
+sequenceDiagram
+    actor U as Пользователь
+    participant H as hub
+    participant SB as OpenSandbox :8090
+    participant DB as Postgres
+    participant RN as Раннер
+
+    U->>H: POST /api/sandbox-instances {sandboxConnectionId}
+    H->>DB: sandbox_connections (domain, api_key_enc, image)
+    H->>SB: POST /v1/sandboxes {image, entrypoint: tail -f /dev/null, resourceLimits, timeout: null}
+    alt домен с пробелом / OpenSandbox лежит
+        SB-->>H: connect error → 500
+    else 422 (нет entrypoint/resourceLimits)
+        SB-->>H: validation error → 500 (исправлено в клиенте)
+    else 202
+        SB-->>H: {id}
+        H->>DB: INSERT sandbox_instances (external_id, alive)
+        H-->>U: 201
+    end
+    U->>H: POST /api/instances/{id}/sandbox {sandboxInstanceId}
+    H->>DB: agent_instances.sandbox_instance_id
+    Note over RN,SB: при подъёме Экземпляра
+    RN->>SB: Sandbox.connect(external_id)
+    alt контейнер умер (рестарт докера)
+        RN->>DB: status=dead → создать новую и привязать
+    else ok
+        RN->>SB: commands.run(…) ~1с/команда
+    end
+    U->>H: DELETE /api/sandbox-instances/{id}
+    H->>SB: DELETE /v1/sandboxes/{id}
+    H->>DB: status=dead, killed_at

@@ -1,0 +1,40 @@
+sequenceDiagram
+    participant G as GitHub
+    participant R as relay (Railway) / cloudflared
+    participant H as hub
+    participant DB as Postgres
+    participant MQ as RabbitMQ
+
+    Note over G,MQ: ФАЗА 3 — ПРИЁМ СОБЫТИЯ (наружу ВСЕГДА 200)
+    G->>R: POST /hooks/github/{repoId} + X-Hub-Signature-256
+    R-->>H: переигрывает (puller, путь+заголовки сохранены)
+    H->>DB: SELECT repositories WHERE id
+    alt репо неизвестен / отключён
+        H-->>G: 200 (лог: dropped, unknown repository)
+    else подпись HMAC не сошлась
+        H-->>G: 200 (лог: dropped, invalid signature)
+    else повторная доставка (unique provider+delivery_id)
+        H-->>G: 200 (лог: duplicate delivery)
+    else ok
+        Note over H,DB: одна транзакция
+        H->>DB: INSERT hub.events (журнал, payload jsonb)
+        H->>DB: SELECT build_subscriptions WHERE repo (actions ∋ action, ref ~ ref_mask)
+        alt подписок нет
+            H->>DB: default-Сборка на всё
+        end
+        loop каждая совпавшая Сборка
+            H->>DB: UPSERT agent_instances (build, repo) — один Экземпляр на пару
+            H->>DB: INSERT outbox {eventId, instanceId, threadId, dedupKey}
+        end
+        H-->>G: 200
+    end
+    Note over H,MQ: outbox-паблишер (фон)
+    loop батчами
+        H->>MQ: publish exchange=events, key=github.{repo}.{action}
+        alt Rabbit недоступен
+            MQ-->>H: connect error → published_at остаётся NULL, повтор
+        else confirm
+            MQ-->>H: ack
+            H->>DB: UPDATE outbox.published_at
+        end
+    end

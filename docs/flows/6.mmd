@@ -1,0 +1,30 @@
+sequenceDiagram
+    actor U as Пользователь
+    participant H as hub
+    participant RN as Раннер
+    participant LLM as LLM
+
+    U->>H: POST /api/instances/{id}/chat {message} (SSE)
+    alt Экземпляр down
+        H->>RN: POST /instances/{id}/raise
+        alt слотов нет
+            RN-->>H: 202 queued (поднимет фоном) → фронт «в очереди за слотом»
+        else нет песочницы
+            RN-->>H: 409 sandbox not provisioned
+        else
+            RN-->>H: 200 running
+        end
+    end
+    H->>RN: POST /instances/{id}/chat (прокси, ждём первый байт ≤ CHAT_FIRST_BYTE_TIMEOUT)
+    RN->>LLM: ход в тред Экземпляра (чекпоинт)
+    loop кадры ChatEvent {kind: token|activity|done}
+        RN-->>H: SSE
+        H-->>U: SSE
+    end
+    alt клиент закрыл вкладку
+        U--xH: соединение оборвано
+        H-->>RN: context canceled (INFO «stream closed by client»)
+        Note over RN: ход отменяется (CancelledError) — недописанный шаг теряется.<br/>TODO: исполнять ход в фоне независимо от клиента
+    else таймаут первого байта
+        H-->>U: 504
+    end

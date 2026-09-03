@@ -122,6 +122,11 @@ tasks:
     cmds:
       - go test ./...
 
+  diagrams:
+    desc: Отрендерить sequence-диаграммы docs/flows.md → docs/flows/*.png
+    cmds:
+      - ./scripts/render-diagrams.sh
+
   tunnel:
     desc: Перезапустить cloudflared-туннель и перепрописать GitHub-хуки (fallback, основной путь — relay)
     cmds:
