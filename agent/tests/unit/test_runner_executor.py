@@ -236,3 +236,35 @@ def test_event_prompt_mentions_context():
     assert "a/b" in text and "push" in text and "abc123" in text
     assert "Смотри только на auth." in text
     assert "report_finding" in text and "write_report" in text
+
+
+def test_executor_passes_mcp_tools_to_lead_profile(monkeypatch):
+    """MCP-тулы (CVE) из композиционного корня доезжают до build_lead_profile."""
+    from types import SimpleNamespace
+
+    import core.lead as lead_mod
+    from core.runner.executor import EventExecutor as Executor
+
+    seen: dict = {}
+
+    def fake_profile(**kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(build=lambda *a, **k: "graph")
+
+    monkeypatch.setattr(lead_mod, "build_lead_profile", fake_profile)
+    executor = Executor(
+        store=RecordingStore(),
+        checkpointer=None,
+        connect_sandbox=lambda ctx: None,
+        decrypt=lambda b: None,
+        make_model=lambda **kw: "model",
+        mcp_tools=["cve_tool"],
+    )
+    ctx = {"id": 3, "llm_model": "m", "llm_api_base": "", "llm_api_key_enc": None}
+    graph, _profile = executor._graph(ctx, FakeSandbox("x"), None)
+    assert graph == "graph" and seen["mcp_tools"] == ["cve_tool"]
+    assert [t.name for t in seen["security_tools"]] == [
+        "report_finding",
+        "load_skill",
+        "write_report",
+    ]

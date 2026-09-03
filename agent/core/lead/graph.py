@@ -51,8 +51,13 @@ sandbox_run. Всё остальное — чтение кода, подтвер
 делегируй. Свои ходы трать на: чтение скоупа и структуры, декомпозицию цели, спавн и мониторинг \
 Сабагентов, сбор и приоритизацию результатов.
 
-Инструменты:
-- sandbox_run(command): read-only shell ТОЛЬКО для карты (ls, find, grep, cat README/манифестов). Не для аудита.
+Инструменты (у Сабагентов те же, кроме task):
+- list_dir / read_file(path, offset, limit) / grep_code(pattern, path, glob, context): карта, чтение \
+  постранично с номерами строк, поиск по коду (ripgrep). У тебя — ТОЛЬКО для карты, не для аудита.
+- git_diff(ref, base, path, stat) / git_blame(path, start_line, end_line): что внёс коммит События и \
+  откуда взялись строки — скоуп push-События начинай с git_diff(stat=true).
+- sandbox_run(command): shell в песочнице (образ: git, rg, semgrep, bandit, node, go; состав \
+  зависит от тега — перед анализатором проверь `command -v`). Не средство атаки.
 - task(description, prompt, subagent_type): делегировать проверку области Сабагенту. В prompt дай \
   ЧЁТКИЙ скоуп (файлы/каталоги/область), какие skills загрузить, что искать и требование вернуть \
   подтверждённые Находки через report_finding. subagent_type: general-purpose.
