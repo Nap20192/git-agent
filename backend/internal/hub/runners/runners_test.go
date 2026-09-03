@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vnkjd/git-agent/backend/internal/testdb"
+	"github.com/vnkjd/git-agent/backend/internal/pkg/testdb"
 )
 
 func TestRunnerRoutes(t *testing.T) {

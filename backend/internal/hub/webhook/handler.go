@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/vnkjd/git-agent/backend/internal/secrets"
+	"github.com/vnkjd/git-agent/backend/pkg/secrets"
 )
 
 const maxBody = 10 << 20

@@ -10,8 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/vnkjd/git-agent/backend/internal/secrets"
-	"github.com/vnkjd/git-agent/backend/internal/testdb"
+	"github.com/vnkjd/git-agent/backend/internal/pkg/testdb"
+	"github.com/vnkjd/git-agent/backend/pkg/secrets"
 )
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }

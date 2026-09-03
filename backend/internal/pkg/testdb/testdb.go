@@ -59,7 +59,7 @@ func Setup(t *testing.T) *pgxpool.Pool {
 	})
 
 	_, self, _, _ := runtime.Caller(0)
-	sql, err := os.ReadFile(filepath.Join(filepath.Dir(self), "../../../migrations/backend/001_init.sql"))
+	sql, err := os.ReadFile(filepath.Join(filepath.Dir(self), "../../../../migrations/backend/001_init.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}

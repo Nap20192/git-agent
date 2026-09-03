@@ -9,7 +9,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"github.com/vnkjd/git-agent/backend/internal/testdb"
+	"github.com/vnkjd/git-agent/backend/internal/pkg/testdb"
 )
 
 // Полный цикл: строка outbox → publish с confirm → published_at → сообщение в очереди.
@@ -47,7 +47,7 @@ func TestPublisher(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	go (&Publisher{DB: db, URL: url}).Run(ctx)
+	go (&Worker{DB: db, URL: url}).Run(ctx)
 
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -70,7 +70,7 @@ func TestPublisher(t *testing.T) {
 	}
 	deadline = time.Now().Add(5 * time.Second)
 	for {
-		msg, ok, err := ch.Get(Queue, true)
+		msg, ok, err := ch.Get("events.all", true)
 		if err != nil {
 			t.Fatal(err)
 		}
