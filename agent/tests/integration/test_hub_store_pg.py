@@ -140,6 +140,23 @@ def test_claim_release_cas():
     asyncio.run(main())
 
 
+def test_peek_holder():
+    async def main():
+        ids = _seed()
+        store = HubInstanceStore()
+        r1 = await store.register_runner(name="r1", address="http://r1", slots=1)
+        r2 = await store.register_runner(name="r2", address="http://r2", slots=1)
+
+        assert (await store.peek_holder(ids["instance"], runner_id=r1)).outcome == "free"
+        await store.claim_instance(ids["instance"], runner_id=r1)
+        assert (await store.peek_holder(ids["instance"], runner_id=r1)).outcome == "held_by_self"
+        other = await store.peek_holder(ids["instance"], runner_id=r2)
+        assert other.outcome == "held_by_other" and other.holder_address == "http://r1"
+        assert (await store.peek_holder(999999, runner_id=r1)).outcome == "missing"
+
+    asyncio.run(main())
+
+
 def test_dedup_journal():
     async def main():
         ids = _seed()
