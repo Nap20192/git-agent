@@ -99,6 +99,25 @@ async def chat(instance_id: int, request: Request):
     )
 
 
+@api.get("/instances/{instance_id}/activity")
+async def activity(instance_id: int, request: Request, eventId: int | None = None):
+    """Activity-кадры хода (ActivityEvent, openapi.yaml): живой ход — SSE по мере
+    появления, завершённый — реплей из hub.activity; терминальный кадр — done.
+    Без eventId — живой либо последний ход; eventId — ход этого События."""
+    service = _service(request)
+
+    async def sse():
+        async for frame in service.activity(instance_id, event_id=eventId):
+            yield f"data: {json.dumps(frame, ensure_ascii=False, default=str)}\n\n"
+        yield 'data: {"kind": "done"}\n\n'
+
+    return StreamingResponse(
+        sse(),
+        media_type="text/event-stream",
+        headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
+    )
+
+
 @api.post("/instances/{instance_id}/terminal")
 async def terminal(instance_id: int, request: Request):
     """Стрим-консоль (не PTY): {command} → SSE-кадры TerminalEvent

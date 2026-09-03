@@ -6,6 +6,7 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 
+from core.runner.activity import ActivityCollector, ActivityFeed, ActivityTurn
 from core.runner.events import Event
 from core.runner.executor import EventExecutor
 from core.runner.ports import (
@@ -60,6 +61,7 @@ class RunnerService:
             asyncio.Lock()
         )  # ponytail: один замок на все подъёмы; per-instance при contention
         self._runner_id: int | None = None
+        self._activity = ActivityFeed()
 
     @property
     def busy(self) -> int:
@@ -163,13 +165,29 @@ class RunnerService:
             if ctx is None:
                 log.warning("instance context missing", instance_id=event.instance_id)
                 return "dropped"
+            turn = self._begin_turn(event.instance_id, event.event_id)
+            collector = ActivityCollector()
+
+            async def on_chunk(mode: str, data) -> None:
+                for frame in collector.frames(mode, data):
+                    await turn.emit(frame)
+
+            await turn.emit(collector.run_started())
             try:
-                await self._executor.process_event(ctx, event)
+                await self._executor.process_event(ctx, event, on_chunk=on_chunk)
             except SandboxNotProvisionedError as exc:
                 # песочницу создаёт юзер в UI; без неё Событие не обрабатываем
                 # (processed_at не ставится — ре-публикация доисполнит после создания)
                 log.warning("sandbox not provisioned, event dropped", reason=str(exc))
+                await turn.emit(collector.run_failed(f"sandbox not provisioned: {exc}"))
                 return "dropped"
+            except Exception as exc:
+                await turn.emit(collector.run_failed(exc))
+                raise
+            else:
+                await turn.emit(collector.run_finished())
+            finally:
+                turn.close()
             await self._store.mark_processed(event.instance_id, event.dedup_key)
             raised.touch()
         return "processed"
@@ -184,9 +202,48 @@ class RunnerService:
             ctx = await self._store.load_context(instance_id)
             if ctx is None:
                 raise RuntimeError(f"instance {instance_id} context missing")
-            async for item in self._executor.chat_stream(ctx, message):
-                yield item
+            turn = self._begin_turn(instance_id, None)  # event_id NULL — ход чата
+            collector = ActivityCollector()
+            await turn.emit(collector.run_started())
+            try:
+                async for mode, data in self._executor.chat_stream(ctx, message):
+                    for frame in collector.frames(mode, data):
+                        await turn.emit(frame)
+                    yield mode, data
+            except Exception as exc:
+                await turn.emit(collector.run_failed(exc))
+                raise
+            else:
+                await turn.emit(collector.run_finished())
+            finally:
+                turn.close()
             raised.touch()
+
+    def _begin_turn(self, instance_id: int, event_id: int | None) -> ActivityTurn:
+        """Открыть activity-ход; персист кадров best-effort (ход важнее журнала)."""
+
+        async def persist(seq: int, frame: dict) -> None:
+            try:
+                await self._store.add_activity(
+                    instance_id, event_id=event_id, seq=seq, frame=frame
+                )
+            except Exception:
+                log.warning("activity persist failed", instance_id=instance_id, exc_info=True)
+
+        return self._activity.begin(instance_id, event_id, persist)
+
+    async def activity(self, instance_id: int, *, event_id: int | None = None):
+        """Кадры хода: живой — реплей буфера + live; завершённый — из hub.activity
+        (event_id=None ⇒ живой либо последний ход)."""
+        turn = self._activity.live(instance_id)
+        if turn is not None and (event_id is None or turn.event_id == event_id):
+            async for frame in turn.stream():
+                yield frame
+            return
+        for frame in await self._store.list_activity(
+            instance_id, event_id=event_id, latest=event_id is None
+        ):
+            yield frame
 
     async def terminal(self, instance_id: int, command: str) -> tuple[str, int | None, str | None]:
         """Команда стрим-консоли в песочнице Экземпляра; поднимает его при необходимости."""

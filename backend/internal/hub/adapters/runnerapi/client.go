@@ -159,6 +159,32 @@ func (c *Client) Terminal(ctx context.Context, addr string, instanceID int64, co
 	return resp.Body, nil
 }
 
+// Activity — SSE-поток activity-кадров хода (кадры ActivityEvent): живой ход
+// стримится по мере появления, завершённый — реплей + done. Без first-byte
+// таймаута: раннер отвечает сразу (реплей либо подписка) — стримом управляет ctx.
+func (c *Client) Activity(ctx context.Context, addr string, instanceID int64, eventID *int64) (io.ReadCloser, error) {
+	url := fmt.Sprintf("%s/instances/%d/activity", addr, instanceID)
+	if eventID != nil {
+		url = fmt.Sprintf("%s?eventId=%d", url, *eventID)
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	streamClient := &http.Client{} // без Timeout — живой ход стримится долго
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		resp.Body.Close()
+		return nil, fmt.Errorf("runner activity: status %d: %s", resp.StatusCode, msg)
+	}
+	return resp.Body, nil
+}
+
 // bufferedStream — уже прочитанный первый кусок + остаток потока.
 type bufferedStream struct {
 	head   []byte

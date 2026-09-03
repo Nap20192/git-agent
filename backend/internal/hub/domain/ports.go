@@ -137,6 +137,9 @@ type InstanceStore interface {
 	Findings(ctx context.Context, instanceID int64) ([]Finding, error)
 	SetInstanceRunning(ctx context.Context, id, runnerID int64) error
 	SetInstanceDown(ctx context.Context, id int64) error
+	// Activity — реплей activity-кадров хода из hub.activity (payload jsonb
+	// как есть, порядок seq); eventID nil = последний ход Экземпляра.
+	Activity(ctx context.Context, instanceID int64, eventID *int64) ([][]byte, error)
 }
 
 // StaleRequeuer — надзор за протухшими Раннерами (тикеты 004/005):
@@ -189,4 +192,7 @@ type RunnerClient interface {
 	Chat(ctx context.Context, addr string, instanceID int64, message string) (io.ReadCloser, error)
 	// Terminal — SSE-поток стрим-консоли (кадры TerminalEvent); закрывает вызывающий.
 	Terminal(ctx context.Context, addr string, instanceID int64, command string) (io.ReadCloser, error)
+	// Activity — SSE-поток activity-кадров хода (кадры ActivityEvent, тикет 012);
+	// eventID nil = живой либо последний ход. Закрывает вызывающий.
+	Activity(ctx context.Context, addr string, instanceID int64, eventID *int64) (io.ReadCloser, error)
 }

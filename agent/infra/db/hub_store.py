@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from psycopg.types.json import Json
+
 from core.runner.events import Event
 from core.runner.ports import ClaimResult
 from infra.db.postgres import get_async_pool
@@ -156,6 +158,41 @@ class HubInstanceStore:
                     finding.get("remediation"),
                 ),
             )
+
+
+    async def add_activity(
+        self, instance_id: int, *, event_id: int | None, seq: int, frame: dict[str, Any]
+    ) -> None:
+        pool = await get_async_pool()
+        async with pool.connection() as conn:
+            await conn.execute(
+                "INSERT INTO hub.activity (instance_id, event_id, seq, kind, payload)"
+                " VALUES (%s, %s, %s, %s, %s)",
+                (instance_id, event_id, seq, frame.get("kind", ""), Json(frame)),
+            )
+
+    async def list_activity(
+        self, instance_id: int, *, event_id: int | None = None, latest: bool = False
+    ) -> list[dict[str, Any]]:
+        if latest:
+            where = (
+                "event_id IS NOT DISTINCT FROM (SELECT event_id FROM hub.activity"
+                " WHERE instance_id = %s ORDER BY id DESC LIMIT 1)"
+            )
+            params: tuple[Any, ...] = (instance_id, instance_id)
+        else:
+            where = "event_id IS NOT DISTINCT FROM %s"
+            params = (instance_id, event_id)
+        pool = await get_async_pool()
+        async with pool.connection() as conn:
+            rows = await (
+                await conn.execute(
+                    "SELECT payload FROM hub.activity"
+                    f" WHERE instance_id = %s AND {where} ORDER BY seq, id",
+                    params,
+                )
+            ).fetchall()
+        return [row["payload"] for row in rows]
 
 
 def _evidence(finding: dict[str, Any]) -> str:

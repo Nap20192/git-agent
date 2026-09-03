@@ -67,6 +67,7 @@ class MemStore:
         self.addresses: dict[int, str] = {}
         self.journal: dict[tuple[int, str], bool] = {}  # -> processed?
         self.contexts: dict[int, dict[str, Any]] = {}
+        self.activity: list[tuple[int, int | None, int, dict[str, Any]]] = []
 
     async def register_runner(self, *, name: str, address: str, slots: int) -> int:
         return 1
@@ -109,6 +110,15 @@ class MemStore:
     async def add_finding(self, instance_id, finding) -> None:
         pass
 
+    async def add_activity(self, instance_id, *, event_id, seq, frame) -> None:
+        self.activity.append((instance_id, event_id, seq, frame))
+
+    async def list_activity(self, instance_id, *, event_id=None, latest=False):
+        rows = [r for r in self.activity if r[0] == instance_id]
+        if latest:
+            event_id = rows[-1][1] if rows else None
+        return [frame for (_, eid, _, frame) in rows if eid == event_id]
+
 
 class FakeHub:
     def __init__(self, forward_ok: bool = True):
@@ -131,10 +141,14 @@ class FakeExecutor:
         self.error = error
         self.processed: list[Event] = []
         self.terminal_calls: list[tuple[str, str | None]] = []
+        self.chunks: list[tuple[str, Any]] = []  # стрим-чанки хода для on_chunk
 
-    async def process_event(self, ctx, event):
+    async def process_event(self, ctx, event, on_chunk=None):
         if self.error:
             raise self.error
+        if on_chunk is not None:
+            for mode, data in self.chunks:
+                await on_chunk(mode, data)
         self.processed.append(event)
 
     async def terminal(self, ctx, command, cwd=None):
