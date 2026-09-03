@@ -74,6 +74,24 @@ export function RepoScreen() {
     );
   }
 
+  // Manual run — same path as a webhook push; jump straight to the raised
+  // agent's Playground (prefer the selected watcher's Экземпляр).
+  const runAgent = async () => {
+    setBusy(true);
+    try {
+      const res = await api.triggerRepository(repo!.id);
+      const target =
+        res.instances.find((i) => i.buildId === activeBuildId) ?? res.instances[0];
+      if (target) navigate(`/instances/${target.id}`);
+      else {
+        eventsQ.reload();
+        instancesQ.reload();
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const putToSleep = async () => {
     if (!activeInstance) return;
     setBusy(true);
@@ -109,6 +127,14 @@ export function RepoScreen() {
           <Badge tone={repo.provider === "github" ? "text" : "burnt"}>{repo.provider}</Badge>
           <AgentPresence instance={activeInstance} />
           <div style={{ flex: 1 }} />
+          <Button variant="primary" disabled={busy} onClick={runAgent}>
+            {busy ? "…" : "▶ Run agent"}
+          </Button>
+          {activeInstance && (
+            <Button variant="ghost" onClick={() => navigate(`/instances/${activeInstance.id}`)}>
+              Playground →
+            </Button>
+          )}
           {activeInstance?.status === "running" && (
             <Button variant="ghost" disabled={busy} onClick={putToSleep}>
               Put to sleep
@@ -388,7 +414,7 @@ function InstancePanels({ instance }: { instance: AgentInstance }) {
   );
 }
 
-function FindingRow({ finding: f }: { finding: Finding }) {
+export function FindingRow({ finding: f }: { finding: Finding }) {
   return (
     <div className={styles.findingItem}>
       <div className={styles.findingHead}>

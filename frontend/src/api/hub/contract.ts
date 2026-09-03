@@ -97,6 +97,25 @@ export interface AgentInstance {
   updatedAt?: string;
 }
 
+/**
+ * 202 body of POST /api/repositories/{id}/trigger — manual agent run, same
+ * path as a webhook push. Shape agreed verbally; re-check against
+ * backend/docs/openapi.yaml once the backend commit lands.
+ */
+export interface TriggerResult {
+  event: RepoEvent;
+  instances: AgentInstance[];
+}
+
+/** Раннер — a worker host that raises Экземпляры (slots = capacity). */
+export interface Runner {
+  id: number;
+  name: string;
+  address: string;
+  slots: number;
+  lastHeartbeatAt?: string;
+}
+
 export interface Report {
   id: number;
   instanceId: number;

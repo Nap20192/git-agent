@@ -60,3 +60,7 @@ export function useInstanceFindings(id: number) {
   const api = useHubApi();
   return useAsync(() => api.listInstanceFindings(id), [id]);
 }
+export function useRunners() {
+  const api = useHubApi();
+  return useAsync(() => api.listRunners(), []);
+}

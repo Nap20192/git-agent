@@ -50,6 +50,8 @@ export function createHttpHubApi(): HubApi {
       req(`/repositories/${id}`, { method: "PATCH", body: JSON.stringify({ buildId }) }),
     disconnectRepository: (id) => req(`/repositories/${id}`, { method: "DELETE" }),
     listRepositoryEvents: (id) => req(`/repositories/${id}/events`),
+    triggerRepository: (id, input) =>
+      req(`/repositories/${id}/trigger`, { method: "POST", body: JSON.stringify(input ?? {}) }),
 
     listSubscriptions: (repositoryId) => req(`/repositories/${repositoryId}/subscriptions`),
     createSubscription: (repositoryId, input) =>
@@ -74,6 +76,8 @@ export function createHttpHubApi(): HubApi {
     stopInstance: (id) => req(`/instances/${id}/stop`, { method: "POST" }),
     listInstanceReports: (id) => req(`/instances/${id}/reports`),
     listInstanceFindings: (id) => req(`/instances/${id}/findings`),
+
+    listRunners: () => req("/runners"),
 
     async chat(instanceId, message, onEvent) {
       const res = await fetch(`${BASE}/instances/${instanceId}/chat`, {
