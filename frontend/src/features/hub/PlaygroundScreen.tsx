@@ -1,6 +1,6 @@
 /** Playground — live view of one agent Экземпляр. Header (status, thread,
- *  sandbox, runner) + actions (attach sandbox, stop turn / resume, raise,
- *  run agent, full scan), then tabs: timeline (events + reports + activity
+ *  sandbox instance, runner) + actions (stop turn / resume, raise, run agent,
+ *  full scan; the sandbox instance is auto-created by the hub on run), then tabs: timeline (events + reports + activity
  *  log, build/counts/sandbox cards), agents (lead + Сабагенты folded from the
  *  activity SSE; click a timeline event to replay its ход), findings, chat,
  *  terminal. Entity lists poll at 5s;
@@ -8,13 +8,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useHubApi, type Finding, type RepoEvent, type Report } from "@/api/hub";
-import { useBuilds, useHubRepositories, useInstance, useInstanceFindings, useInstanceReports, useInstances, useLlmConnections, useRepoEvents, useRunners, useSandboxConnections, useSandboxInstancesHub } from "@/hooks";
+import { useBuilds, useHubRepositories, useInstance, useInstanceFindings, useInstanceReports, useInstances, useLlmConnections, useRepoEvents, useRunners, useSandboxConnections } from "@/hooks";
 import { activityLine, foldActivity, useInstanceActivity } from "./activity.ts";
 import { InstanceAgentsPanel } from "./InstanceAgentsPanel.tsx";
 import { InstanceChatPanel } from "./InstanceChatPanel.tsx";
 import { Clamp, Rich } from "./rich.tsx";
 import { InstanceTerminalPanel } from "./InstanceTerminalPanel.tsx";
-import { Dot, Panel, ago, errMsg, sha, shortRef, useScreenCtx, useShell } from "./ui.tsx";
+import { Dot, Panel, ago, sha, shortRef, toShellError, useScreenCtx, useShell } from "./ui.tsx";
 
 const POLL_MS = 5000;
 const TABS = ["timeline", "agents", "findings", "chat", "terminal"] as const;
@@ -39,7 +39,7 @@ export function limitsText(limits?: Record<string, unknown>): string {
   return p.length ? p.join(" · ") : "no limits";
 }
 
-export function FindingsTable({ rows, loading }: { rows: Finding[]; loading?: boolean }) {
+export function FindingsTable({ rows, loading, empty = "no findings filed by this agent yet." }: { rows: Finding[]; loading?: boolean; empty?: string }) {
   const loc = (f: Finding) => (f.file ? `${f.file}${f.lineStart != null ? `:${f.lineStart}${f.lineEnd != null && f.lineEnd !== f.lineStart ? `-${f.lineEnd}` : ""}` : ""}` : "—");
   return (
     <div className="box">
@@ -55,7 +55,7 @@ export function FindingsTable({ rows, loading }: { rows: Finding[]; loading?: bo
           <span><Clamp lines={6}><Rich>{f.remediation ?? ""}</Rich></Clamp></span>
         </div>
       ))}
-      {rows.length === 0 && <div className="empty">{loading ? "loading…" : "no findings filed by this instance."}</div>}
+      {rows.length === 0 && <div className="empty">{loading ? "loading…" : empty}</div>}
     </div>
   );
 }
@@ -64,7 +64,7 @@ export function PlaygroundScreen() {
   const id = Number(useParams().id);
   const navigate = useNavigate();
   const api = useHubApi();
-  const { say, setLive } = useShell();
+  const { say, setLive, fail } = useShell();
 
   const instQ = useInstance(id);
   const inst = instQ.data;
@@ -74,7 +74,6 @@ export function PlaygroundScreen() {
   const sbxConnQ = useSandboxConnections();
   const runnersQ = useRunners();
   const instancesQ = useInstances();
-  const sbxQ = useSandboxInstancesHub();
   const eventsQ = useRepoEvents(inst?.repositoryId ?? null);
   const findingsQ = useInstanceFindings(id);
   const reportsQ = useInstanceReports(id);
@@ -85,7 +84,6 @@ export function PlaygroundScreen() {
   const [graphEventId, setGraphEventId] = useState<number | null>(null);
   const { frames, done: turnDone } = useInstanceActivity(id, graphEventId);
   const [busy, setBusy] = useState<string | null>(null);
-  const [attach, setAttach] = useState("");
   const [saSel, setSaSel] = useState<string | null>(null);
 
   const repo = (reposQ.data ?? []).find((r) => r.id === inst?.repositoryId);
@@ -99,7 +97,7 @@ export function PlaygroundScreen() {
   // Poll everything the screen shows; reload identities change per render, so read through a ref.
   const reloadRef = useRef(() => {});
   reloadRef.current = () => {
-    instQ.reload(); eventsQ.reload(); findingsQ.reload(); reportsQ.reload(); runnersQ.reload(); instancesQ.reload(); sbxQ.reload();
+    instQ.reload(); eventsQ.reload(); findingsQ.reload(); reportsQ.reload(); runnersQ.reload(); instancesQ.reload();
   };
   useEffect(() => {
     const t = setInterval(() => reloadRef.current(), POLL_MS);
@@ -123,7 +121,6 @@ export function PlaygroundScreen() {
   const turnActive = graphEventId == null && frames.length > 0 && !turnDone;
   const hasUnfinished = events.some((e) => !reportFor(e));
   const sandboxAlive = inst.sandboxInstanceId != null && inst.sandboxStatus === "alive";
-  const aliveSandboxes = (sbxQ.data ?? []).filter((s) => s.status === "alive");
   const log = (text: string) => setLocal((a) => [...a, { at: new Date(), text }]);
 
   const act = async (key: string, fn: () => Promise<string | void>) => {
@@ -133,9 +130,8 @@ export function PlaygroundScreen() {
       if (m) { say(m); log(m); }
       reloadRef.current();
     } catch (e) {
-      const m = errMsg(e, `${key} failed`);
-      say(m);
-      log(`error: ${m}`);
+      fail(e, `${key} failed`);
+      log(`error: ${toShellError(e, `${key} failed`).message}`);
     } finally {
       setBusy(null);
     }
@@ -146,7 +142,8 @@ export function PlaygroundScreen() {
       const res = await api.triggerRepository(inst.repositoryId, mode ? { mode } : undefined);
       setGraphEventId(null);
       if (res.duplicate) return `already ran @ ${sha(res.commitSha)} — nothing new to do`;
-      return `${mode === "full" ? "full scan" : "manual trigger"} @ ${sha(res.commitSha)} → ${res.instanceIds.length} instance(s)`;
+      if (res.instanceIds.length === 0) throw new Error("no build serves this repository — make a build the default or subscribe one on the repository page");
+      return `${mode === "full" ? "full scan" : "run"} @ ${sha(res.commitSha)} → agent #${res.instanceIds.join(", #")}`;
     });
   };
   // «Остановить ход»: the runner cancels the executing turn; the Событие stays unprocessed → «Продолжить» resumes from the checkpoint.
@@ -163,24 +160,10 @@ export function PlaygroundScreen() {
       setGraphEventId(null);
       return status === "queued" ? `resume: event #${eventIds.join(", #")} re-queued; instance waits for a runner slot` : `resume: event #${eventIds.join(", #")} continues from the checkpoint`;
     });
-  const raise = () => act("raise", async () => { const { status } = await api.raiseInstance(inst.id); return status === "queued" ? "raise queued — runner slots busy" : `instance #${inst.id} raised`; });
-  const attachSandbox = () => {
-    const sid = Number(attach);
-    if (!sid) return say("pick a sandbox first");
-    act("attach", async () => { await api.setInstanceSandbox(inst.id, sid); setAttach(""); return `sandbox attached to instance #${inst.id}`; });
-  };
-  const createSandbox = () => {
-    const connId = build?.sandboxConnectionId;
-    if (connId == null) return say("build has no sandbox connection — set one on the builds page.");
-    act("sandbox", async () => {
-      const si = await api.createSandboxInstance({ sandboxConnectionId: connId });
-      await api.setInstanceSandbox(inst.id, si.id);
-      return `sandbox created → ${si.externalId}`;
-    });
-  };
+  const raise = () => act("raise", async () => { const { status } = await api.raiseInstance(inst.id); return status === "queued" ? "raise queued — runner slots busy" : `agent #${inst.id} raised`; });
   const killSandbox = () => {
-    if (inst.sandboxInstanceId == null) return;
-    act("sandbox", async () => { await api.killSandboxInstance(inst.sandboxInstanceId!); return `sandbox killed → ${inst.sandboxExternalId ?? `#${inst.sandboxInstanceId}`}`; });
+    if (inst.sandboxInstanceId == null || !window.confirm("Kill this sandbox instance? The next run agent / chat creates a fresh one from the build's sandbox connection.")) return;
+    act("sandbox", async () => { await api.killSandboxInstance(inst.sandboxInstanceId!); return `sandbox instance killed → ${inst.sandboxExternalId ?? `#${inst.sandboxInstanceId}`}`; });
   };
 
   // timeline: events (●, click → replay on graph) + reports (→) + activity lines (⚙; node frames stay on the graph), newest first
@@ -207,19 +190,10 @@ export function PlaygroundScreen() {
             <Dot on={running} pulse={running} />{build?.name ?? "instance"} <span className="muted" style={{ fontWeight: 400 }}>#{inst.id}</span>
           </h1>
           <div className="sub comment">
-            {inst.status} · thread {inst.threadId ?? "—"} · sandbox {inst.sandboxExternalId ? `${inst.sandboxExternalId} (${inst.sandboxStatus})` : "none"} · runner {runner ? `${runner.name} ${runner.address}` : "—"} · updated {ago(inst.updatedAt)}
+            {inst.status} · thread {inst.threadId ?? "—"} · sandbox instance {inst.sandboxExternalId ? `${inst.sandboxExternalId} (${inst.sandboxStatus})` : "none yet"} · runner {runner ? `${runner.name} ${runner.address}` : "—"} · updated {ago(inst.updatedAt)}
           </div>
         </div>
         <div className="row" style={{ justifyContent: "flex-end" }}>
-          {!sandboxAlive && aliveSandboxes.length > 0 && (
-            <>
-              <select className="select" value={attach} onChange={(e) => setAttach(e.target.value)}>
-                <option value="">attach sandbox…</option>
-                {aliveSandboxes.map((s) => (<option key={s.id} value={s.id}>{s.externalId}</option>))}
-              </select>
-              <button className="btn md" disabled={busy != null} onClick={attachSandbox}>attach</button>
-            </>
-          )}
           {running ? (
             <button className="btn md danger" disabled={busy != null || !turnActive} title={turnActive ? "cancel the executing turn; the event stays unfinished" : "no executing turn"} onClick={stopTurn}>
               {busy === "stop" ? "stopping…" : "■ stop turn"}
@@ -229,11 +203,11 @@ export function PlaygroundScreen() {
               <button className="btn md" disabled={busy != null || !hasUnfinished} title={hasUnfinished ? "republish unfinished events; the turn continues from the checkpoint" : "no unfinished events"} onClick={resumeTurn}>
                 {busy === "resume" ? "resuming…" : "⟳ resume"}
               </button>
-              <button className="btn md" disabled={busy != null} onClick={raise}>{busy === "raise" ? "raising…" : "raise instance"}</button>
+              <button className="btn md" disabled={busy != null} title="load the agent from its checkpoint into a runner slot without a new event (chat does this too)" onClick={raise}>{busy === "raise" ? "raising…" : "raise agent"}</button>
             </>
           )}
-          <button className="btn primary" disabled={busy != null} onClick={() => runAgent()}>{busy === "trigger" ? "triggering…" : "❯ run agent"}</button>
-          <button className="btn md" disabled={busy != null} onClick={() => runAgent("full")}>full scan</button>
+          <button className="btn primary" disabled={busy != null} title={`review HEAD of ${repo?.defaultBranch ?? "the default branch"}`} onClick={() => runAgent()}>{busy === "trigger" ? "starting…" : `❯ run agent @ ${repo?.defaultBranch ?? "main"}`}</button>
+          <button className="btn md" disabled={busy != null} title="full security audit of the whole repository — long and expensive" onClick={() => runAgent("full")}>full scan</button>
         </div>
       </div>
 
@@ -262,7 +236,7 @@ export function PlaygroundScreen() {
                 </div>
               </div>
             ))}
-            {timeline.length === 0 && <div className="empty">{eventsQ.loading && eventsQ.data === undefined ? "loading…" : "no events yet — trigger a run or push to the repo."}</div>}
+            {timeline.length === 0 && <div className="empty">{eventsQ.loading && eventsQ.data === undefined ? "loading…" : "no events yet — press run agent (or push to the repo if it has a webhook)."}</div>}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
             <Panel label="build" className="elev pad">
@@ -270,7 +244,7 @@ export function PlaygroundScreen() {
               <div className="small comment pretty" style={{ marginTop: 4 }}>{build?.prompt || "no prompt — runs the reviewer default"}</div>
               <div className="small muted" style={{ marginTop: 6 }}>
                 llm {(llmQ.data ?? []).find((c) => c.id === build?.llmConnectionId)?.name ?? "—"}<br />
-                sandbox {(sbxConnQ.data ?? []).find((c) => c.id === build?.sandboxConnectionId)?.name ?? "—"}<br />
+                sandbox connection {(sbxConnQ.data ?? []).find((c) => c.id === build?.sandboxConnectionId)?.name ?? "—"}<br />
                 memory {build?.memoryPreset ?? "—"} · {limitsText(build?.limits)}
               </div>
             </Panel>
@@ -279,19 +253,16 @@ export function PlaygroundScreen() {
               <div className="kv"><span>findings</span><span>{findings.length}</span></div>
               <div className="kv"><span>subagents</span><span className="comment">{saList.length} spawned · {saRunning} running</span></div>
             </Panel>
-            <Panel label="sandbox" dim={inst.sandboxInstanceId != null ? inst.sandboxStatus ?? "?" : "none"} className="elev pad">
+            <Panel label="sandbox instance" dim="auto-created on run" className="elev pad">
               {sandboxAlive ? (
                 <>
-                  <div className="small comment pretty"><b>{inst.sandboxExternalId}</b> — alive, no ttl. the runner only connects to it; killing it stops event processing until a new one is created.</div>
-                  <button className="btn danger" style={{ marginTop: 8 }} disabled={busy != null} onClick={killSandbox}>{busy === "sandbox" ? "killing…" : "✕ kill sandbox"}</button>
+                  <div className="small comment pretty"><b>{inst.sandboxExternalId}</b> — alive, no ttl. this agent's own container; the runner connects to it on every turn. kill it if it went stale — the next run creates a fresh one.</div>
+                  <button className="btn danger" style={{ marginTop: 8 }} disabled={busy != null} onClick={killSandbox}>{busy === "sandbox" ? "killing…" : "✕ kill sandbox instance"}</button>
                 </>
               ) : (
-                <>
-                  <div className="small comment pretty">
-                    {inst.sandboxInstanceId != null ? `previous sandbox ${inst.sandboxExternalId ?? ""} is dead. the hub creates a fresh one on the next run / chat — or create it now.` : "no sandbox yet. the hub creates one from the build's sandbox connection on the first run / chat — or create it now."}
-                  </div>
-                  <button className="btn primary" style={{ marginTop: 8 }} disabled={busy != null} onClick={createSandbox}>{busy === "sandbox" ? "creating…" : `+ create sandbox${build?.sandboxConnectionId != null ? ` · connection #${build.sandboxConnectionId}` : ""}`}</button>
-                </>
+                <div className="small comment pretty">
+                  {inst.sandboxInstanceId != null ? `previous instance ${inst.sandboxExternalId ?? ""} is dead — the next run agent / chat creates a fresh one` : "none yet — the first run agent / chat creates one"} from the build's sandbox connection.
+                </div>
               )}
             </Panel>
           </div>

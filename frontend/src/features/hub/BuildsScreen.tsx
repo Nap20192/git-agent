@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useHubApi, type AgentBuild, type LlmConnection, type SandboxConnection } from "@/api/hub";
 import { useBuilds, useInstances, useLlmConnections, useRunners, useSandboxConnections, useSandboxInstancesHub } from "@/hooks";
 import { limitsText } from "./PlaygroundScreen.tsx";
-import { Dot, Drawer, ago, errMsg, useScreenCtx, useShell } from "./ui.tsx";
+import { Dot, Drawer, ago, useScreenCtx, useShell } from "./ui.tsx";
 
 const BCOLS = "1.2fr 1fr 1fr 110px 1.2fr 1fr 200px";
 
@@ -20,7 +20,7 @@ const LIMIT_FIELDS = [
 
 export function BuildsScreen() {
   const api = useHubApi();
-  const { say } = useShell();
+  const { say, fail } = useShell();
   useScreenCtx(null);
   const buildsQ = useBuilds();
   const llmQ = useLlmConnections();
@@ -31,6 +31,7 @@ export function BuildsScreen() {
   const [drawer, setDrawer] = useState<"build" | "llm" | "sbx" | null>(null);
   const [editing, setEditing] = useState<AgentBuild | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showDead, setShowDead] = useState(false);
 
   const builds = buildsQ.data ?? [];
   const llms = llmQ.data ?? [];
@@ -46,7 +47,7 @@ export function BuildsScreen() {
       await fn();
       say(ok);
     } catch (e) {
-      say(errMsg(e, "failed"));
+      fail(e, "failed");
     } finally {
       setBusy(false);
     }
@@ -55,7 +56,6 @@ export function BuildsScreen() {
   const removeBuild = (b: AgentBuild) => window.confirm(`delete build ${b.name}?`) && act(async () => { await api.deleteBuild(b.id); buildsQ.reload(); }, `deleted build ${b.name}`);
   const removeLlm = (c: LlmConnection) => window.confirm(`delete llm connection ${c.name}?`) && act(async () => { await api.deleteLlmConnection(c.id); llmQ.reload(); }, `deleted llm connection ${c.name}`);
   const removeSbx = (c: SandboxConnection) => window.confirm(`delete sandbox connection ${c.name}?`) && act(async () => { await api.deleteSandboxConnection(c.id); sbxQ.reload(); }, `deleted sandbox connection ${c.name}`);
-  const spawn = (c: SandboxConnection) => act(async () => { const s = await api.createSandboxInstance({ sandboxConnectionId: c.id }); instQ.reload(); say(`sandbox ${s.externalId} created on ${c.name}`); }, "");
   const kill = (id: number, ext: string) => window.confirm(`kill sandbox ${ext}?`) && act(async () => { await api.killSandboxInstance(id); instQ.reload(); }, `killed ${ext}`);
 
   return (
@@ -64,13 +64,13 @@ export function BuildsScreen() {
         <div className="head" style={{ marginBottom: 12 }}>
           <div>
             <h1>builds</h1>
-            <div className="sub">an agent build is a stored definition — prompt, connections, memory preset, limits. not a live process.</div>
+            <div className="sub">an agent build is a stored definition — prompt, llm connection, sandbox connection, memory preset, limits. not a live process; the default build serves every repo without its own subscription.</div>
           </div>
           <button className="btn primary" onClick={() => { setEditing(null); setDrawer("build"); }}>+ new build</button>
         </div>
         <div className="box">
           <div className="thead" style={{ "--cols": BCOLS } as React.CSSProperties}>
-            <span>name</span><span>llm</span><span>sandbox</span><span>memory</span><span>limits</span><span>created</span><span></span>
+            <span>name</span><span>llm connection</span><span>sandbox connection</span><span>memory</span><span>limits</span><span>created</span><span></span>
           </div>
           {builds.map((b) => (
             <div key={b.id} className="trow click" style={{ "--cols": BCOLS, padding: "8px 12px" } as React.CSSProperties} onClick={() => { setEditing(b); setDrawer("build"); }}>
@@ -89,14 +89,18 @@ export function BuildsScreen() {
               </span>
             </div>
           ))}
-          {builds.length === 0 && <div className="empty">{buildsQ.loading ? "loading…" : "no builds — create one; the default build serves every repo without a subscription."}</div>}
+          {builds.length === 0 && (
+            <div className="empty pretty">
+              {buildsQ.loading ? "loading…" : llms.length === 0 && !llmQ.loading ? "no builds — add an llm connection below first, then create a build and make it the default." : "no builds — create one and make it the default; it serves every repo without a subscription."}
+            </div>
+          )}
         </div>
       </div>
 
       <div className="grid2" style={{ gap: 16 }}>
         <div>
           <div className="head" style={{ marginBottom: 12 }}>
-            <div><h2>llm connections</h2><div className="sub">only the key mask ever crosses the wire.</div></div>
+            <div><h2>llm connections</h2><div className="sub">openai-compatible endpoint + model; only the key mask ever crosses the wire.</div></div>
             <button className="btn" onClick={() => setDrawer("llm")}>+ add</button>
           </div>
           <div className="box">
@@ -114,7 +118,7 @@ export function BuildsScreen() {
         </div>
         <div>
           <div className="head" style={{ marginBottom: 12 }}>
-            <div><h2>sandbox connections</h2><div className="sub">opensandbox endpoints the hub provisions from.</div></div>
+            <div><h2>sandbox connections</h2><div className="sub pretty">where and from which image the hub creates a sandbox instance for each agent (opensandbox endpoint + image). a build points at one connection, never at an instance.</div></div>
             <button className="btn" onClick={() => setDrawer("sbx")}>+ add</button>
           </div>
           <div className="box">
@@ -124,10 +128,7 @@ export function BuildsScreen() {
                   <b>{c.name}</b> <span className="muted">· {c.image || "default image"}</span>
                   <div className="small comment">{c.domain} · key {c.apiKeyMasked ?? "—"}</div>
                 </div>
-                <div className="row" style={{ flexWrap: "nowrap" }}>
-                  <button className="btn sm" disabled={busy} onClick={() => spawn(c)}>+ instance</button>
-                  <button className="btn sm danger" disabled={busy} onClick={() => removeSbx(c)}>delete</button>
-                </div>
+                <button className="btn sm danger" disabled={busy} onClick={() => removeSbx(c)}>delete</button>
               </div>
             ))}
             {sbxs.length === 0 && <div className="empty small">{sbxQ.loading ? "loading…" : "none."}</div>}
@@ -137,22 +138,25 @@ export function BuildsScreen() {
 
       <div className="grid2" style={{ gap: 16 }}>
         <div>
-          <h2 style={{ marginBottom: 12 }}>sandbox instances <span className="muted small" style={{ fontWeight: 400 }}>· no ttl — killed only on command</span></h2>
+          <h2 style={{ marginBottom: 12 }}>sandbox instances <span className="muted small" style={{ fontWeight: 400 }}>· live containers, created automatically per agent on run · no ttl — killed only on command</span></h2>
           <div className="box">
-            {sbxInst.map((s) => {
+            {sbxInst.filter((s) => showDead || s.status === "alive").map((s) => {
               const alive = s.status === "alive";
               const usedBy = agents.filter((a) => a.sandboxInstanceId === s.id).map((a) => `#${a.id}`);
               return (
                 <div key={s.id} className="lrow" style={{ alignItems: "center" }}>
                   <div>
                     <Dot on={alive} /><b>{s.externalId}</b> <span className="muted">· {sbxName(s.sandboxConnectionId)} · {s.status}</span>
-                    <div className="small comment">created {ago(s.createdAt)}{s.killedAt ? ` · killed ${ago(s.killedAt)}` : ""} · used by {usedBy.length ? `instance ${usedBy.join(", ")}` : "nobody"}</div>
+                    <div className="small comment">created {ago(s.createdAt)}{s.killedAt ? ` · killed ${ago(s.killedAt)}` : ""} · {usedBy.length ? `agent ${usedBy.join(", ")}` : "not bound to an agent"}</div>
                   </div>
                   {alive && <button className="btn sm danger" disabled={busy} onClick={() => kill(s.id, s.externalId)}>kill</button>}
                 </div>
               );
             })}
-            {sbxInst.length === 0 && <div className="empty small" style={{ padding: 12 }}>{instQ.loading ? "loading…" : "none provisioned."}</div>}
+            {sbxInst.filter((s) => showDead || s.status === "alive").length === 0 && <div className="empty small" style={{ padding: 12 }}>{instQ.loading ? "loading…" : "no live sandbox instances — one appears when an agent runs."}</div>}
+            {sbxInst.some((s) => s.status === "dead") && (
+              <button className="btn xs" style={{ margin: 8 }} onClick={() => setShowDead((v) => !v)}>{showDead ? "hide" : "show"} {sbxInst.filter((s) => s.status === "dead").length} dead</button>
+            )}
           </div>
         </div>
         <div>
@@ -190,7 +194,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function BuildDrawer({ open, build, llms, sandboxes, onClose, reload }: { open: boolean; build: AgentBuild | null; llms: LlmConnection[]; sandboxes: SandboxConnection[]; onClose: () => void; reload: () => void }) {
   const api = useHubApi();
-  const { say } = useShell();
+  const { say, fail } = useShell();
   const [f, setF] = useState({ name: "", llm: "", sbx: "", prompt: "", memory: "", isDefault: false });
   const [lim, setLim] = useState<Record<string, string>>({});
   // unknown keys of an existing limits object are kept as-is, never dropped
@@ -230,7 +234,7 @@ function BuildDrawer({ open, build, llms, sandboxes, onClose, reload }: { open: 
       reload();
       onClose();
     } catch (e) {
-      say(errMsg(e, "save failed"));
+      fail(e, "save failed");
     } finally {
       setBusy(false);
     }
@@ -243,25 +247,25 @@ function BuildDrawer({ open, build, llms, sandboxes, onClose, reload }: { open: 
       <div className="grid2">
         <Field label="llm connection">
           <select className="select" value={f.llm} onChange={(e) => setF({ ...f, llm: e.target.value })}>
-            <option value="">— first connection</option>
+            <option value="">{llms[0] ? `${llms[0].name} (first — default)` : "none — add an llm connection first"}</option>
             {llms.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
           </select>
         </Field>
-        <Field label="sandbox connection">
+        <Field label="sandbox connection · where the agent's sandbox instance is created">
           <select className="select" value={f.sbx} onChange={(e) => setF({ ...f, sbx: e.target.value })}>
-            <option value="">— first connection</option>
+            <option value="">{sandboxes[0] ? `${sandboxes[0].name} (first — default)` : "none — add a sandbox connection first"}</option>
             {sandboxes.map((c) => (<option key={c.id} value={c.id}>{c.name}</option>))}
           </select>
         </Field>
       </div>
-      <Field label="memory preset"><input className="input" value={f.memory} onChange={(e) => setF({ ...f, memory: e.target.value })} placeholder="prod_v2" /></Field>
+      <Field label="memory preset · empty = production preset for the model; unknown names fail at run time"><input className="input" value={f.memory} onChange={(e) => setF({ ...f, memory: e.target.value })} placeholder="prod_v2" /></Field>
       <div className="flabel">limits · empty = default (3 subagents · 6 total · no budget · 600s · 300s)</div>
       <div className="grid3">
         {LIMIT_FIELDS.map((x) => (
           <Field key={x.key} label={x.label}><input className="input" type="number" value={lim[x.key] ?? ""} onChange={(e) => setLim({ ...lim, [x.key]: e.target.value })} placeholder={x.ph} /></Field>
         ))}
       </div>
-      <label className="check"><input type="checkbox" checked={f.isDefault} onChange={(e) => setF({ ...f, isDefault: e.target.checked })} /><span>make this the default build</span></label>
+      <label className="check"><input type="checkbox" checked={f.isDefault} onChange={(e) => setF({ ...f, isDefault: e.target.checked })} /><span>make this the default build — serves every repo without its own subscription</span></label>
       <button className="btn lg primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={submit}>❯ {build ? "save build" : "create build"}</button>
     </Drawer>
   );
@@ -269,11 +273,11 @@ function BuildDrawer({ open, build, llms, sandboxes, onClose, reload }: { open: 
 
 function LlmDrawer({ open, onClose, reload }: { open: boolean; onClose: () => void; reload: () => void }) {
   const api = useHubApi();
-  const { say } = useShell();
+  const { say, fail } = useShell();
   const [f, setF] = useState({ name: "", base: "", model: "", key: "" });
   const [busy, setBusy] = useState(false);
   const submit = async () => {
-    if (!f.name.trim() || !f.key) return say("name and api key are required");
+    if (!f.name.trim() || !f.key) return fail(new Error("name and api key are required"), "");
     setBusy(true);
     try {
       await api.createLlmConnection({ name: f.name.trim(), apiBase: f.base.trim(), apiKey: f.key, model: f.model.trim() });
@@ -282,7 +286,7 @@ function LlmDrawer({ open, onClose, reload }: { open: boolean; onClose: () => vo
       reload();
       onClose();
     } catch (e) {
-      say(errMsg(e, "create failed"));
+      fail(e, "create failed");
     } finally {
       setBusy(false);
     }
@@ -300,11 +304,11 @@ function LlmDrawer({ open, onClose, reload }: { open: boolean; onClose: () => vo
 
 function SbxDrawer({ open, onClose, reload }: { open: boolean; onClose: () => void; reload: () => void }) {
   const api = useHubApi();
-  const { say } = useShell();
+  const { say, fail } = useShell();
   const [f, setF] = useState({ name: "", domain: "", image: "", key: "" });
   const [busy, setBusy] = useState(false);
   const submit = async () => {
-    if (!f.name.trim()) return say("name is required");
+    if (!f.name.trim()) return fail(new Error("name is required"), "");
     setBusy(true);
     try {
       await api.createSandboxConnection({ name: f.name.trim(), domain: f.domain.trim(), apiKey: f.key.trim() || undefined, image: f.image.trim() || undefined });
@@ -313,13 +317,14 @@ function SbxDrawer({ open, onClose, reload }: { open: boolean; onClose: () => vo
       reload();
       onClose();
     } catch (e) {
-      say(errMsg(e, "create failed"));
+      fail(e, "create failed");
     } finally {
       setBusy(false);
     }
   };
   return (
     <Drawer open={open} title="new sandbox connection" onClose={onClose}>
+      <div className="small comment pretty">an opensandbox endpoint and the image to start. the hub creates one sandbox instance (live container) per agent from it, automatically, on the first run.</div>
       <Field label="name"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="local-opensandbox" /></Field>
       <Field label="domain · empty = OPENSANDBOX_DOMAIN from .env"><input className="input" value={f.domain} onChange={(e) => setF({ ...f, domain: e.target.value })} placeholder="http://localhost:8090" /></Field>
       <Field label="image · empty = SANDBOX_IMAGE from .env"><input className="input" value={f.image} onChange={(e) => setF({ ...f, image: e.target.value })} placeholder="opensandbox/base" /></Field>

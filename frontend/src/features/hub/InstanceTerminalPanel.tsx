@@ -40,7 +40,7 @@ export function InstanceTerminalPanel({ instanceId, running, hasSandbox, sandbox
     const observer = new ResizeObserver(() => fit.fit());
     observer.observe(hostRef.current);
     termRef.current = term;
-    term.writeln(`\x1b[2msandbox ${sandboxLabel} · stdout+stderr merged · commands run in a fresh shell, cwd persists\x1b[0m`);
+    term.writeln(`\x1b[2msandbox instance ${sandboxLabel} · stdout+stderr merged · commands run in a fresh shell, cwd persists\x1b[0m`);
     return () => {
       observer.disconnect();
       term.dispose();
@@ -82,7 +82,7 @@ export function InstanceTerminalPanel({ instanceId, running, hasSandbox, sandbox
         <div className="term-host" ref={hostRef} />
       ) : (
         <div className="empty small" style={{ flex: 1 }}>
-          {!hasSandbox ? "no sandbox yet — run the agent or send a chat message (the hub creates one), or create it on the timeline tab." : "the agent is down — raise it (run agent or send a chat message) to open the terminal."}
+          {!hasSandbox ? "no sandbox instance yet — it is created automatically on the first run agent / chat message." : "the agent is down — run agent or send a chat message to raise it; the terminal opens while it runs."}
         </div>
       )}
       <div className="prompt">

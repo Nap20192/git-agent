@@ -4,7 +4,7 @@ Practical guide for developing the **git-agent** frontend. Read this before open
 
 The UI is a client of the Go **hub** only (`backend/`, contract `backend/docs/openapi.yaml`,
 camelCase, authoritative). Screens: `/repos` (home: connected repositories), `/repos/:id`
-(the agents' home — WATCHERS panel of subscriptions/instances, chat, reports, findings),
+(the agents' home — AGENTS panel of subscriptions/instances, run agent CTA, chat, journal),
 `/instances/:id` (playground: activity graph, terminal), `/builds`, `/account`, `/dash`.
 
 ## 1. Stack
@@ -52,8 +52,12 @@ docs/design/git-agent-hub.dc.html   the design reference the hub screens follow
 ```
 
 Rules: new endpoint → `contract.ts` + `client.ts` + `http.ts` + `mock.ts` in one change; screens
-never call `fetch`; errors surface through `errMsg(e, fallback)` from `features/hub/ui.tsx`;
-a `401` throws `UnauthorizedError` and `HubGate` sends the user to sign in.
+never call `fetch`; a failed user action goes through `useShell().fail(e, fallback)` — it renders
+the backend message + `X-Trace-Id` in the `ErrorBanner` over the screen (inline streams may still
+use `errMsg`); a `401` throws `UnauthorizedError` and `HubGate` sends the user to sign in.
+Terminology (CONTEXT.md): **sandbox connection** = where/from which image the hub creates,
+**sandbox instance** = the live container of one agent, auto-created on run — never ask the user
+to bind one; `Onboarding` in `ui.tsx` is the 3-step checklist shown while setup is incomplete.
 
 ## 4. How to test
 

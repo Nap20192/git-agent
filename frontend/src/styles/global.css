@@ -738,3 +738,15 @@ b {
   border: 1px solid var(--accent);
   border-radius: 3px;
 }
+
+/* error banner over the screen (backend message + trace id) */
+.banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 12px;
+  margin-bottom: 16px;
+  border: 1px solid var(--error);
+  background: var(--bg-elevated);
+  font-size: 12px;
+}
