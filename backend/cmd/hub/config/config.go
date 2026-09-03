@@ -78,7 +78,7 @@ func Load() (*Config, error) {
 		c.Defaults.SandboxDomain = "localhost:8090" // зеркало agent/core/config.py
 	}
 	if c.Defaults.SandboxImage == "" {
-		c.Defaults.SandboxImage = "alpine/git:latest"
+		c.Defaults.SandboxImage = "git-agent/sandbox:strix"
 	}
 	if c.Addr == "" {
 		c.Addr = ":8081"
