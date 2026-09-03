@@ -1,5 +1,5 @@
-"""Композиционный корень: сборка и graceful-разбор зависимостей приложения."""
+"""Композиционный корень: сборка и graceful-разбор Раннера."""
 
-from deps.container import AppDeps, RunnerDeps, app_deps, runner_deps
+from deps.container import RunnerDeps, runner_deps
 
-__all__ = ["AppDeps", "RunnerDeps", "app_deps", "runner_deps"]
+__all__ = ["RunnerDeps", "runner_deps"]
