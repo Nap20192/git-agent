@@ -79,25 +79,34 @@ class RunnerService:
             await self.stop_instance(instance_id)
 
     async def _raise(self, instance_id: int) -> LocalInstance | ClaimResult:
-        """Поднять Экземпляр в слот (идемпотентно) либо вернуть ClaimResult-отказ."""
-        async with self._raise_lock:
-            existing = self._instances.get(instance_id)
-            if existing is not None:
-                existing.touch()
-                return existing
-            await self._free.acquire()
-            try:
+        """Поднять Экземпляр в слот (идемпотентно) либо вернуть ClaimResult-отказ.
+
+        Слот ждётся ВНЕ _raise_lock: иначе один ожидающий подъём стопорит
+        обращения к уже поднятым Экземплярам (чат/События).
+        """
+        existing = self._instances.get(instance_id)
+        if existing is not None:
+            existing.touch()
+            return existing
+        await self._free.acquire()
+        raised = False
+        try:
+            async with self._raise_lock:
+                existing = self._instances.get(instance_id)
+                if existing is not None:  # подняли, пока мы ждали слот
+                    existing.touch()
+                    return existing
                 claim = await self._store.claim_instance(instance_id, runner_id=self.runner_id)
-            except BaseException:
+                if claim.outcome not in ("claimed", "held_by_self"):
+                    return claim
+                instance = LocalInstance(id=instance_id)
+                self._instances[instance_id] = instance
+                raised = True
+                log.info("instance raised", instance_id=instance_id)
+                return instance
+        finally:
+            if not raised:
                 self._free.release()
-                raise
-            if claim.outcome not in ("claimed", "held_by_self"):
-                self._free.release()
-                return claim
-            instance = LocalInstance(id=instance_id)
-            self._instances[instance_id] = instance
-            log.info("instance raised", instance_id=instance_id)
-            return instance
 
     async def raise_instance(self, instance_id: int) -> bool:
         return isinstance(await self._raise(instance_id), LocalInstance)
@@ -119,6 +128,8 @@ class RunnerService:
         Исключение исполнения пробрасывается (processed_at не ставится — Событие
         доисполнит ре-публикация backend'а).
         """
+        # ponytail: чужое Событие тоже проходит через ожидание слота (слот берётся до
+        # клейма); peek держателя без слота — если задержка форварда станет проблемой
         raised = await self._raise(event.instance_id)
         if isinstance(raised, ClaimResult):
             if raised.outcome == "held_by_other" and raised.holder_address:

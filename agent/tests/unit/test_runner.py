@@ -249,6 +249,25 @@ def test_slots_block_until_free():
     asyncio.run(run())
 
 
+def test_slot_waiter_does_not_block_raised_instances():
+    """Ожидающий слота подъём не должен стопорить чат/События к уже поднятым."""
+
+    async def run():
+        store = MemStore()
+        seed(store, instance_id=3)
+        seed(store, instance_id=4)
+        service = await started(make_service(store, slots=1))
+        assert await service.raise_instance(3)
+        waiter = asyncio.ensure_future(service.raise_instance(4))
+        await asyncio.sleep(0.01)
+        # Событие к поднятому Экземпляру проходит, пока waiter висит на слоте
+        assert await asyncio.wait_for(service.handle_event(parse_event(WIRE)), 0.5) == "processed"
+        await service.stop_instance(3)
+        assert await asyncio.wait_for(waiter, 1)
+
+    asyncio.run(run())
+
+
 def test_idle_reap_releases_instance():
     async def run():
         store = MemStore()
