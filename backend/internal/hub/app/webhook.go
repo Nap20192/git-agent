@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
@@ -41,32 +42,36 @@ func (s *WebhookService) Handle(ctx context.Context, provider string, repoID int
 		return
 	}
 
-	// веер (тикет 011): Сборки с совпавшей подпиской; репо вовсе без
-	// подписок обслуживает дефолтная Сборка на все события
-	subs, err := s.Subs.SubscriptionsByRepo(ctx, repo.ID)
-	if err != nil {
-		slog.Error("webhook: subscriptions lookup failed", "repositoryId", repoID, "err", err)
-		return
-	}
-	buildIDs := domain.MatchedBuilds(subs, e.Action, e.Ref)
-	if len(subs) == 0 {
-		if def, err := s.Subs.DefaultBuild(ctx, repo.UserID); err != nil {
-			slog.Error("webhook: default build lookup failed", "repositoryId", repoID, "err", err)
-			return
-		} else if def != nil {
-			buildIDs = []int64{def.ID}
-		}
-	}
-
-	duplicate, err := s.Ingestor.Ingest(ctx, repo, e, body, buildIDs)
+	duplicate, instanceIDs, err := s.FanOut(ctx, repo, e, body)
 	if err != nil {
 		slog.Error("webhook: ingest failed", "repositoryId", repoID, "deliveryId", e.DeliveryID, "err", err)
 		return
 	}
 	if duplicate {
 		slog.Info("webhook: duplicate delivery", "provider", provider, "deliveryId", e.DeliveryID)
-	} else if len(buildIDs) == 0 {
+	} else if len(instanceIDs) == 0 {
 		slog.Info("webhook: no matching subscriptions, journaled only",
 			"repositoryId", repoID, "action", e.Action, "ref", e.Ref)
 	}
+}
+
+// FanOut — общий путь вебхука и ручного запуска (тикет 011): Сборки с
+// совпавшей подпиской (репо вовсе без подписок обслуживает дефолтная Сборка
+// на все события) → транзакционный ingest (журнал + Экземпляры + outbox).
+func (s *WebhookService) FanOut(ctx context.Context, repo *domain.Repository, e domain.Event, payload []byte) (duplicate bool, instanceIDs []int64, err error) {
+	subs, err := s.Subs.SubscriptionsByRepo(ctx, repo.ID)
+	if err != nil {
+		return false, nil, fmt.Errorf("subscriptions lookup: %w", err)
+	}
+	buildIDs := domain.MatchedBuilds(subs, e.Action, e.Ref)
+	if len(subs) == 0 {
+		def, err := s.Subs.DefaultBuild(ctx, repo.UserID)
+		if err != nil {
+			return false, nil, fmt.Errorf("default build lookup: %w", err)
+		}
+		if def != nil {
+			buildIDs = []int64{def.ID}
+		}
+	}
+	return s.Ingestor.Ingest(ctx, repo, e, payload, buildIDs)
 }

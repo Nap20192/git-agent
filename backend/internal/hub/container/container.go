@@ -68,7 +68,7 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 	outbox := &app.OutboxService{Store: store, Publisher: publisher}
 	repositories := &app.RepositoryService{
 		Repos: store, Identities: store, Subs: store, Provider: providerClient,
-		Auth: auth, Secrets: box, WebhookBaseURL: cfg.WebhookBaseURL,
+		Auth: auth, Webhook: webhook, Secrets: box, WebhookBaseURL: cfg.WebhookBaseURL,
 	}
 	instances := &app.InstanceService{
 		Instances: store, Runners: store, Client: runnerClient,

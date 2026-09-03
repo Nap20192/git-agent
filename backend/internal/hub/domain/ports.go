@@ -16,8 +16,9 @@ type RepositoryStore interface {
 // provider+delivery_id) + веер (тикет 011): upsert Экземпляра каждой Сборки
 // из buildIDs + строка outbox на каждый Экземпляр (в сообщении instanceId).
 type EventIngestor interface {
-	// Ingest возвращает duplicate=true для повторной доставки (no-op).
-	Ingest(ctx context.Context, repo *Repository, e Event, payload []byte, buildIDs []int64) (duplicate bool, err error)
+	// Ingest возвращает duplicate=true для повторной доставки (no-op) либо
+	// id затронутых Экземпляров.
+	Ingest(ctx context.Context, repo *Repository, e Event, payload []byte, buildIDs []int64) (duplicate bool, instanceIDs []int64, err error)
 }
 
 // SubscriptionStore — подписки Сборок (тикет 011).
@@ -157,6 +158,8 @@ type ProviderClient interface {
 	// CreateHook вешает вебхук на все действия; возвращает id хука у провайдера.
 	CreateHook(ctx context.Context, provider, token string, repo ProviderRepo, url, secret string) (string, error)
 	DeleteHook(ctx context.Context, provider, token string, repo *Repository, hookID string) error
+	// BranchHead — sha HEAD-коммита ветки/тега (ручной запуск, тикет trigger).
+	BranchHead(ctx context.Context, provider, token string, repo *Repository, ref string) (string, error)
 }
 
 // RunnerClient — API Раннера (тикет 004): поднять/опустить Экземпляр, чат.
