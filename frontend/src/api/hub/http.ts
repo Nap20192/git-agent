@@ -4,25 +4,29 @@
  */
 import type { ActivityEvent, ChatEvent, TerminalEvent } from "./contract.ts";
 import { UnauthorizedError, type HubApi } from "./client.ts";
+import { TRACE_HEADER, newTraceId, setLastTrace, traceTail } from "./trace.ts";
 
 /* Hub base URL. Default "/hub" — vite.config.ts proxies /hub/* to the Go hub
    (:8081), keeping the session cookie same-origin. Set VITE_HUB_URL="" when
    the hub is served from the same origin (prod). */
 const BASE = `${import.meta.env.VITE_HUB_URL ?? "/hub"}/api`;
 
-/** Error body per ApiError ({error:{code,message}}); tolerates legacy {error:"…"}. */
+/** Error body per ApiError ({error:{code,message}}); tolerates legacy {error:"…"}.
+ *  message carries «trace …abcd» so every inline/status-bar error shows the id;
+ *  traceId — full id (status-bar chip copies it). */
 export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
     public code = "error",
+    public traceId = "",
   ) {
-    super(message);
+    super(traceId ? `${message} · ${traceTail(traceId)}` : message);
     this.name = "ApiError";
   }
 }
 
-async function apiError(res: Response): Promise<ApiError> {
+async function apiError(res: Response, traceId: string): Promise<ApiError> {
   let message = res.statusText || `HTTP ${res.status}`;
   let code = "error";
   try {
@@ -32,18 +36,39 @@ async function apiError(res: Response): Promise<ApiError> {
   } catch {
     /* non-JSON error */
   }
-  return new ApiError(res.status, message, code);
+  return new ApiError(res.status, message, code, traceId);
+}
+
+/** One user action = one trace: fresh X-Trace-Id per request, echoed by the hub
+ *  (its value wins if it had to regenerate), logged to console, shown in the status bar. */
+async function traced(method: string, path: string, init: RequestInit): Promise<{ res: Response; traceId: string }> {
+  let traceId = newTraceId();
+  const action = `${method} ${path}`;
+  setLastTrace({ id: traceId, action, ok: null });
+  console.info(`[hub] ${action} trace=${traceId}`);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, { ...init, headers: { ...init.headers, [TRACE_HEADER]: traceId } });
+  } catch (e) {
+    console.error(`[hub] ${action} trace=${traceId} failed:`, e);
+    setLastTrace({ id: traceId, action, ok: false });
+    throw new ApiError(0, e instanceof Error ? e.message : "network error", "network", traceId);
+  }
+  traceId = res.headers.get(TRACE_HEADER) ?? traceId;
+  setLastTrace({ id: traceId, action, ok: res.ok });
+  if (!res.ok) console.error(`[hub] ${action} trace=${traceId} → ${res.status}`);
+  return { res, traceId };
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const { res, traceId } = await traced(init?.method ?? "GET", path, {
     headers: { "content-type": "application/json" },
     credentials: "include",
     ...init,
   });
   if (res.status === 401) throw new UnauthorizedError();
   if (!res.ok) {
-    throw await apiError(res);
+    throw await apiError(res, traceId);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -132,8 +157,9 @@ async function streamSSE<E>(
   onEvent: (e: E) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: body != null ? "POST" : "GET",
+  const method = body != null ? "POST" : "GET";
+  const { res, traceId } = await traced(method, path, {
+    method,
     headers: body != null ? { "content-type": "application/json" } : undefined,
     credentials: "include",
     body: body != null ? JSON.stringify(body) : undefined,
@@ -141,7 +167,7 @@ async function streamSSE<E>(
   });
   if (res.status === 401) throw new UnauthorizedError();
   if (!res.ok || !res.body) {
-    throw await apiError(res);
+    throw await apiError(res, traceId);
   }
   const reader = res.body.getReader();
   const dec = new TextDecoder();

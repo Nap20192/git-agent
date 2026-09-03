@@ -186,6 +186,18 @@ b {
 .statusbar .clock {
   border-left: 1px solid var(--border);
 }
+.statusbar .trace {
+  all: unset;
+  cursor: copy;
+  font: inherit;
+  color: var(--text-muted);
+}
+.statusbar .trace:hover {
+  color: var(--text);
+}
+.statusbar .trace.err {
+  color: var(--error);
+}
 
 /* ── screens ───────────────────────────────────────────────────────── */
 .screen {

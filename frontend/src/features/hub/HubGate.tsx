@@ -3,7 +3,7 @@
  *  (identity chip, context, message, position, clock) around the screen. */
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { UnauthorizedError, useHubApi, type Me, type Provider } from "@/api/hub";
+import { UnauthorizedError, traceTail, useHubApi, useLastTrace, type Me, type Provider } from "@/api/hub";
 import { useHubRepositories, useInstances, useMe } from "@/hooks";
 import { useTheme } from "@/lib/theme.ts";
 import { ShellCtx, type Shell } from "./ui.tsx";
@@ -84,6 +84,7 @@ function Frame({ me }: { me: Me }) {
   const [live, setLive] = useState(false);
   const reposQ = useHubRepositories();
   const instancesQ = useInstances();
+  const trace = useLastTrace();
   const shell = useMemo<Shell>(() => ({ say: setMsg, setCtx, setLive }), []);
 
   const seg = pathname.split("/")[1] || "repos";
@@ -128,6 +129,21 @@ function Frame({ me }: { me: Me }) {
           <span className="ctx">{ctx ?? "hub"}</span>
           <span className="msg">{msg}</span>
           <span style={{ flex: 1 }} />
+          {trace && (
+            <span className="pos">
+              <button
+                className={`trace${trace.ok === false ? " err" : ""}`}
+                title={`${trace.action} · ${trace.id} (click to copy)`}
+                onClick={() => {
+                  void navigator.clipboard?.writeText(trace.id);
+                  setMsg(`copied ${trace.id}`);
+                }}
+              >
+                {traceTail(trace.id)}
+                {trace.ok === null ? " …" : ""}
+              </button>
+            </span>
+          )}
           <span className="pos">
             {screen} · {(reposQ.data ?? []).length} repos · {running} running
           </span>

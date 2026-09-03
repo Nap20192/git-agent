@@ -22,4 +22,6 @@ export function useHubApi(): HubApi {
 
 export * from "./contract.ts";
 export { UnauthorizedError } from "./client.ts";
+export { ApiError } from "./http.ts";
+export { traceTail, useLastTrace } from "./trace.ts";
 export type { HubApi } from "./client.ts";

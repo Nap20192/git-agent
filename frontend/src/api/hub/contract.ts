@@ -48,6 +48,8 @@ export interface RepoEvent {
   commitSha?: string | null;
   ref?: string | null;
   receivedAt: string;
+  /** Сквозной trace_id запроса, породившего Событие (32 hex); "" до миграции 004. */
+  traceId?: string;
 }
 
 /** Сборка Агента — stored agent definition, not a live process. */
@@ -209,6 +211,8 @@ export interface ActivityEvent {
   status?: ActivityStatus | null;
   findingsCount?: number | null;
   ts?: string | null;
+  /** Сквозной trace_id хода — тот же, что в логах hub/раннера и в Langfuse/LangSmith. */
+  traceId?: string | null;
 }
 
 /**
