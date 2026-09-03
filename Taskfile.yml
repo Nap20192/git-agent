@@ -122,6 +122,11 @@ tasks:
     cmds:
       - go test ./...
 
+  tunnel:
+    desc: Перезапустить cloudflared-туннель и перепрописать GitHub-хуки на новый URL
+    cmds:
+      - ./scripts/retunnel.sh
+
   front:
     desc: Фронтенд (vite dev, :5173) с http-адаптером к беку
     dir: frontend
