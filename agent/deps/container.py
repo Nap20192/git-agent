@@ -64,6 +64,7 @@ async def runner_deps():
     from infra.db.hub_store import HubInstanceStore
     from infra.db.postgres import close_async_pool
     from infra.hub_client import HttpHubClient
+    from infra.mcp import load_mcp_tools
     from infra.rabbit import consume_events
     from infra.sandbox.sandboxes import connect_hub_sandbox
     from pkg.errors import describe
@@ -82,6 +83,7 @@ async def runner_deps():
             connect_sandbox=lambda ctx: connect_hub_sandbox(ctx, decrypt_key),
             decrypt=decrypt_key,
             tracing_callbacks=build_tracing_callbacks(),  # fail-fast: включён, но не настроен
+            mcp_tools=await load_mcp_tools(),  # CVE MCP; недоступен ⇒ warn + без него
         ),
         name=settings.runner_name,
         address=settings.runner_address,

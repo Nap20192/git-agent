@@ -111,6 +111,7 @@ class EventExecutor:
         decrypt: Callable[[bytes | None], str | None],
         make_model: Callable[..., Any] = make_model,
         tracing_callbacks: list[Any] | None = None,
+        mcp_tools: list[Any] | None = None,
     ) -> None:
         self._store = store
         self._checkpointer = checkpointer
@@ -119,6 +120,8 @@ class EventExecutor:
         self._make_model = make_model
         # коллбэки провайдеров (LangSmith/Langfuse) — из композиционного корня, fail-fast там
         self._tracing_callbacks = list(tracing_callbacks or ())
+        # тулы MCP-серверов (CVE-интеллект) — загружены один раз при старте раннера
+        self._mcp_tools = list(mcp_tools or ())
 
     def _run_config(
         self, ctx: dict[str, Any], profile: Any, tracer: TurnTracer, *, turn: str
@@ -168,7 +171,7 @@ class EventExecutor:
             api_key=self._decrypt(ctx["llm_api_key_enc"]),
         )
         # ponytail: memory_preset Сборки не резолвится — лид-профиль пресетов пока не берёт
-        profile = build_lead_profile(security_tools=tools)
+        profile = build_lead_profile(mcp_tools=self._mcp_tools, security_tools=tools)
         graph = profile.build(
             sandbox, model, checkpointer=self._checkpointer, limits=ctx.get("limits") or {}
         )

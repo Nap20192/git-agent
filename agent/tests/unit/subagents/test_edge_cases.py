@@ -316,7 +316,7 @@ def test_sandbox_tools_clip_and_error_text():
             async def close(self):
                 pass
 
-        run_tool, _read_tool = build_sandbox_tools(HugeSandbox())
+        run_tool = {t.name: t for t in build_sandbox_tools(HugeSandbox())}["sandbox_run"]
         out = await run_tool.ainvoke({"command": "big"})
         assert len(out) <= SANDBOX_OUTPUT_MAX_CHARS + 20
         assert out.endswith("[truncated]")
@@ -327,7 +327,7 @@ def test_sandbox_tools_clip_and_error_text():
             async def run(self, command, *, timeout_seconds=None):
                 return command
 
-        _, read2 = build_sandbox_tools(EchoSandbox())
+        read2 = {t.name: t for t in build_sandbox_tools(EchoSandbox())}["read_file"]
         cmd = await read2.ainvoke({"path": "/repo/my file.py"})
         assert "'/repo/my file.py'" in cmd
 
