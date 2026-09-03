@@ -44,4 +44,30 @@ func TestEventMessage(t *testing.T) {
 			t.Errorf("%s: got %v, want %v", k, got[k], want)
 		}
 	}
+	// без diff-контекста его ключей нет вовсе (раннер читает их как optional)
+	for _, k := range []string{"beforeSha", "baseSha", "headSha", "prNumber", "prTitle", "prBody", "changedFiles"} {
+		if _, ok := got[k]; ok {
+			t.Errorf("%s present on plain event", k)
+		}
+	}
+}
+
+// Диапазон изменений (миграция 006) — camelCase-поля добавлены к контракту, старые не тронуты.
+func TestEventMessageDiffContext(t *testing.T) {
+	repo := &Repository{ID: 42, Provider: "github"}
+	var got map[string]any
+	msg := EventMessage(7, 15, "t", repo, Event{Action: "pull_request", CommitSHA: "h", BeforeSHA: "b0", BaseSHA: "b", HeadSHA: "h",
+		PRNumber: 3, PRTitle: "T", PRBody: "B", ChangedFiles: []string{"a.go"}})
+	if err := json.Unmarshal(msg, &got); err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]any{"beforeSha": "b0", "baseSha": "b", "headSha": "h", "prNumber": float64(3),
+		"prTitle": "T", "prBody": "B", "commitSha": "h", "dedupKey": "h"} {
+		if got[k] != want {
+			t.Errorf("%s: got %v, want %v", k, got[k], want)
+		}
+	}
+	if files, _ := got["changedFiles"].([]any); len(files) != 1 || files[0] != "a.go" {
+		t.Errorf("changedFiles: %v", got["changedFiles"])
+	}
 }

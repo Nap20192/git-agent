@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -40,6 +41,14 @@ type eventDTO struct {
 	Ref        *string   `json:"ref"`
 	ReceivedAt time.Time `json:"receivedAt"`
 	TraceID    string    `json:"traceId"`
+	// diff-контекст (миграция 006)
+	BeforeSHA    *string         `json:"beforeSha"`
+	BaseSHA      *string         `json:"baseSha"`
+	HeadSHA      *string         `json:"headSha"`
+	PRNumber     *int            `json:"prNumber"`
+	PRTitle      *string         `json:"prTitle"`
+	PRBody       *string         `json:"prBody"`
+	ChangedFiles json.RawMessage `json:"changedFiles"`
 }
 
 type triggerResultDTO struct {

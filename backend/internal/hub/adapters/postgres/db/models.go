@@ -5,6 +5,7 @@
 package db
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -64,6 +65,13 @@ type HubEvent struct {
 	Payload      []byte
 	ReceivedAt   time.Time
 	TraceID      string
+	BeforeSHA    *string
+	BaseSHA      *string
+	HeadSHA      *string
+	PRNumber     *int
+	PRTitle      *string
+	PRBody       *string
+	ChangedFiles json.RawMessage
 }
 
 type HubFinding struct {

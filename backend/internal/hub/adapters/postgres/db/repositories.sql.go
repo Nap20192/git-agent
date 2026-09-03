@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -93,7 +94,8 @@ func (q *Queries) DeleteSubscription(ctx context.Context, arg DeleteSubscription
 }
 
 const events = `-- name: Events :many
-SELECT id, provider, action, commit_sha, ref, received_at, trace_id
+SELECT id, provider, action, commit_sha, ref, received_at, trace_id,
+       before_sha, base_sha, head_sha, pr_number, pr_title, pr_body, changed_files
   FROM hub.events WHERE repository_id = $1 ORDER BY id DESC LIMIT $2::int
 `
 
@@ -103,13 +105,20 @@ type EventsParams struct {
 }
 
 type EventsRow struct {
-	ID         int64
-	Provider   string
-	Action     string
-	CommitSHA  *string
-	Ref        *string
-	ReceivedAt time.Time
-	TraceID    string
+	ID           int64
+	Provider     string
+	Action       string
+	CommitSHA    *string
+	Ref          *string
+	ReceivedAt   time.Time
+	TraceID      string
+	BeforeSHA    *string
+	BaseSHA      *string
+	HeadSHA      *string
+	PRNumber     *int
+	PRTitle      *string
+	PRBody       *string
+	ChangedFiles json.RawMessage
 }
 
 func (q *Queries) Events(ctx context.Context, arg EventsParams) ([]EventsRow, error) {
@@ -129,6 +138,13 @@ func (q *Queries) Events(ctx context.Context, arg EventsParams) ([]EventsRow, er
 			&i.Ref,
 			&i.ReceivedAt,
 			&i.TraceID,
+			&i.BeforeSHA,
+			&i.BaseSHA,
+			&i.HeadSHA,
+			&i.PRNumber,
+			&i.PRTitle,
+			&i.PRBody,
+			&i.ChangedFiles,
 		); err != nil {
 			return nil, err
 		}
@@ -169,6 +185,23 @@ func (q *Queries) FindRepository(ctx context.Context, arg FindRepositoryParams) 
 		&i.WebhookSecretEnc,
 	)
 	return i, err
+}
+
+const lastProcessedCommit = `-- name: LastProcessedCommit :one
+SELECT coalesce(e.commit_sha, '')::text
+  FROM hub.instance_events ie
+  JOIN hub.events e ON e.id = ie.event_id
+ WHERE e.repository_id = $1 AND ie.processed_at IS NOT NULL AND e.commit_sha IS NOT NULL
+ ORDER BY ie.processed_at DESC LIMIT 1
+`
+
+// LastProcessedCommit — коммит последнего успешно обработанного События репо
+// (before_sha для ручного запуска: дифф «с прошлого ревью»). Нет — пусто.
+func (q *Queries) LastProcessedCommit(ctx context.Context, repositoryID int64) (string, error) {
+	row := q.db.QueryRow(ctx, lastProcessedCommit, repositoryID)
+	var column_1 string
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const repositories = `-- name: Repositories :many

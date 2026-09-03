@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Identity — OAuth-связка пользователя (тикет 003).
 type Identity struct {
@@ -40,6 +43,14 @@ type EventRecord struct {
 	Ref        *string
 	ReceivedAt time.Time
 	TraceID    string
+	// diff-контекст (миграция 006), nil = неизвестно
+	BeforeSHA    *string
+	BaseSHA      *string
+	HeadSHA      *string
+	PRNumber     *int
+	PRTitle      *string
+	PRBody       *string
+	ChangedFiles json.RawMessage // JSON-массив путей либо nil
 }
 
 // AgentBuild — Сборка Агента (CONTEXT.md): хранимое определение, не процесс.
