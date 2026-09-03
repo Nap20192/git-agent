@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from core.runner.events import Event
-from infra.server.runner_api import api
+from infra.server.runner_api import install_api
 
 WIRE = {
     "eventId": 7,
@@ -75,7 +75,7 @@ def service() -> FakeService:
 @pytest.fixture
 def client(service: FakeService) -> TestClient:
     app = FastAPI()
-    app.include_router(api)
+    install_api(app)
     app.state.service = service
     return TestClient(app)
 
@@ -87,7 +87,7 @@ def test_health(client, service):
 
 def test_503_before_lifespan():
     app = FastAPI()
-    app.include_router(api)
+    install_api(app)
     assert TestClient(app).get("/health").status_code == 503
 
 
@@ -124,7 +124,7 @@ def test_chat_sse_stream_is_chat_events(client, service):
     with client.stream("POST", "/instances/3/chat", json={"message": "что нового?"}) as response:
         assert response.headers["content-type"].startswith("text/event-stream")
         body = "".join(response.iter_text())
-    frames = [json.loads(line[len("data: "):]) for line in body.splitlines() if line]
+    frames = [json.loads(line[len("data: ") :]) for line in body.splitlines() if line]
     assert [f["kind"] for f in frames] == ["activity", "activity", "token", "done"]
     assert frames[0]["text"] == "думаю"
     assert frames[1]["text"] == "lead: sandbox_run"
@@ -141,7 +141,7 @@ def _terminal_frames(client, command: str) -> list[dict]:
     with client.stream("POST", "/instances/3/terminal", json={"command": command}) as response:
         assert response.headers["content-type"].startswith("text/event-stream")
         body = "".join(response.iter_text())
-    return [json.loads(line[len("data: "):]) for line in body.splitlines() if line]
+    return [json.loads(line[len("data: ") :]) for line in body.splitlines() if line]
 
 
 def test_terminal_sse_frames(client, service):
@@ -162,7 +162,9 @@ def test_terminal_empty_output_skips_output_frame(client, service):
 
 
 def test_terminal_unavailable_instance_is_error_frames(client, service):
-    service.terminal_result = RuntimeError("instance 3 unavailable: missing")
+    from core.runner.ports import InstanceUnavailableError
+
+    service.terminal_result = InstanceUnavailableError(3, "missing")
     frames = _terminal_frames(client, "ls")
     assert frames[0] == {"kind": "output", "text": "instance 3 unavailable: missing"}
     assert frames[1] == {"kind": "exit", "code": None, "cwd": None}
@@ -172,3 +174,33 @@ def test_terminal_unavailable_instance_is_error_frames(client, service):
 def test_terminal_requires_command(client, service):
     assert client.post("/instances/3/terminal", json={"command": " \n"}).status_code == 422
     assert service.terminals == []
+
+
+def test_errors_use_wire_format():
+    """Любая ошибка наружу — ApiError {"error": {"code", "message"}}: hub проксирует тело как есть."""
+    from core.runner.ports import InstanceUnavailableError
+
+    app = FastAPI()
+    install_api(app)
+
+    @app.get("/boom")
+    async def boom() -> None:
+        raise RuntimeError("db is down")
+
+    @app.get("/held")
+    async def held() -> None:
+        raise InstanceUnavailableError(7, "held_by_other")
+
+    client = TestClient(app, raise_server_exceptions=False)
+    assert client.get("/health").json() == {
+        "error": {"code": "unavailable", "message": "runner is starting"}
+    }
+    assert client.get("/boom").json() == {
+        "error": {"code": "internal", "message": "internal error: RuntimeError: db is down"}
+    }
+    r = client.get("/held")
+    assert r.status_code == 409
+    assert r.json()["error"] == {
+        "code": "instance_unavailable",
+        "message": "instance 7 unavailable: held_by_other",
+    }

@@ -67,16 +67,16 @@ func (c *Client) do(ctx context.Context, token, method, url string, body, out an
 	}
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("provider unreachable: %w: %w", err, domain.ErrUpstream)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
 		// сигнал refresh-флоу (тикет 003)
-		return fmt.Errorf("provider %s %s: %w", method, url, domain.ErrUnauthorized)
+		return fmt.Errorf("provider %s %s: token rejected (401): %w", method, url, domain.ErrUnauthorized)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("provider %s %s: status %d: %s", method, url, resp.StatusCode, msg)
+		return fmt.Errorf("provider %s %s: status %d: %s: %w", method, url, resp.StatusCode, msg, domain.ErrUpstream)
 	}
 	if out == nil {
 		return nil

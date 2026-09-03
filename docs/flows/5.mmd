@@ -1,0 +1,25 @@
+sequenceDiagram
+    actor U as Пользователь
+    participant H as hub
+    participant G as GitHub API
+    participant DB as Postgres
+
+    U->>H: POST /api/repositories/{id}/trigger {mode: manual|full, ref?, commitSha?}
+    alt commitSha не задан
+        H->>G: GET /repos/{o}/{r}/commits/{ref}
+        alt DNS/сеть
+            G-->>H: error → 500 resolve "main" head
+        else
+            G-->>H: sha
+        end
+    end
+    alt mode=manual, коммит уже запускали
+        H-->>U: 202 {duplicate:true, instanceIds:[]}
+    else mode=manual
+        H->>DB: Событие action=manual (delivery manual-{repo}-{sha}) → fan-out как вебхук
+        H-->>U: 202 {commitSha, instanceIds}
+    else mode=full
+        Note over H,DB: не привязан к коммиту: delivery уникален на клик, dedupKey=full-{eventId}
+        H->>DB: Событие action=full_scan → fan-out
+        H-->>U: 202 (Лид получает промпт полного аудита: план областей → веер Сабагентов)
+    end

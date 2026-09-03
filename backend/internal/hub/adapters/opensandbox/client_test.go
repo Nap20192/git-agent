@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -41,6 +42,9 @@ func TestCreateSandboxNoTTL(t *testing.T) {
 	}
 	if string(got.body["image"]) != `{"uri":"alpine/git:latest"}` {
 		t.Fatalf("image = %s", got.body["image"])
+	}
+	if !strings.Contains(string(got.body["env"]), "EXECD_API_GRACE_SHUTDOWN") {
+		t.Fatalf("env = %s, want EXECD_API_GRACE_SHUTDOWN", got.body["env"])
 	}
 }
 

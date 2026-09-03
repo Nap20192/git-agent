@@ -1,55 +1,45 @@
-// Package httpapi — inbound-адаптер HTTP: протокол провайдеров и wire-формат,
-// вся политика — в app/domain.
 package httpapi
 
 import (
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 
-	"github.com/vnkjd/git-agent/backend/internal/hub/app"
+	"go.uber.org/zap"
+
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 )
 
 const maxWebhookBody = 10 << 20
 
-// WebhookHandler — POST /hooks/{provider}/{repositoryId} (тикет 002).
-// Наружу ВСЕГДА 200: невалидная подпись, неизвестный репо, дубль — дроп + лог.
-type WebhookHandler struct {
-	Service *app.WebhookService
-}
-
-func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (s *Server) webhook(w http.ResponseWriter, r *http.Request) {
 	defer w.WriteHeader(http.StatusOK) // единственный ответ наружу
 
 	provider := r.PathValue("provider")
 	repoID, err := strconv.ParseInt(r.PathValue("repositoryId"), 10, 64)
 	if (provider != "github" && provider != "gitlab") || err != nil {
-		slog.InfoContext(r.Context(), "webhook: dropped, bad path", "provider", provider)
+		zap.S().Infow("webhook: dropped, bad path", "provider", provider)
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBody))
 	if err != nil {
-		slog.InfoContext(r.Context(), "webhook: dropped, body read", "err", err)
+		zap.S().Infow("webhook: dropped, body read", "err", err)
 		return
 	}
 	e, ok := parseEvent(provider, r.Header, body)
 	if !ok {
-		slog.InfoContext(r.Context(), "webhook: dropped, unparseable event", "repositoryId", repoID, "provider", provider)
+		zap.S().Infow("webhook: dropped, unparseable event", "repositoryId", repoID, "provider", provider)
 		return
 	}
 	auth := domain.WebhookAuth{
 		GitHubSignature: r.Header.Get("X-Hub-Signature-256"),
 		GitLabToken:     r.Header.Get("X-Gitlab-Token"),
 	}
-	h.Service.Handle(r.Context(), provider, repoID, auth, e, body)
+	s.Webhook.Handle(r.Context(), provider, repoID, auth, e, body)
 }
 
-// parseEvent извлекает Событие из заголовков и JSON-тела провайдера.
-// Неизвестные типы событий не ошибка: журналируем всё, commit/ref опциональны.
 func parseEvent(provider string, header http.Header, body []byte) (domain.Event, bool) {
 	var p map[string]any
 	_ = json.Unmarshal(body, &p) // не-JSON тело → пустая map, Событие без commit/ref
@@ -73,7 +63,6 @@ func parseEvent(provider string, header http.Header, body []byte) (domain.Event,
 		e.DeliveryID = header.Get("X-Gitlab-Event-UUID")
 		e.Action, _ = p["object_kind"].(string)
 		if e.Action == "" {
-			// системные хуки без object_kind — нормализованный заголовок события
 			e.Action = strings.ReplaceAll(strings.ToLower(header.Get("X-Gitlab-Event")), " ", "_")
 		}
 		switch e.Action {

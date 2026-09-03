@@ -6,8 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 	"github.com/vnkjd/git-agent/backend/pkg/secrets"
@@ -139,7 +140,7 @@ func (s *AuthService) CallWithToken(ctx context.Context, ident *domain.Identity,
 	}
 	tok, refErr := s.OAuth.Refresh(ctx, ident.Provider, string(refresh))
 	if refErr != nil {
-		slog.WarnContext(ctx, "auth: token refresh failed", "identityId", ident.ID, "err", refErr)
+		zap.S().Warnw("auth: token refresh failed", "identityId", ident.ID, "err", refErr)
 		return err
 	}
 	accessEnc, refreshEnc, encErr := s.encryptTokens(tok)

@@ -12,6 +12,16 @@ class SandboxNotProvisionedError(RuntimeError):
     """У Экземпляра Агента нет живого Экземпляра Сэндбокса — раннер сам НЕ создаёт."""
 
 
+class InstanceUnavailableError(RuntimeError):
+    """Экземпляр нельзя обслужить на этом раннере: держит другой раннер, нет в БД
+    или пропал контекст. `outcome` — исход клейма (held_by_other | missing | …)."""
+
+    def __init__(self, instance_id: int, outcome: str) -> None:
+        super().__init__(f"instance {instance_id} unavailable: {outcome}")
+        self.instance_id = instance_id
+        self.outcome = outcome
+
+
 @dataclass(frozen=True)
 class ClaimResult:
     """Итог клейма Экземпляра: claimed | held_by_self | held_by_other | missing."""
@@ -31,6 +41,13 @@ class InstanceStore(Protocol):
 
     async def claim_instance(self, instance_id: int, *, runner_id: int) -> ClaimResult:
         """CAS down→running (+runner_id); running у себя — held_by_self."""
+        ...
+
+    async def peek_holder(self, instance_id: int, *, runner_id: int) -> ClaimResult:
+        """Читающая проверка без клейма: held_by_other (+адрес) | free | held_by_self | missing.
+
+        Для форварда чужих Событий без ожидания слота; гонку с claim решает CAS.
+        """
         ...
 
     async def release_instance(self, instance_id: int, *, runner_id: int) -> bool:

@@ -39,7 +39,7 @@ def _pg_available() -> bool:
 
 
 def _rabbit_available() -> bool:
-    host_port = settings.rabbit_url.rsplit("@", 1)[-1].rstrip("/")
+    host_port = settings.rabbitmq_url.rsplit("@", 1)[-1].rstrip("/")
     host, _, port = host_port.partition(":")
     try:
         with socket.create_connection((host, int(port or 5672)), timeout=2):
@@ -97,8 +97,7 @@ def _seed() -> dict[str, int]:
             (uid, b"x"),
         ).fetchone()[0]
         sconn = conn.execute(
-            "INSERT INTO hub.sandbox_connections (name, domain) VALUES ('e2e', 'sb:1')"
-            " RETURNING id"
+            "INSERT INTO hub.sandbox_connections (name, domain) VALUES ('e2e', 'sb:1') RETURNING id"
         ).fetchone()[0]
         build = conn.execute(
             "INSERT INTO hub.agent_builds (user_id, name, llm_connection_id,"
@@ -175,7 +174,9 @@ def test_event_to_finding_end_to_end(monkeypatch):
             idle_timeout_seconds=60,
         )
         await service.start()
-        consumer = asyncio.create_task(rabbit.consume_events(settings.rabbit_url, service.handle_event))
+        consumer = asyncio.create_task(
+            rabbit.consume_events(settings.rabbitmq_url, service.handle_event)
+        )
         try:
             event = Event(
                 event_id=ids["event"],
@@ -188,7 +189,7 @@ def test_event_to_finding_end_to_end(monkeypatch):
                 commit_sha="abc123def456",
             )
             await asyncio.sleep(0.3)  # дать консьюмеру забиндить очередь
-            connection = await aio_pika.connect_robust(settings.rabbit_url)
+            connection = await aio_pika.connect_robust(settings.rabbitmq_url)
             async with connection:
                 channel = await connection.channel()
                 exchange = await channel.declare_exchange(
@@ -235,7 +236,7 @@ def test_event_to_finding_end_to_end(monkeypatch):
     async def channel_cleanup(queue_name: str):
         import aio_pika
 
-        connection = await aio_pika.connect_robust(settings.rabbit_url)
+        connection = await aio_pika.connect_robust(settings.rabbitmq_url)
         async with connection:
             channel = await connection.channel()
             await channel.queue_delete(queue_name)

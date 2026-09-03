@@ -2,87 +2,76 @@ package httpapi
 
 import (
 	"crypto/subtle"
-	"encoding/json"
+	"fmt"
 	"net/http"
-	"strconv"
+	"time"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 )
 
-// RunnersHandler — реестр Раннеров (тикет 004): саморегистрация + heartbeat
-// за заголовком X-Runner-Token; список — пользовательский (session).
-type RunnersHandler struct {
-	Store domain.RunnerStore
-	Token string
+// Реестр Раннеров (тикет 004).
+
+type runnerDTO struct {
+	ID              int64     `json:"id"`
+	Name            string    `json:"name"`
+	Address         string    `json:"address"`
+	Slots           int       `json:"slots"`
+	LastHeartbeatAt time.Time `json:"lastHeartbeatAt"`
 }
 
-// List — GET /api/runners (UI/отладка).
-func (h *RunnersHandler) List(w http.ResponseWriter, r *http.Request) {
-	list, err := h.Store.Runners(r.Context())
-	if err != nil {
-		writeError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, mapSlice(list, func(run domain.Runner) runnerDTO {
-		return runnerDTO(run)
-	}))
-}
-
-// Auth — middleware: constant-time сравнение X-Runner-Token с RUNNER_TOKEN.
-func (h *RunnersHandler) Auth(next http.HandlerFunc) http.HandlerFunc {
+func (s *Server) runnerAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		got := r.Header.Get("X-Runner-Token")
-		if subtle.ConstantTimeCompare([]byte(got), []byte(h.Token)) != 1 {
-			errorJSON(w, http.StatusUnauthorized, "unauthorized")
+		if subtle.ConstantTimeCompare([]byte(got), []byte(s.RunnerToken)) != 1 {
+			unauthorized(w)
 			return
 		}
 		next(w, r)
 	}
 }
 
-// Register — POST /api/runners: upsert по уникальному имени; повторная
-// регистрация обновляет адрес/слоты и продлевает heartbeat. 201 + Runner.
-func (h *RunnersHandler) Register(w http.ResponseWriter, r *http.Request) {
+// GET /api/runners.
+func (s *Server) listRunners(w http.ResponseWriter, r *http.Request) error {
+	list, err := s.Store.Runners(r.Context())
+	if err != nil {
+		return err
+	}
+	return respond(w, http.StatusOK, mapSlice(list, func(run domain.Runner) runnerDTO { return runnerDTO(run) }))
+}
+
+// POST /api/runners.
+func (s *Server) registerRunner(w http.ResponseWriter, r *http.Request) error {
 	var req struct {
 		Name    string `json:"name"`
 		Address string `json:"address"`
 		Slots   int    `json:"slots"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.Address == "" || req.Slots < 1 {
-		errorJSON(w, http.StatusBadRequest, "name, address and slots >= 1 are required")
-		return
+	if err := decode(r, &req); err != nil || req.Name == "" || req.Address == "" || req.Slots < 1 {
+		return domain.Invalid("name, address and slots >= 1 are required")
 	}
-	id, err := h.Store.Upsert(r.Context(), domain.Runner{Name: req.Name, Address: req.Address, Slots: req.Slots})
+	id, err := s.Store.Upsert(r.Context(), domain.Runner{Name: req.Name, Address: req.Address, Slots: req.Slots})
 	if err != nil {
-		writeError(w, r, err)
-		return
+		return fmt.Errorf("register runner %q: %w", req.Name, err)
 	}
-	run, err := h.Store.Runner(r.Context(), id)
-	if err == nil && run == nil {
-		err = domain.ErrNotFound
-	}
+	run, err := found(s.Store.Runner(r.Context(), id))
 	if err != nil {
-		writeError(w, r, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusCreated, runnerDTO(*run))
+	return respond(w, http.StatusCreated, runnerDTO(*run))
 }
 
-// Heartbeat — POST /api/runners/{id}/heartbeat.
-func (h *RunnersHandler) Heartbeat(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+// POST /api/runners/{id}/heartbeat.
+func (s *Server) runnerHeartbeat(w http.ResponseWriter, r *http.Request) error {
+	id, err := pathID(r)
 	if err != nil {
-		errorJSON(w, http.StatusBadRequest, "bad id")
-		return
+		return err
 	}
-	ok, err := h.Store.Heartbeat(r.Context(), id)
+	ok, err := s.Store.Heartbeat(r.Context(), id)
 	if err != nil {
-		writeError(w, r, err)
-		return
+		return fmt.Errorf("heartbeat runner %d: %w", id, err)
 	}
 	if !ok {
-		errorJSON(w, http.StatusNotFound, "unknown runner")
-		return
+		return fmt.Errorf("runner %d is not registered: %w", id, domain.ErrNotFound)
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return noContent(w)
 }

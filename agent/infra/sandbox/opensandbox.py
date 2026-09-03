@@ -8,10 +8,10 @@ from opensandbox.models.execd import RunCommandOpts
 from opensandbox.sandbox import Sandbox as _OpenSandbox
 
 from core.config import settings
-from core.ports import SandboxCommandError, SandboxUnreachableError
+from core.ports import SandboxCommandError
 from pkg.logger import get_logger
 
-log = get_logger(__name__)
+log = get_logger("sandbox")
 
 
 class OpenSandboxAdapter:
@@ -33,17 +33,19 @@ class OpenSandboxAdapter:
         started = time.monotonic()
         try:
             execution = await self._sandbox.commands.run(command, opts=opts)
-        except Exception as exc:  # SDK-исключение → одна строка с причиной для верхнего уровня
-            raise SandboxUnreachableError(
-                f"sandbox {self.id} unreachable after {time.monotonic() - started:.1f}s: "
-                f"{type(exc).__name__}: {exc}"
-            ) from exc
-        log.debug(
-            "sandbox cmd",
-            sandbox=self.id,
-            cmd=command[:80],
-            exit=execution.exit_code,
-            duration_s=round(time.monotonic() - started, 2),
+        except Exception:
+            log.warning(
+                "sandbox cmd errored",
+                cmd=command[:120],
+                seconds=round(time.monotonic() - started, 2),
+                sandbox=self.id,
+            )
+            raise
+        elapsed = round(time.monotonic() - started, 2)
+        # трейсинг: медленные команды видны в логе без отладчика
+        log.info(
+            "sandbox cmd", cmd=command[:120], seconds=elapsed,
+            exit=execution.exit_code, sandbox=self.id,
         )
         stdout = "\n".join(line.text.rstrip("\n") for line in execution.logs.stdout)
         stderr = "\n".join(line.text.rstrip("\n") for line in execution.logs.stderr)
@@ -63,18 +65,6 @@ def _connection_config(domain: str | None = None, api_key: str | None = None) ->
         domain=domain or settings.opensandbox_domain,
         api_key=api_key or settings.opensandbox_api_key or None,
     )
-
-
-async def create_sandbox(
-    image: str | None = None, *, domain: str | None = None, api_key: str | None = None
-) -> OpenSandboxAdapter:
-    """domain/api_key — переопределение endpoint'а (sandbox connection Сборки)."""
-    sandbox = await _OpenSandbox.create(
-        image or settings.sandbox_image,
-        timeout=None,
-        connection_config=_connection_config(domain, api_key),
-    )
-    return OpenSandboxAdapter(sandbox)
 
 
 async def connect_sandbox(

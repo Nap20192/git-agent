@@ -1,27 +1,5 @@
-"""Тулинг агента — lean-ядро по образцу deerflow/tools."""
-
-from core.tools.mcp_metadata import MCP_TOOL_METADATA_KEY, is_mcp_tool, tag_mcp_tool
-from core.tools.sync import make_sync_tool_wrapper
-from core.tools.tool_search import (
-    DeferredToolCatalog,
-    DeferredToolSetup,
-    assemble_deferred_tools,
-    build_deferred_tool_setup,
-    build_tool_search_tool,
-    get_deferred_tools_prompt_section,
-)
-from core.tools.tools import get_available_tools
-
-__all__ = [
-    "MCP_TOOL_METADATA_KEY",
-    "DeferredToolCatalog",
-    "DeferredToolSetup",
-    "assemble_deferred_tools",
-    "build_deferred_tool_setup",
-    "build_tool_search_tool",
-    "get_available_tools",
-    "get_deferred_tools_prompt_section",
-    "is_mcp_tool",
-    "make_sync_tool_wrapper",
-    "tag_mcp_tool",
-]
+"""Тулинг агента, по папкам: `sandbox/` (sandbox_run, read_file), `security/`
+(report_finding, load_skill, write_report + модель Находки), `delegation/` (task),
+`mcp/` (тегирование + deferred-каталог tool_search). Импортируй из подпакетов —
+пакет намеренно пуст, чтобы не было циклов (delegation → subagents → security).
+"""

@@ -4,8 +4,9 @@ package rabbitmq
 
 import (
 	"errors"
-	"log/slog"
 	"time"
+
+	"go.uber.org/zap"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -24,15 +25,15 @@ func NewRabbitMQConn(rabbitMqURL RabbitMQConnStr) (*amqp.Connection, error) {
 	for {
 		connection, err := amqp.Dial(string(rabbitMqURL))
 		if err == nil {
-			slog.Info("rabbitmq: connected")
+			zap.S().Infow("📫 connected to rabbitmq 🎉")
 			return connection, nil
 		}
 		counts++
 		if counts > _retryTimes {
-			slog.Error("rabbitmq: connect failed, giving up", "err", err)
+			zap.S().Errorw("failed to retry rabbitmq connection", "err", err)
 			return nil, ErrCannotConnectRabbitMQ
 		}
-		slog.Warn("rabbitmq: connect failed, backing off", "seconds", _backOffSeconds, "err", err)
+		zap.S().Infow("failed to connect to rabbitmq, backing off...", "seconds", _backOffSeconds, "err", err)
 		time.Sleep(_backOffSeconds * time.Second)
 	}
 }

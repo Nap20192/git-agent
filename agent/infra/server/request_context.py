@@ -8,7 +8,9 @@ from __future__ import annotations
 import secrets
 import time
 
-from pkg.logger import bound, get_logger
+from structlog.contextvars import bound_contextvars as bound
+
+from pkg.logger import get_logger
 
 log = get_logger(__name__)
 _QUIET_PATHS = {"/health"}

@@ -1,0 +1,51 @@
+sequenceDiagram
+    participant MQ as RabbitMQ
+    participant RN as Раннер
+    participant DB as Postgres
+    participant SB as OpenSandbox
+    participant LLM as LLM
+    participant H as hub
+
+    Note over MQ,H: ФАЗА 4 — ИСПОЛНЕНИЕ (гарантии = БД + чекпоинты, auto-ack)
+    MQ->>RN: Событие {eventId, instanceId, threadId, dedupKey…}
+    alt сообщение не парсится
+        RN-->>MQ: drop (лог unparseable)
+    end
+    RN->>DB: INSERT instance_events (instance, dedupKey) — дедуп
+    alt уже обработано (processed_at NOT NULL)
+        RN-->>MQ: skip
+    end
+    RN->>DB: CAS agent_instances down→running, runner_id=я
+    alt Экземпляр running у другого раннера
+        RN->>RN: POST http://holder/instances/{id}/events (форвард)
+    else слоты заняты
+        RN->>RN: ждёт слот (FIFO)
+    end
+    RN->>DB: JOIN Сборка → llm/sandbox connections (расшифровка ключей)
+    RN->>SB: connect(external_id)
+    alt песочница не привязана / dead
+        RN-->>DB: run_failed «sandbox not provisioned» (processed_at NULL — «Продолжить» после создания)
+    else контейнер исчез
+        RN->>DB: sandbox_instances.status=dead
+        RN-->>DB: run_failed
+    else ok
+        RN->>SB: git clone / fetch + checkout commitSha
+        alt git не достучался (DNS/сеть)
+            RN-->>DB: run_failed (событие не потеряно, ре-публикация повторит)
+        end
+        Note over RN,LLM: Лид: план → task(Сабагенты, лимиты Сборки) → квитанции
+        loop ходы Лида/Сабагентов
+            RN->>LLM: chat/completions
+            alt 402 / 429 / timeout
+                LLM-->>RN: error → run_failed, шаг откатывается к чекпоинту
+            else ok
+                LLM-->>RN: tool calls
+                RN->>SB: sandbox.run(cmd) (лог длительности)
+                RN->>DB: report_finding → hub.findings
+                RN->>DB: activity (task_started/finished, node) — SSE в Playground
+            end
+        end
+        RN->>DB: write_report → hub.reports · processed_at = now
+        RN->>DB: idle-таймаут → status=down (чекпоинт и песочница живут)
+    end
+    Note over RN,H: heartbeat каждые N с · раннер умер → hub: Экземпляры→down, необработанные События → снова в outbox → другой раннер продолжает с чекпоинта

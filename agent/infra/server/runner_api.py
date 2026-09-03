@@ -10,14 +10,79 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from core.runner import RunnerService, parse_event
+from core.runner.ports import InstanceUnavailableError, SandboxNotProvisionedError
+from pkg.errors import describe
 from pkg.logger import get_logger
 
 log = get_logger(__name__)
+
 api = APIRouter()
+
+_SSE_HEADERS = {"cache-control": "no-cache", "x-accel-buffering": "no"}
+_STATUS_CODES = {
+    400: "bad_request",
+    404: "not_found",
+    409: "conflict",
+    422: "bad_request",
+    503: "unavailable",
+}
+
+
+def _api_error(status: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse({"error": {"code": code, "message": message}}, status_code=status)
+
+
+def install_api(app: FastAPI) -> None:
+    """Роуты + единый wire-формат ошибок ApiError {"error": {"code", "message"}}
+    (как у hub, backend/docs/openapi.yaml): hub проксирует тело как есть."""
+    app.include_router(api)
+
+    @app.exception_handler(HTTPException)
+    async def _http(_: Request, exc: HTTPException) -> JSONResponse:
+        return _api_error(
+            exc.status_code, _STATUS_CODES.get(exc.status_code, "error"), str(exc.detail)
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation(_: Request, exc: RequestValidationError) -> JSONResponse:
+        message = "; ".join(
+            f"{'.'.join(str(p) for p in e['loc'] if p != 'body')}: {e['msg']}" for e in exc.errors()
+        )
+        return _api_error(422, "bad_request", message)
+
+    @app.exception_handler(InstanceUnavailableError)
+    async def _unavailable(_: Request, exc: InstanceUnavailableError) -> JSONResponse:
+        return _api_error(409, "instance_unavailable", str(exc))
+
+    @app.exception_handler(SandboxNotProvisionedError)
+    async def _no_sandbox(_: Request, exc: SandboxNotProvisionedError) -> JSONResponse:
+        return _api_error(424, "sandbox_not_provisioned", str(exc))
+
+    @app.exception_handler(Exception)
+    async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+        log.exception(
+            "unhandled error in runner api",
+            method=request.method,
+            path=request.url.path,
+            error=describe(exc),
+        )
+        return _api_error(500, "internal", f"internal error: {describe(exc)}")
+
+
+def _sse(data: dict[str, Any]) -> str:
+    return f"data: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+
+
+async def _preflight(service: RunnerService, instance_id: int) -> None:
+    """Поднять Экземпляр ДО начала стрима: отказ уходит нормальным HTTP-статусом,
+    а не обрывом SSE после 200."""
+    if await service.raise_instance(instance_id) == "rejected":
+        raise InstanceUnavailableError(instance_id, "held by another runner or missing")
 
 
 def _service(request: Request) -> RunnerService:
@@ -56,7 +121,7 @@ async def accept_event(instance_id: int, request: Request) -> dict[str, Any]:
     try:
         event = parse_event(await request.json())
     except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
+        raise HTTPException(422, describe(exc)) from exc
     if event.instance_id != instance_id:
         raise HTTPException(422, "instanceId mismatch")
     outcome = await _service(request).handle_event(event)
@@ -92,18 +157,18 @@ async def chat(instance_id: int, request: Request):
     if not message:
         raise HTTPException(422, "message is required")
     service = _service(request)
+    await _preflight(service, instance_id)
 
     async def sse():
-        async for mode, data in service.chat(instance_id, message):
-            for frame in chat_events(mode, data):
-                yield f"data: {json.dumps(frame, ensure_ascii=False, default=str)}\n\n"
-        yield 'data: {"kind": "done"}\n\n'
+        try:
+            async for mode, data in service.chat(instance_id, message):
+                for frame in chat_events(mode, data):
+                    yield _sse(frame)
+        except Exception as exc:  # заголовки уже ушли: ошибка — кадром, стрим закрывается штатно
+            yield _sse({"kind": "activity", "text": f"error: {describe(exc)}"})
+        yield _sse({"kind": "done"})
 
-    return StreamingResponse(
-        sse(),
-        media_type="text/event-stream",
-        headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
-    )
+    return StreamingResponse(sse(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 @api.get("/instances/{instance_id}/activity")
@@ -114,15 +179,15 @@ async def activity(instance_id: int, request: Request, eventId: int | None = Non
     service = _service(request)
 
     async def sse():
-        async for frame in service.activity(instance_id, event_id=eventId):
-            yield f"data: {json.dumps(frame, ensure_ascii=False, default=str)}\n\n"
-        yield 'data: {"kind": "done"}\n\n'
+        try:
+            async for frame in service.activity(instance_id, event_id=eventId):
+                yield _sse(frame)
+        except Exception as exc:
+            log.exception("activity stream failed", instance_id=instance_id, error=describe(exc))
+            yield _sse({"kind": "run_failed", "description": describe(exc)})
+        yield _sse({"kind": "done"})
 
-    return StreamingResponse(
-        sse(),
-        media_type="text/event-stream",
-        headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
-    )
+    return StreamingResponse(sse(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 @api.post("/instances/{instance_id}/terminal")
@@ -135,27 +200,22 @@ async def terminal(instance_id: int, request: Request):
     if not command.strip():
         raise HTTPException(422, "command is required")
     service = _service(request)
+    await _preflight(service, instance_id)
 
     async def sse():
-        def frame(data: dict[str, Any]) -> str:
-            return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
-
         try:
             output, code, cwd = await service.terminal(instance_id, command)
+        except (SandboxNotProvisionedError, InstanceUnavailableError) as exc:
+            yield _sse({"kind": "output", "text": str(exc)})
+            yield _sse({"kind": "exit", "code": None, "cwd": None})
         except Exception as exc:
-            # генератор уже за заголовками: любое исключение здесь = пустой 200 клиенту,
-            # поэтому причину отдаём кадром и логируем одной строкой
-            log.warning("terminal failed", cmd=command[:80], error=f"{type(exc).__name__}: {exc}")
-            yield frame({"kind": "output", "text": str(exc)})
-            yield frame({"kind": "exit", "code": None, "cwd": None})
+            log.exception("terminal command failed", instance_id=instance_id, error=describe(exc))
+            yield _sse({"kind": "output", "text": describe(exc)})
+            yield _sse({"kind": "exit", "code": None, "cwd": None})
         else:
             if output:
-                yield frame({"kind": "output", "text": output})
-            yield frame({"kind": "exit", "code": code, "cwd": cwd})
-        yield frame({"kind": "done"})
+                yield _sse({"kind": "output", "text": output})
+            yield _sse({"kind": "exit", "code": code, "cwd": cwd})
+        yield _sse({"kind": "done"})
 
-    return StreamingResponse(
-        sse(),
-        media_type="text/event-stream",
-        headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
-    )
+    return StreamingResponse(sse(), media_type="text/event-stream", headers=_SSE_HEADERS)

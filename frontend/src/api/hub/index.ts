@@ -1,6 +1,6 @@
 /**
- * Hub API entry point. Mock by default (backend still being written);
- * VITE_HUB_API=http in .env.local switches to the real Go backend.
+ * Hub API entry point: the real Go hub by default; VITE_HUB_API=mock in
+ * .env.local switches to the in-memory executable spec (src/api/hub/mock.ts).
  */
 import { createContext, useContext } from "react";
 import type { HubApi } from "./client.ts";
@@ -8,7 +8,7 @@ import { createHttpHubApi } from "./http.ts";
 import { createMockHubApi } from "./mock.ts";
 
 export function createHubApi(): HubApi {
-  return import.meta.env.VITE_HUB_API === "http" ? createHttpHubApi() : createMockHubApi();
+  return import.meta.env.VITE_HUB_API === "mock" ? createMockHubApi() : createHttpHubApi();
 }
 
 export const hubApi: HubApi = createHubApi();

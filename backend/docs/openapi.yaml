@@ -7,6 +7,8 @@ info:
     приём вебхуков, Сборки/Экземпляры Агентов, раннеры. Решения — .wayfinder/map.md.
     Auth: session cookie (роуты /api/*, кроме раннерных), раннеры — заголовок
     X-Runner-Token (общий секрет RUNNER_TOKEN), вебхуки — подпись провайдера.
+    Ошибки (любой 4xx/5xx) — ApiError {"error": {"code", "message"}}, как у
+    Python-gateway (frontend/docs/openapi.yaml); message — человекочитаемая причина.
 
 paths:
   # ── Auth ────────────────────────────────────────────────────────────
@@ -541,6 +543,16 @@ components:
       required: true
       schema: { type: string, enum: [github, gitlab] }
   schemas:
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, enum: [bad_request, unauthorized, not_found, conflict, upstream, unavailable, timeout, internal] }
+            message: { type: string }
     Me:
       type: object
       required: [id, displayName, identities]
@@ -603,15 +615,10 @@ components:
         receivedAt: { type: string, format: date-time }
     AgentBuildInput:
       type: object
-      description: >-
-        Пустые llmConnectionId/sandboxConnectionId — первое подключение пользователя;
-        недостающие ключи limits дописываются дефолтами раннера
-        (maxSubagents 3, maxTotalSubagents 6, subagentTimeout 600, queueTimeout 300);
-        первая Сборка пользователя становится default.
       properties:
         name: { type: string }
-        llmConnectionId: { type: integer, description: "пусто → первое llm-подключение пользователя" }
-        sandboxConnectionId: { type: integer, description: "пусто → первое sandbox-подключение" }
+        llmConnectionId: { type: integer }
+        sandboxConnectionId: { type: integer }
         prompt: { type: [string, "null"] }
         memoryPreset: { type: [string, "null"] }
         limits: { type: object }

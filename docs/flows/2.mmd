@@ -1,0 +1,37 @@
+sequenceDiagram
+    actor U as Пользователь
+    participant F as Frontend
+    participant H as hub
+    participant G as GitHub API
+    participant DB as Postgres
+
+    Note over U,DB: ФАЗА 2 — ПОДКЛЮЧЕНИЕ РЕПО
+    U->>F: drawer «connect repository», выбор связки
+    F->>H: GET /api/identities/{id}/repos
+    H->>G: GET /user/repos (токен связки)
+    alt DNS не резолвит api.github.com
+        H-->>F: 500 lookup api.github.com: no such host
+    else токен протух (GitLab)
+        H->>G: refresh_token → новый access
+        G-->>H: ok
+    else ok
+        G-->>H: список репо
+        H-->>F: [ProviderRepo]
+    end
+    U->>F: «connect →»
+    F->>H: POST /api/repositories {identityId, externalId}
+    H->>DB: INSERT repositories (секрет хука AES-GCM, id нужен для URL)
+    H->>G: POST /repos/{o}/{r}/hooks {url: WEBHOOK_BASE_URL/hooks/github/{id}, secret, events:*}
+    alt нет admin-прав на репо
+        G-->>H: 404 Not Found
+        H->>DB: DELETE repositories (rollback)
+        H-->>F: 500 create provider hook: 404
+    else URL не публичный (localhost)
+        G-->>H: 422 url isn't reachable over the public Internet
+        H->>DB: rollback
+        H-->>F: 500 → нужен туннель/релей (WEBHOOK_BASE_URL)
+    else ok
+        G-->>H: hook id
+        H->>DB: UPDATE repositories.webhook_provider_id
+        H-->>F: 201 Repository (default-Сборка подхватит события, пока нет подписок)
+    end

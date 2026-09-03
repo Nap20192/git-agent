@@ -7,7 +7,8 @@ package consumer
 import (
 	"context"
 	"fmt"
-	"log/slog"
+
+	"go.uber.org/zap"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -149,7 +150,7 @@ func (c *consumer) createChannel() (*amqp.Channel, error) {
 		return nil, fmt.Errorf("ch.Qos: %w", err)
 	}
 
-	slog.Info("consumer bound to exchange",
-		"queue", queue.Name, "exchange", c.exchangeName, "bindingKey", c.bindingKey, "consumerTag", c.consumerTag)
+	zap.S().Infow("consumer bound to exchange",
+		"queue", queue.Name, "exchange", c.exchangeName, "binding_key", c.bindingKey, "consumer_tag", c.consumerTag)
 	return ch, nil
 }

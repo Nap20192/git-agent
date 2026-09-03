@@ -9,22 +9,10 @@ import (
 	"testing"
 
 	pgstore "github.com/vnkjd/git-agent/backend/internal/hub/adapters/postgres"
+	"github.com/vnkjd/git-agent/backend/internal/hub/app"
 	"github.com/vnkjd/git-agent/backend/internal/pkg/testdb"
 	"github.com/vnkjd/git-agent/backend/pkg/secrets"
 )
-
-func TestMaskKey(t *testing.T) {
-	for in, want := range map[string]string{
-		"":            "",
-		"abc":         "…",
-		"abcd":        "…",
-		"sk-12345678": "…5678",
-	} {
-		if got := MaskKey(in); got != want {
-			t.Errorf("MaskKey(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
 
 // Инвариант redaction: сырой ключ не покидает hub ни в create-ответе, ни в листинге.
 func TestLlmConnectionRedaction(t *testing.T) {
@@ -38,13 +26,8 @@ func TestLlmConnectionRedaction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := &ConnectionsHandler{Store: store, Secrets: box}
-	sess := &Session{Store: store}
 	cookie := seedSession(t, db, userID)
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/connections/llm", sess.Wrap(h.CreateLlm))
-	mux.HandleFunc("GET /api/connections/llm", sess.Wrap(h.ListLlm))
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewServer(NewMux(&Server{Store: store, Connections: &app.ConnectionService{Store: store, Secrets: box}}))
 	defer srv.Close()
 
 	const rawKey = "sk-super-secret-key-9876"

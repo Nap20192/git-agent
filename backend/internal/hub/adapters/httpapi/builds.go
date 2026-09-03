@@ -1,16 +1,39 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 )
 
-// BuildsHandler — CRUD Сборок Агентов.
-type BuildsHandler struct {
-	Store       domain.BuildStore
-	Connections domain.ConnectionStore
+// Сборки Агентов.
+
+type buildDTO struct {
+	ID                  int64           `json:"id"`
+	Name                string          `json:"name"`
+	LlmConnectionID     int64           `json:"llmConnectionId"`
+	SandboxConnectionID int64           `json:"sandboxConnectionId"`
+	Prompt              *string         `json:"prompt"`
+	MemoryPreset        *string         `json:"memoryPreset"`
+	Limits              json.RawMessage `json:"limits"`
+	IsDefault           bool            `json:"isDefault"`
+	CreatedAt           time.Time       `json:"createdAt"`
+}
+
+func toBuildDTO(b domain.AgentBuild) buildDTO {
+	limits := json.RawMessage(b.Limits)
+	if len(limits) == 0 {
+		limits = json.RawMessage(`{}`)
+	}
+	return buildDTO{
+		ID: b.ID, Name: b.Name,
+		LlmConnectionID: b.LlmConnectionID, SandboxConnectionID: b.SandboxConnectionID,
+		Prompt: b.Prompt, MemoryPreset: b.MemoryPreset, Limits: limits,
+		IsDefault: b.IsDefault, CreatedAt: b.CreatedAt,
+	}
 }
 
 type buildInput struct {
@@ -23,33 +46,29 @@ type buildInput struct {
 	IsDefault           bool            `json:"isDefault"`
 }
 
-// Ключи limits, которые читает раннер (agent/core/lead/graph.py::_lead_features).
-// Неизвестные ключи пропускаем как есть — forward-compat.
 var knownLimitKeys = []string{"maxSubagents", "maxTotalSubagents", "subagentTimeout", "queueTimeout", "tokenBudget"}
 
-func (in *buildInput) validate(w http.ResponseWriter) bool {
+func (in *buildInput) validate() error {
 	if in.Name == "" {
-		errorJSON(w, http.StatusBadRequest, "name is required")
-		return false
+		return domain.Invalid("name is required")
 	}
-	if len(in.Limits) > 0 {
-		var m map[string]any
-		if err := json.Unmarshal(in.Limits, &m); err != nil {
-			errorJSON(w, http.StatusBadRequest, "limits must be a JSON object")
-			return false
+	if len(in.Limits) == 0 {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(in.Limits, &m); err != nil {
+		return domain.Invalid("limits must be a JSON object")
+	}
+	for _, k := range knownLimitKeys {
+		v, ok := m[k]
+		if !ok {
+			continue
 		}
-		for _, k := range knownLimitKeys {
-			v, ok := m[k]
-			if !ok {
-				continue
-			}
-			if n, isNum := v.(float64); !isNum || n <= 0 {
-				errorJSON(w, http.StatusBadRequest, "limits."+k+" must be a positive number")
-				return false
-			}
+		if n, isNum := v.(float64); !isNum || n <= 0 {
+			return domain.Invalid("limits." + k + " must be a positive number")
 		}
 	}
-	return true
+	return nil
 }
 
 func (in *buildInput) toDomain(userID int64) *domain.AgentBuild {
@@ -60,105 +79,103 @@ func (in *buildInput) toDomain(userID int64) *domain.AgentBuild {
 	}
 }
 
-// applyDefaults: пустые подключения → первое (новейшее) подключение пользователя,
-// лимиты — недостающие ключи из domain.DefaultLimits. Без единого подключения — 400.
-func (h *BuildsHandler) applyDefaults(w http.ResponseWriter, r *http.Request, b *domain.AgentBuild) bool {
+func decodeBuild(r *http.Request) (*domain.AgentBuild, error) {
+	var in buildInput
+	if err := decode(r, &in); err != nil {
+		return nil, err
+	}
+	if err := in.validate(); err != nil {
+		return nil, err
+	}
+	return in.toDomain(userID(r)), nil
+}
+
+// applyBuildDefaults: пустые подключения → первое подключение пользователя,
+// недостающие ключи limits → domain.DefaultLimits. Без единого подключения — 400.
+func (s *Server) applyBuildDefaults(ctx context.Context, b *domain.AgentBuild) error {
 	if b.LlmConnectionID == 0 {
-		list, err := h.Connections.LlmConnections(r.Context(), b.UserID)
+		list, err := s.Store.LlmConnections(ctx, b.UserID)
 		if err != nil {
-			writeError(w, r, err)
-			return false
+			return err
 		}
 		if len(list) == 0 {
-			errorJSON(w, http.StatusBadRequest, "llmConnectionId is required: no llm connections to default to")
-			return false
+			return domain.Invalid("llmConnectionId is required: no llm connections to default to")
 		}
 		b.LlmConnectionID = list[0].ID
 	}
 	if b.SandboxConnectionID == 0 {
-		list, err := h.Connections.SandboxConnections(r.Context())
+		list, err := s.Store.SandboxConnections(ctx)
 		if err != nil {
-			writeError(w, r, err)
-			return false
+			return err
 		}
 		if len(list) == 0 {
-			errorJSON(w, http.StatusBadRequest, "sandboxConnectionId is required: no sandbox connections to default to")
-			return false
+			return domain.Invalid("sandboxConnectionId is required: no sandbox connections to default to")
 		}
 		b.SandboxConnectionID = list[0].ID
 	}
 	b.ApplyDefaults()
-	return true
+	return nil
 }
 
-// List — GET /api/builds.
-func (h *BuildsHandler) List(w http.ResponseWriter, r *http.Request) {
-	list, err := h.Store.Builds(r.Context(), userID(r))
+// GET /api/builds.
+func (s *Server) listBuilds(w http.ResponseWriter, r *http.Request) error {
+	list, err := s.Store.Builds(r.Context(), userID(r))
 	if err != nil {
-		writeError(w, r, err)
-		return
+		return err
 	}
-	writeJSON(w, http.StatusOK, mapSlice(list, toBuildDTO))
+	return respond(w, http.StatusOK, mapSlice(list, toBuildDTO))
 }
 
-// Create — POST /api/builds.
-func (h *BuildsHandler) Create(w http.ResponseWriter, r *http.Request) {
-	var in buildInput
-	if !decodeBody(w, r, &in) || !in.validate(w) {
-		return
+// POST /api/builds.
+func (s *Server) createBuild(w http.ResponseWriter, r *http.Request) error {
+	b, err := decodeBuild(r)
+	if err != nil {
+		return err
 	}
-	b := in.toDomain(userID(r))
-	if !h.applyDefaults(w, r, b) {
-		return
+	if err := s.applyBuildDefaults(r.Context(), b); err != nil {
+		return err
 	}
-	if !b.IsDefault { // первая Сборка пользователя — дефолтная: иначе репо без подписки некому обслуживать
-		existing, err := h.Store.Builds(r.Context(), b.UserID)
+	if !b.IsDefault { // первая Сборка пользователя — default: иначе репо без подписки некому обслуживать
+		existing, err := s.Store.Builds(r.Context(), b.UserID)
 		if err != nil {
-			writeError(w, r, err)
-			return
+			return err
 		}
 		b.IsDefault = len(existing) == 0
 	}
-	id, err := h.Store.CreateBuild(r.Context(), b)
+	if b.ID, err = s.Store.CreateBuild(r.Context(), b); err != nil {
+		return err
+	}
+	return respond(w, http.StatusCreated, toBuildDTO(*b))
+}
+
+// PATCH /api/builds/{id}.
+func (s *Server) patchBuild(w http.ResponseWriter, r *http.Request) error {
+	id, err := pathID(r)
 	if err != nil {
-		writeError(w, r, err)
-		return
+		return err
+	}
+	b, err := decodeBuild(r)
+	if err != nil {
+		return err
 	}
 	b.ID = id
-	writeJSON(w, http.StatusCreated, toBuildDTO(*b))
+	if err := s.applyBuildDefaults(r.Context(), b); err != nil {
+		return err
+	}
+	if err := s.Store.UpdateBuild(r.Context(), b); err != nil {
+		return err
+	}
+	return respond(w, http.StatusOK, toBuildDTO(*b))
 }
 
-// Patch — PATCH /api/builds/{id}.
-func (h *BuildsHandler) Patch(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
-	if !ok {
-		return
+// DELETE /api/builds/{id}.
+func (s *Server) deleteBuild(w http.ResponseWriter, r *http.Request) error {
+	id, err := pathID(r)
+	if err != nil {
+		return err
 	}
-	var in buildInput
-	if !decodeBody(w, r, &in) || !in.validate(w) {
-		return
+	if err := s.Store.DeleteBuild(r.Context(), id, userID(r)); err != nil {
+		return err
 	}
-	b := in.toDomain(userID(r))
-	b.ID = id
-	if !h.applyDefaults(w, r, b) {
-		return
-	}
-	if err := h.Store.UpdateBuild(r.Context(), b); err != nil {
-		writeError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, toBuildDTO(*b))
-}
-
-// Delete — DELETE /api/builds/{id}; Сборка с Экземплярами/Репозиториями — 409.
-func (h *BuildsHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
-	if !ok {
-		return
-	}
-	if err := h.Store.DeleteBuild(r.Context(), id, userID(r)); err != nil {
-		writeError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return noContent(w)
 }

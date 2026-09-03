@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable
 import aio_pika
 
 from core.runner.events import Event, parse_event
+from pkg.errors import describe
 from pkg.logger import get_logger
 
 log = get_logger(__name__)
@@ -38,8 +39,12 @@ async def consume_events(url: str, handler: Callable[[Event], Awaitable[str]]) -
             async for message in messages:
                 try:
                     event = parse_event(json.loads(message.body))
-                except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
-                    log.warning("unparseable event message dropped", body=message.body[:500])
+                except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    log.warning(
+                        "unparseable event message dropped",
+                        error=describe(exc),
+                        body=message.body[:500],
+                    )
                     continue
                 task = asyncio.create_task(_handle(handler, event))
                 tasks.add(task)
@@ -47,15 +52,13 @@ async def consume_events(url: str, handler: Callable[[Event], Awaitable[str]]) -
 
 
 async def _handle(handler: Callable[[Event], Awaitable[str]], event: Event) -> None:
+    """Граница консьюмера: ход сам логирует исход и трейсбек; здесь — только факт потери."""
     try:
-        outcome = await handler(event)
-        log.info(
-            "event handled", event_id=event.event_id, instance_id=event.instance_id, outcome=outcome
-        )
-    except Exception:
+        await handler(event)
+    except Exception as exc:
         log.warning(
-            "event handling failed (processed_at not set; re-publish will retry)",
+            "event not processed; re-publish by hub will retry",
             event_id=event.event_id,
             instance_id=event.instance_id,
-            exc_info=True,
+            error=describe(exc),
         )

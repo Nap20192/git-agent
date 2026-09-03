@@ -54,8 +54,17 @@ def test_event_prompt_full_scan():
     from core.runner.executor import _event_prompt
 
     ctx = {"owner": "acme", "name": "repo", "prompt": "Сборка: смотри в оба"}
-    full = _event_prompt(ctx, parse_event({**WIRE, "action": "full_scan", "dedupKey": "full-abc123"}))
-    for marker in ("ПОЛНЫЙ security-аудит", "план", "Сабагенту", "task", "report_finding", "write_report"):
+    full = _event_prompt(
+        ctx, parse_event({**WIRE, "action": "full_scan", "dedupKey": "full-abc123"})
+    )
+    for marker in (
+        "ПОЛНЫЙ security-аудит",
+        "план",
+        "Сабагенту",
+        "task",
+        "report_finding",
+        "write_report",
+    ):
         assert marker in full
     assert "Сборка: смотри в оба" in full  # промпт Сборки остаётся
     assert "ПОЛНЫЙ" not in _event_prompt(ctx, parse_event(WIRE))
@@ -93,6 +102,16 @@ class MemStore:
         if inst["status"] == "down" or inst["runner_id"] == runner_id:
             inst.update(status="running", runner_id=runner_id)
             return ClaimResult("claimed")
+        return ClaimResult("held_by_other", holder_address=self.addresses.get(inst["runner_id"]))
+
+    async def peek_holder(self, instance_id: int, *, runner_id: int) -> ClaimResult:
+        inst = self.instances.get(instance_id)
+        if inst is None:
+            return ClaimResult("missing")
+        if inst["status"] != "running":
+            return ClaimResult("free")
+        if inst["runner_id"] == runner_id:
+            return ClaimResult("held_by_self")
         return ClaimResult("held_by_other", holder_address=self.addresses.get(inst["runner_id"]))
 
     async def release_instance(self, instance_id: int, *, runner_id: int) -> bool:
@@ -243,7 +262,9 @@ def test_sandbox_not_provisioned_drops_without_processed():
     async def run():
         store = MemStore()
         seed(store)
-        executor = FakeExecutor(error=SandboxNotProvisionedError("instance 3: sandbox not provisioned"))
+        executor = FakeExecutor(
+            error=SandboxNotProvisionedError("instance 3: sandbox not provisioned")
+        )
         service = await started(make_service(store, executor=executor))
         event = parse_event(WIRE)
         assert await service.handle_event(event) == "dropped"
@@ -356,6 +377,24 @@ def test_raise_queued_when_slots_busy(monkeypatch):
             await asyncio.sleep(0.01)
         assert store.instances[4] == {"status": "running", "runner_id": 1}
         assert service.busy == 1
+
+    asyncio.run(run())
+
+
+def test_forward_does_not_wait_for_slot():
+    """Чужое Событие форвардится сразу, даже когда все слоты заняты."""
+
+    async def run():
+        store = MemStore()
+        seed(store, instance_id=3)
+        seed(store, instance_id=4, status="running", runner_id=2)
+        store.addresses[2] = "http://r2:8082"
+        hub = FakeHub()
+        service = await started(make_service(store, hub=hub, slots=1))
+        assert await service.raise_instance(3)  # единственный слот занят
+        event = parse_event({**WIRE, "instanceId": 4})
+        assert await asyncio.wait_for(service.handle_event(event), 0.5) == "forwarded"
+        assert hub.forwarded[0][0] == "http://r2:8082"
 
     asyncio.run(run())
 

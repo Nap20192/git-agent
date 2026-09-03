@@ -6,9 +6,10 @@ package container
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"time"
+
+	"go.uber.org/zap"
 
 	"golang.org/x/sync/errgroup"
 
@@ -78,27 +79,22 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 	}
 	heartbeat := &app.HeartbeatService{Store: store, Timeout: cfg.HeartbeatTimeout}
 
-	session := &httpapi.Session{Store: store, DevUserID: cfg.DevUserID}
 	if cfg.DevUserID != 0 {
-		slog.Warn("hub: DEV_USER_ID auth bypass is active — dev only", "userId", cfg.DevUserID)
+		zap.S().Warnw("hub: DEV_USER_ID auth bypass is active — dev only", "userId", cfg.DevUserID)
 	}
-	mux := httpapi.NewMux(httpapi.Handlers{
-		Session: session,
-		Auth: &httpapi.AuthHandler{
-			Service: auth, Session: session, Store: store,
-			Identities: store, FrontendURL: cfg.FrontendURL, PublicBaseURL: cfg.OAuthRedirectBase,
-		},
-		Webhook:       &httpapi.WebhookHandler{Service: webhook},
-		Runners:       &httpapi.RunnersHandler{Store: store, Token: cfg.RunnerToken},
-		Identities:    &httpapi.IdentitiesHandler{Store: store, Provider: providerClient, Auth: auth},
-		Repositories:  &httpapi.RepositoriesHandler{Store: store, Subs: store, Service: repositories},
-		Subscriptions: &httpapi.SubscriptionsHandler{Store: store, Repos: store},
-		Builds:        &httpapi.BuildsHandler{Store: store, Connections: store},
-		Connections:   &httpapi.ConnectionsHandler{Store: store, Secrets: box, Defaults: cfg.Defaults},
-		Instances:     &httpapi.InstancesHandler{Store: store, Service: instances},
-		Sandboxes: &httpapi.SandboxInstancesHandler{
-			Store: store, Connections: store, Sandboxes: sandboxClient, Secrets: box, Defaults: cfg.Defaults,
-		},
+	mux := httpapi.NewMux(&httpapi.Server{
+		Store:         store,
+		Auth:          auth,
+		Repositories:  repositories,
+		Instances:     instances,
+		Webhook:       webhook,
+		Sandboxes:     &app.SandboxService{Store: store, Connections: store, Client: sandboxClient, Secrets: box, Defaults: cfg.Defaults},
+		Connections:   &app.ConnectionService{Store: store, Secrets: box},
+		Defaults:      cfg.Defaults,
+		DevUserID:     cfg.DevUserID,
+		RunnerToken:   cfg.RunnerToken,
+		FrontendURL:   cfg.FrontendURL,
+		PublicBaseURL: cfg.OAuthRedirectBase,
 	})
 
 	return &Container{
@@ -113,11 +109,8 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 		Heartbeat:    heartbeat,
 		Server: &http.Server{
 			Addr:              cfg.Addr,
-			Handler:           httpapi.Wrap(mux),
-			ReadHeaderTimeout: 10 * time.Second, // slowloris
-			IdleTimeout:       120 * time.Second,
-			// WriteTimeout нет: SSE (/activity, /chat) живёт долго
-			ErrorLog: slog.NewLogLogger(slog.Default().Handler(), slog.LevelError),
+			Handler:           httpapi.Logging(httpapi.Recover(mux)),
+			ReadHeaderTimeout: 10 * time.Second, // slowloris; WriteTimeout нет — SSE живёт долго
 		},
 	}, nil
 }
@@ -128,7 +121,7 @@ func (c *Container) Run(ctx context.Context) error {
 	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		slog.Info("🌏 hub listening", "addr", c.Cfg.Addr)
+		zap.S().Infow("🌏 hub listening", "addr", c.Cfg.Addr)
 		if err := c.Server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
@@ -144,12 +137,7 @@ func (c *Container) Run(ctx context.Context) error {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		if err := c.Server.Shutdown(shutdownCtx); err != nil {
-			// долгие SSE не отпускают Shutdown — рвём принудительно, это штатно
-			slog.Warn("hub: shutdown timeout, closing connections", "err", err)
-			return c.Server.Close()
-		}
-		return nil
+		return c.Server.Shutdown(shutdownCtx)
 	})
 
 	return g.Wait()

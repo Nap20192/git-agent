@@ -3,25 +3,25 @@
 from __future__ import annotations
 
 import shlex
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from langchain_core.messages import HumanMessage
-from langchain_core.tools import BaseTool, StructuredTool, tool
 
-from core.agents.findings import (
-    build_load_skill_tool,
-    finding_from_args,
-    report_finding,
-    validate_finding,
-)
 from core.agents.llm import make_model
 from core.ports import Sandbox, SandboxCommandError
 from core.runner.events import Event
 from core.runner.ports import InstanceStore
+from core.tracing import TurnTracer, inject_langfuse_metadata
 from pkg.logger import get_logger
 
 log = get_logger(__name__)
+
+
+def _ms(started: float) -> int:
+    return int((time.monotonic() - started) * 1000)
+
 
 _HOSTS = {"github": "github.com", "gitlab": "gitlab.com"}
 
@@ -68,49 +68,6 @@ def repo_url(ctx: dict[str, Any]) -> str:
     return f"https://{host}/{ctx['owner']}/{ctx['name']}.git"
 
 
-def build_hub_security_tools(
-    store: InstanceStore, instance_id: int, event_id: int | None
-) -> list[BaseTool]:
-    """report_finding/write_report, пишущие в hub.findings/hub.reports (тикет 001:
-    «результат агент пишет в БД сам, через тулзу»). Схема и описание report_finding —
-    канонические из core/agents/findings, здесь только добавляется персист."""
-
-    async def _report_finding(**kwargs: Any) -> str:
-        result = report_finding.func(**kwargs)
-        if (
-            validate_finding(
-                kwargs.get("title", ""), kwargs.get("severity", ""), kwargs.get("description", "")
-            )
-            is None
-        ):
-            await store.add_finding(instance_id, finding_from_args(kwargs))
-        return result
-
-    persisting_report_finding = StructuredTool(
-        name=report_finding.name,
-        description=report_finding.description,
-        args_schema=report_finding.args_schema,
-        coroutine=_report_finding,
-    )
-
-    @tool("write_report")
-    async def write_report(summary: str) -> str:
-        """Записать итоговый Отчёт обработки в базу.
-
-        Вызови один раз в конце работы: связное резюме — что разобрано, общий
-        риск, приоритеты. Находки к нему уже привязаны через report_finding.
-
-        Args:
-            summary: текст Отчёта (markdown допустим).
-        """
-        if not summary.strip():
-            return "write_report: summary is required"
-        report_id = await store.add_report(instance_id, event_id=event_id, summary=summary.strip())
-        return f"report {report_id} saved"
-
-    return [persisting_report_finding, build_load_skill_tool(), write_report]
-
-
 def _event_prompt(ctx: dict[str, Any], event: Event) -> str:
     parts = [
         f"Событие в репозитории {ctx['owner']}/{ctx['name']} ({event.provider}): {event.action}."
@@ -149,17 +106,48 @@ class EventExecutor:
         connect_sandbox: SandboxConnect,
         decrypt: Callable[[bytes | None], str | None],
         make_model: Callable[..., Any] = make_model,
+        tracing_callbacks: list[Any] | None = None,
     ) -> None:
         self._store = store
         self._checkpointer = checkpointer
         self._connect = connect_sandbox
         self._decrypt = decrypt
         self._make_model = make_model
+        # коллбэки провайдеров (LangSmith/Langfuse) — из композиционного корня, fail-fast там
+        self._tracing_callbacks = list(tracing_callbacks or ())
+
+    def _run_config(
+        self, ctx: dict[str, Any], profile: Any, tracer: TurnTracer, *, turn: str
+    ) -> dict[str, Any]:
+        """Конфиг корневого astream: тред Экземпляра, коллбэки (наш трейсер +
+        провайдеры), метаданные для UI провайдеров. Наследуется всеми вложенными
+        вызовами — тулами и Сабагентами."""
+        config: dict[str, Any] = {
+            "configurable": {"thread_id": ctx["thread_id"]},
+            "callbacks": [tracer, *self._tracing_callbacks],
+            "metadata": {"instance_id": ctx["id"], "turn": turn, "model": ctx["llm_model"]},
+            "tags": [f"instance:{ctx['id']}", f"turn:{turn}"],
+            **profile.run_config,
+        }
+        inject_langfuse_metadata(
+            config,
+            thread_id=str(ctx["thread_id"]),
+            trace_name=f"instance-{ctx['id']}:{turn}",
+            model_name=ctx["llm_model"],
+        )
+        return config
+
+    async def _timed_connect(self, ctx: dict[str, Any]) -> Sandbox:
+        started = time.monotonic()
+        sandbox = await self._connect(ctx)
+        log.info("sandbox connected", duration_ms=_ms(started), sandbox=sandbox.id)
+        return sandbox
 
     def _graph(
         self, ctx: dict[str, Any], sandbox: Sandbox, event_id: int | None
     ) -> tuple[Any, Any]:
         from core.lead import build_lead_profile
+        from core.tools.security import build_hub_security_tools
 
         tools = build_hub_security_tools(self._store, ctx["id"], event_id)
         model = self._make_model(
@@ -182,18 +170,22 @@ class EventExecutor:
     ) -> None:
         """Исполнить ход; on_chunk получает (mode, serialized chunk) — activity-кадры
         из них сворачивает сервис (core/runner/activity.py)."""
-        from core.runtime.serialization import serialize
+        from core.runner.serialization import serialize
 
-        sandbox = await self._connect(ctx)
+        sandbox = await self._timed_connect(ctx)
+        tracer = TurnTracer()
         try:
             from core.repo import advance_repo, prepare_repo, repo_present
 
+            started = time.monotonic()
             if not await repo_present(sandbox):
                 await prepare_repo(sandbox, repo_url(ctx), checkout_ref=event.commit_sha)
+                log.info("repo cloned", duration_ms=_ms(started), commit=event.commit_sha)
             elif event.commit_sha:  # репо уже есть: без переклона, только продвинуть
                 await advance_repo(sandbox, event.commit_sha)
+                log.info("repo advanced", duration_ms=_ms(started), commit=event.commit_sha)
             graph, profile = self._graph(ctx, sandbox, event.event_id)
-            config = {"configurable": {"thread_id": ctx["thread_id"]}, **profile.run_config}
+            config = self._run_config(ctx, profile, tracer, turn="event")
             async for mode, chunk in graph.astream(
                 {"messages": [HumanMessage(content=_event_prompt(ctx, event))]},
                 config=config,
@@ -202,6 +194,7 @@ class EventExecutor:
                 if on_chunk is not None:
                     await on_chunk(mode, serialize(chunk, mode=mode))
         finally:
+            log.info("turn summary", **tracer.summary())
             await sandbox.close()
 
     async def terminal(
@@ -233,12 +226,13 @@ class EventExecutor:
         self, ctx: dict[str, Any], message: str
     ) -> AsyncIterator[tuple[str, Any]]:
         """Ход чата в тред Экземпляра; yield (mode, serialized chunk)."""
-        from core.runtime.serialization import serialize
+        from core.runner.serialization import serialize
 
-        sandbox = await self._connect(ctx)
+        sandbox = await self._timed_connect(ctx)
+        tracer = TurnTracer()
         try:
             graph, profile = self._graph(ctx, sandbox, None)
-            config = {"configurable": {"thread_id": ctx["thread_id"]}, **profile.run_config}
+            config = self._run_config(ctx, profile, tracer, turn="chat")
             async for mode, chunk in graph.astream(
                 {"messages": [HumanMessage(content=message)]},
                 config=config,
@@ -246,4 +240,5 @@ class EventExecutor:
             ):
                 yield mode, serialize(chunk, mode=mode)
         finally:
+            log.info("turn summary", **tracer.summary())
             await sandbox.close()

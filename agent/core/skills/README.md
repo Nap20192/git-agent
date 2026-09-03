@@ -4,7 +4,7 @@
 markdown с YAML-frontmatter (`name`, `description`) под `<category>/<name>.md`.
 Агент подгружает их инструментом `load_skill` как справку в текущий ход
 (постоянного изменения промпта нет). Загрузчик и тул — `core/skills/__init__.py`,
-`core/agents/findings.py`.
+`core/tools/security/load_skill.py`.
 
 Категории: `vulnerabilities` (классы уязвимостей), `frameworks` (методики под
 конкретные фреймворки), `analysis` (калибровка severity, контрдоказательства,
