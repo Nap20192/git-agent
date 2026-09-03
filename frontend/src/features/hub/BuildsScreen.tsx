@@ -45,10 +45,10 @@ export function BuildsScreen() {
     <div className={styles.screen}>
       <div className={styles.inner}>
         <div className={styles.head}>
-          <h1 className={styles.title}>builds</h1>
+          <h1 className={styles.title}>Builds</h1>
           <div style={{ flex: 1 }} />
           <Button variant="primary" onClick={() => setCreating(true)}>
-            + new build
+            New build
           </Button>
         </div>
         <p className={styles.blurb}>
@@ -158,7 +158,7 @@ function BuildDrawer({
   };
 
   return (
-    <Drawer open={open} title={build ? `◆ ${build.name}` : "◆ new build"} onClose={onClose} width={460}>
+    <Drawer open={open} title={build ? build.name : "New build"} onClose={onClose} width={460}>
       <label className={styles.label}>NAME</label>
       <TextInput value={name} active={!!name.trim()} onChange={(e) => setName(e.target.value)} placeholder="security-reviewer" />
 
@@ -201,15 +201,15 @@ function BuildDrawer({
 
       <div className={styles.actions}>
         <Button variant="primary" disabled={busy || !name.trim()} onClick={submit}>
-          {build ? "save" : "▶ create"}
+          {build ? "Save" : "Create"}
         </Button>
         {build && (
           <Button variant="ghost" disabled={busy} onClick={remove}>
-            delete
+            Delete
           </Button>
         )}
         <Button variant="ghost" onClick={onClose}>
-          cancel
+          Cancel
         </Button>
       </div>
     </Drawer>
@@ -278,11 +278,11 @@ function ConnectionsPanels({
   return (
     <div className={styles.detailGrid}>
       <Panel>
-        <PanelHeader icon="⚡" title="LLM CONNECTIONS" right={<Button variant="ghost" onClick={() => setLlmForm(true)}>+ add</Button>} />
+        <PanelHeader icon="⚡" title="LLM CONNECTIONS" right={<Button variant="ghost" onClick={() => setLlmForm(true)}>Add</Button>} />
         <EntityList columns={llmColumns} rows={llmQ.data ?? []} keyOf={(c) => String(c.id)} empty="no llm connections" />
       </Panel>
       <Panel>
-        <PanelHeader icon="▣" title="SANDBOX CONNECTIONS" right={<Button variant="ghost" onClick={() => setSandboxForm(true)}>+ add</Button>} />
+        <PanelHeader icon="▣" title="SANDBOX CONNECTIONS" right={<Button variant="ghost" onClick={() => setSandboxForm(true)}>Add</Button>} />
         <EntityList columns={sandboxColumns} rows={sandboxQ.data ?? []} keyOf={(c) => String(c.id)} empty="no sandbox connections" />
       </Panel>
 
@@ -315,7 +315,7 @@ function LlmConnectionDrawer({ open, onClose, reload }: { open: boolean; onClose
   };
 
   return (
-    <Drawer open={open} title="◆ new llm connection" onClose={onClose} width={460}>
+    <Drawer open={open} title="New LLM connection" onClose={onClose} width={460}>
       <label className={styles.label}>NAME</label>
       <TextInput value={name} active={!!name.trim()} onChange={(e) => setName(e.target.value)} placeholder="my-endpoint" />
       <label className={styles.label}>API BASE</label>
@@ -327,8 +327,8 @@ function LlmConnectionDrawer({ open, onClose, reload }: { open: boolean; onClose
       <label className={styles.label}>MODEL</label>
       <TextInput value={model} active={!!model.trim()} onChange={(e) => setModel(e.target.value)} placeholder="claude-sonnet-4" />
       <div className={styles.actions}>
-        <Button variant="primary" disabled={!valid || busy} onClick={submit}>▶ create</Button>
-        <Button variant="ghost" onClick={onClose}>cancel</Button>
+        <Button variant="primary" disabled={!valid || busy} onClick={submit}>Create</Button>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
       </div>
     </Drawer>
   );
@@ -362,7 +362,7 @@ function SandboxConnectionDrawer({ open, onClose, reload }: { open: boolean; onC
   };
 
   return (
-    <Drawer open={open} title="◆ new sandbox connection" onClose={onClose} width={460}>
+    <Drawer open={open} title="New sandbox connection" onClose={onClose} width={460}>
       <label className={styles.label}>NAME</label>
       <TextInput value={name} active={!!name.trim()} onChange={(e) => setName(e.target.value)} placeholder="local-opensandbox" />
       <label className={styles.label}>DOMAIN</label>
@@ -374,8 +374,8 @@ function SandboxConnectionDrawer({ open, onClose, reload }: { open: boolean; onC
       <label className={styles.label}>IMAGE</label>
       <TextInput value={image} onChange={(e) => setImage(e.target.value)} placeholder="opensandbox/base" />
       <div className={styles.actions}>
-        <Button variant="primary" disabled={!valid || busy} onClick={submit}>▶ create</Button>
-        <Button variant="ghost" onClick={onClose}>cancel</Button>
+        <Button variant="primary" disabled={!valid || busy} onClick={submit}>Create</Button>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
       </div>
     </Drawer>
   );

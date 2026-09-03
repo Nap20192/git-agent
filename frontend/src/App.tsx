@@ -4,9 +4,8 @@ import { HubApiProvider, hubApi } from "@/api/hub";
 import { HubGate } from "@/features/hub/HubGate.tsx";
 import { AccountScreen } from "@/features/hub/AccountScreen.tsx";
 import { RepositoriesScreen } from "@/features/hub/RepositoriesScreen.tsx";
+import { RepoScreen } from "@/features/hub/RepoScreen.tsx";
 import { BuildsScreen } from "@/features/hub/BuildsScreen.tsx";
-import { InstancesScreen } from "@/features/hub/InstancesScreen.tsx";
-import { InstanceScreen } from "@/features/hub/InstanceScreen.tsx";
 import { AppShell } from "@/components/layout/AppShell.tsx";
 import { DEFAULT_SCREEN } from "@/app/screens.ts";
 import { RunsScreen } from "@/features/runs/RunsScreen.tsx";
@@ -36,9 +35,8 @@ const router = createBrowserRouter([
         element: <HubGate />,
         children: [
           { path: "repos", element: <RepositoriesScreen /> },
+          { path: "repos/:id", element: <RepoScreen /> },
           { path: "builds", element: <BuildsScreen /> },
-          { path: "instances", element: <InstancesScreen /> },
-          { path: "instances/:id", element: <InstanceScreen /> },
           { path: "account", element: <AccountScreen /> },
         ],
       },

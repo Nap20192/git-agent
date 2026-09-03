@@ -3,8 +3,9 @@
   font-size: 12px;
   letter-spacing: 0.03em;
   padding: 8px 16px;
-  background: #0b0a08;
+  background: var(--bg-deep);
   border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   color: var(--muted);
   cursor: pointer;
   transition:
@@ -18,7 +19,7 @@
 }
 .btn.primary {
   background: var(--amber);
-  color: #000;
+  color: var(--on-accent);
   font-weight: 700;
   border-color: var(--amber);
 }

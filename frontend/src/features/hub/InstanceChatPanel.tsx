@@ -11,7 +11,14 @@ interface Turn {
   text: string;
 }
 
-export function InstanceChatPanel({ instanceId, onStatusChange }: { instanceId: number; onStatusChange?: () => void }) {
+export function InstanceChatPanel({
+  instanceId,
+  onStatusChange,
+}: {
+  /** null → the repo has no agent yet; the panel explains instead of failing. */
+  instanceId: number | null;
+  onStatusChange?: () => void;
+}) {
   const api = useHubApi();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
@@ -26,7 +33,7 @@ export function InstanceChatPanel({ instanceId, onStatusChange }: { instanceId: 
 
   const send = async () => {
     const message = input.trim();
-    if (!message || busy) return;
+    if (!message || busy || instanceId == null) return;
     setInput("");
     setError(null);
     setBusy(true);
@@ -53,12 +60,14 @@ export function InstanceChatPanel({ instanceId, onStatusChange }: { instanceId: 
 
   return (
     <Panel className={styles.panel}>
-      <PanelHeader icon="✦" title="CHAT" right={<span className={styles.hint}>talks to this repo's agent</span>} />
+      <PanelHeader icon="✳" title="ASK THE AGENT" right={<span className={styles.hint}>it knows this repository</span>} />
       <div className={styles.transcript} ref={scrollRef}>
-        {turns.length === 0 && !live && (
+        {instanceId == null && (
+          <div className={styles.empty}>This repository has no agent yet — bind a Сборка in settings to start one.</div>
+        )}
+        {instanceId != null && turns.length === 0 && !live && (
           <div className={styles.empty}>
-            No messages yet. Ask about the repository, recent События, or a finding — a down instance wakes up on the
-            first message.
+            Ask about the code, a recent Событие, or a finding. If the agent is asleep, your message wakes it.
           </div>
         )}
         {turns.map((t, i) => (
@@ -82,8 +91,8 @@ export function InstanceChatPanel({ instanceId, onStatusChange }: { instanceId: 
         <textarea
           className={styles.input}
           value={input}
-          placeholder={busy ? "agent is working…" : "ask about this repository…"}
-          disabled={busy}
+          placeholder={instanceId == null ? "no agent yet" : busy ? "agent is working…" : "Ask about this repository…"}
+          disabled={busy || instanceId == null}
           rows={2}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -93,8 +102,8 @@ export function InstanceChatPanel({ instanceId, onStatusChange }: { instanceId: 
             }
           }}
         />
-        <button type="button" className={styles.send} disabled={busy || !input.trim()} onClick={send}>
-          {busy ? "…" : "send"}
+        <button type="button" className={styles.send} disabled={busy || !input.trim() || instanceId == null} onClick={send}>
+          {busy ? "…" : "Send"}
         </button>
       </div>
     </Panel>

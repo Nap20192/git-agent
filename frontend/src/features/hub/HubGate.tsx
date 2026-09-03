@@ -1,24 +1,53 @@
-/** Auth gate for hub screens (Railway model: no passwords, OAuth only).
- *  GET /api/me decides: 401 → sign-in card, ok → the screen. */
+/** Auth gate + theme shell for hub screens. Everything under it renders inside
+ *  the Claude design island (data-theme="claude"). GET /api/me decides:
+ *  401 → sign-in card (Railway model: OAuth only, no passwords), ok → screen. */
 import { Outlet } from "react-router-dom";
 import { UnauthorizedError, useHubApi, type Provider } from "@/api/hub";
 import { useMe } from "@/hooks";
 import { Button, Panel } from "@/components/primitives";
 import styles from "./hub.module.css";
 
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div data-theme="claude" className={styles.shell}>
+      {children}
+    </div>
+  );
+}
+
 export function HubGate() {
   const meQ = useMe();
 
-  if (meQ.loading) return <div className={styles.gate}>loading…</div>;
-  if (meQ.error instanceof UnauthorizedError) return <SignIn onDone={meQ.reload} />;
-  if (meQ.error) {
+  if (meQ.loading) {
     return (
-      <div className={styles.gate}>
-        <span style={{ color: "var(--crit)", fontSize: 12 }}>hub unreachable: {meQ.error.message}</span>
-      </div>
+      <Shell>
+        <div className={styles.gate}>loading…</div>
+      </Shell>
     );
   }
-  return <Outlet />;
+  if (meQ.error instanceof UnauthorizedError) {
+    return (
+      <Shell>
+        <SignIn onDone={meQ.reload} />
+      </Shell>
+    );
+  }
+  if (meQ.error) {
+    return (
+      <Shell>
+        <div className={styles.gate}>
+          <span style={{ color: "var(--crit)", fontSize: 13 }}>
+            Can't reach the hub — {meQ.error.message}. Check that the backend is running, then reload.
+          </span>
+        </div>
+      </Shell>
+    );
+  }
+  return (
+    <Shell>
+      <Outlet />
+    </Shell>
+  );
 }
 
 function SignIn({ onDone }: { onDone: () => void }) {
@@ -28,16 +57,18 @@ function SignIn({ onDone }: { onDone: () => void }) {
   return (
     <div className={styles.gate}>
       <Panel className={styles.gateCard}>
-        <h1 className={styles.gateTitle}>◆ git-agent hub</h1>
+        <div className={styles.gateMark}>✳</div>
+        <h1 className={styles.gateTitle}>An agent for every repository</h1>
         <p className={styles.gateBlurb}>
-          connect a git identity to monitor repositories. No passwords — sessions ride on your provider account.
+          Connect a repository and its agent starts watching: every push lands in its journal, findings surface in
+          reports, and you can ask it anything. Sign in with the account that owns your repos.
         </p>
         <div className={styles.gateButtons}>
           <Button variant="primary" onClick={() => login("github")}>
-             sign in with GitHub
+            Continue with GitHub
           </Button>
           <Button variant="outline" onClick={() => login("gitlab")}>
-            ⌾ sign in with GitLab
+            Continue with GitLab
           </Button>
         </div>
       </Panel>

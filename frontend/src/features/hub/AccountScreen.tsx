@@ -1,5 +1,5 @@
 /** Account: who am I + git identity links (Связки). Add another provider link
- *  or sign out; repo connection lives on the repos screen. */
+ *  or Sign out; repo connection lives on the repos screen. */
 import { useHubApi, type Identity, type Provider } from "@/api/hub";
 import { useMe } from "@/hooks";
 import { Badge, Button, EntityList } from "@/components/primitives";
@@ -49,7 +49,7 @@ export function AccountScreen() {
             removeIdentity(i.id);
           }}
         >
-          unlink
+          Unlink
         </Button>
       ),
     },
@@ -59,10 +59,10 @@ export function AccountScreen() {
     <div className={styles.screen}>
       <div className={styles.inner}>
         <div className={styles.head}>
-          <h1 className={styles.title}>account</h1>
+          <h1 className={styles.title}>Account</h1>
           <div style={{ flex: 1 }} />
           <Button variant="ghost" onClick={logout}>
-            sign out
+            Sign out
           </Button>
         </div>
         <p className={styles.blurb}>
@@ -81,10 +81,10 @@ export function AccountScreen() {
 
         <div className={styles.actions}>
           <Button variant="outline" onClick={() => addIdentity("github")}>
-            + link GitHub
+            Link GitHub
           </Button>
           <Button variant="outline" onClick={() => addIdentity("gitlab")}>
-            + link GitLab
+            Link GitLab
           </Button>
         </div>
       </div>

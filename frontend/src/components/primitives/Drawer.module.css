@@ -7,6 +7,7 @@
   justify-content: flex-end;
 }
 .panel {
+  border-radius: var(--radius) 0 0 var(--radius);
   max-width: 92vw;
   height: 100%;
   background: var(--panel);

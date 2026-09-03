@@ -1,181 +1,109 @@
-/** Connected repositories (hub monitors them via webhooks) + the Событие
- *  journal per repo. Connecting: pick identity → pick a provider repo →
- *  POST /api/repositories (hub installs the webhook). */
+/** Repositories — the hub's home. One card per connected repo showing its
+ *  agent's presence (Экземпляр status), bound Сборка, and the latest Событие.
+ *  Card → repo page; dashed card → connect flow (identity → provider repo →
+ *  POST /api/repositories, hub installs the webhook). */
 import { useState } from "react";
-import { useHubApi, type AgentBuild, type Provider, type Repository } from "@/api/hub";
-import { useBuilds, useHubRepositories, useIdentityRepos, useMe, useRepoEvents } from "@/hooks";
-import { Badge, Button, Drawer, EntityList, KeyValueList } from "@/components/primitives";
-import type { Column } from "@/components/primitives";
-import type { Tone } from "@/lib/tone.ts";
+import { useNavigate } from "react-router-dom";
+import { useHubApi, type AgentBuild, type AgentInstance, type Repository } from "@/api/hub";
+import { useBuilds, useHubRepositories, useIdentityRepos, useInstances, useMe } from "@/hooks";
+import { Badge, Button, Drawer } from "@/components/primitives";
 import styles from "./hub.module.css";
 
-const providerTone = (p: Provider): Tone => (p === "github" ? "text" : "burnt");
+export function AgentPresence({ instance, withLabel = true }: { instance?: AgentInstance; withLabel?: boolean }) {
+  const status = instance == null ? "no agent yet" : instance.status === "running" ? "awake" : "asleep";
+  const dotClass =
+    instance == null ? styles.noAgent : instance.status === "running" ? styles.awake : styles.asleep;
+  return (
+    <span className={styles.presence}>
+      <span className={`${styles.presenceDot} ${dotClass}`} />
+      {withLabel && status}
+    </span>
+  );
+}
 
 export function RepositoriesScreen() {
+  const navigate = useNavigate();
   const reposQ = useHubRepositories();
   const buildsQ = useBuilds();
+  const instancesQ = useInstances();
   const [connecting, setConnecting] = useState(false);
-  const [selected, setSelected] = useState<Repository | null>(null);
 
   const builds = buildsQ.data ?? [];
-  const buildName = (id?: number | null) => builds.find((b) => b.id === id)?.name ?? "—";
+  const buildName = (id?: number | null) => builds.find((b) => b.id === id)?.name;
+  const instanceOf = (repoId: number) => (instancesQ.data ?? []).find((i) => i.repositoryId === repoId);
 
-  const columns: Column<Repository>[] = [
-    { id: "provider", header: "PROVIDER", width: "0.9fr", render: (r) => <Badge tone={providerTone(r.provider)}>{r.provider}</Badge> },
-    {
-      id: "repo",
-      header: "REPOSITORY",
-      width: "1.8fr",
-      render: (r) => (
-        <span style={{ color: "var(--text)" }}>
-          {r.owner}/{r.name}
-        </span>
-      ),
-    },
-    { id: "branch", header: "BRANCH", width: "0.9fr", render: (r) => <span className={styles.cell}>{r.defaultBranch ?? "—"}</span> },
-    {
-      id: "build",
-      header: "СБОРКА",
-      width: "1.2fr",
-      render: (r) => (
-        <span className={styles.cell} style={r.buildId == null ? { color: "var(--med)" } : undefined}>
-          {r.buildId == null ? "unbound" : buildName(r.buildId)}
-        </span>
-      ),
-    },
-    {
-      id: "connected",
-      header: "CONNECTED",
-      width: "1.2fr",
-      render: (r) => <span className={styles.cell}>{new Date(r.connectedAt).toLocaleString()}</span>,
-    },
-  ];
+  const repos = reposQ.data ?? [];
 
   return (
     <div className={styles.screen}>
       <div className={styles.inner}>
         <div className={styles.head}>
-          <h1 className={styles.title}>repositories</h1>
+          <h1 className={styles.title}>Repositories</h1>
           <div style={{ flex: 1 }} />
           <Button variant="primary" onClick={() => setConnecting(true)}>
-            + connect repository
+            Connect repository
           </Button>
         </div>
         <p className={styles.blurb}>
-          repositories the hub watches. Connecting installs a webhook; every provider action lands in the repo's
-          Событие journal and feeds its agent Экземпляр.
+          Each connected repository gets its own agent. Pushes and pull requests land in its journal (События), and
+          the agent turns them into reports. Open a repository to read what it found — or ask it directly.
         </p>
 
-        <div className={styles.list}>
-          <EntityList
-            columns={columns}
-            rows={reposQ.data ?? []}
-            keyOf={(r) => String(r.id)}
-            onRowClick={setSelected}
-            empty={reposQ.loading ? "loading…" : "no repositories connected — link one from your identities"}
-          />
+        <div className={styles.cards}>
+          {repos.map((r) => (
+            <RepoCard
+              key={r.id}
+              repo={r}
+              instance={instanceOf(r.id)}
+              buildName={buildName(r.buildId)}
+              onOpen={() => navigate(`/repos/${r.id}`)}
+            />
+          ))}
+          <div className={`${styles.card} ${styles.addCard}`} onClick={() => setConnecting(true)}>
+            <span>＋ Connect a repository</span>
+          </div>
         </div>
+        {reposQ.loading && repos.length === 0 && <p className={styles.hint}>loading…</p>}
       </div>
 
-      <RepoDrawer repo={selected} builds={builds} onClose={() => setSelected(null)} reload={reposQ.reload} />
       <ConnectDrawer open={connecting} builds={builds} onClose={() => setConnecting(false)} reload={reposQ.reload} />
     </div>
   );
 }
 
-function RepoDrawer({
+function RepoCard({
   repo,
-  builds,
-  onClose,
-  reload,
+  instance,
+  buildName,
+  onOpen,
 }: {
-  repo: Repository | null;
-  builds: AgentBuild[];
-  onClose: () => void;
-  reload: () => void;
+  repo: Repository;
+  instance?: AgentInstance;
+  buildName?: string;
+  onOpen: () => void;
 }) {
-  const api = useHubApi();
-  const eventsQ = useRepoEvents(repo?.id ?? null);
-  const [busy, setBusy] = useState(false);
-
-  if (!repo) return null;
-
-  const bind = async (buildId: number) => {
-    setBusy(true);
-    try {
-      await api.setRepositoryBuild(repo.id, buildId);
-      reload();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const disconnect = async () => {
-    setBusy(true);
-    try {
-      await api.disconnectRepository(repo.id);
-      reload();
-      onClose();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const events = eventsQ.data ?? [];
-
   return (
-    <Drawer open title={`◆ ${repo.owner}/${repo.name}`} onClose={onClose} width={520}>
-      <KeyValueList
-        rows={[
-          { key: "provider", value: repo.provider },
-          { key: "default branch", value: repo.defaultBranch ?? "—" },
-          { key: "external id", value: repo.externalId, tone: "dim" },
-          { key: "connected", value: new Date(repo.connectedAt).toLocaleString() },
-        ]}
-      />
-
-      <label className={styles.label}>СБОРКА</label>
-      <select
-        className={styles.select}
-        value={repo.buildId ?? ""}
-        disabled={busy}
-        onChange={(e) => e.target.value && bind(Number(e.target.value))}
-      >
-        <option value="">— unbound —</option>
-        {builds.map((b) => (
-          <option key={b.id} value={b.id}>
-            {b.name}
-            {b.isDefault ? " (default)" : ""}
-          </option>
-        ))}
-      </select>
-
-      <label className={styles.label}>СОБЫТИЯ — webhook journal</label>
-      <div className={styles.journal}>
-        {events.length === 0 && (
-          <div className={styles.journalEmpty}>{eventsQ.loading ? "loading…" : "no events yet — push something"}</div>
-        )}
-        {events.map((e) => (
-          <div key={e.id} className={styles.eventRow}>
-            <span className={styles.eventAction}>{e.action}</span>
-            <span className={styles.eventSha}>{e.commitSha?.slice(0, 8) ?? ""}</span>
-            <span className={styles.eventRef}>{e.ref ?? ""}</span>
-            <span className={styles.eventTime}>{new Date(e.receivedAt).toLocaleString()}</span>
-          </div>
-        ))}
+    <div className={styles.card} onClick={onOpen}>
+      <div className={styles.cardTop}>
+        <Badge tone={repo.provider === "github" ? "text" : "burnt"}>{repo.provider}</Badge>
+        <div style={{ flex: 1 }} />
+        <AgentPresence instance={instance} />
       </div>
-
-      <div className={styles.actions}>
-        <Button variant="ghost" disabled={busy} onClick={disconnect}>
-          disconnect
-        </Button>
+      <div className={styles.cardName}>
+        <span className={styles.cardOwner}>{repo.owner}/</span>
+        {repo.name}
       </div>
-      <p className={styles.hint}>Disconnecting removes the webhook from the provider.</p>
-    </Drawer>
+      <div className={styles.cardMeta}>
+        {repo.defaultBranch && <span className={styles.mono}>{repo.defaultBranch}</span>}
+        <span style={repo.buildId == null ? { color: "var(--med)" } : undefined}>
+          {repo.buildId == null ? "no Сборка bound" : (buildName ?? `Сборка #${repo.buildId}`)}
+        </span>
+      </div>
+    </div>
   );
 }
 
-function ConnectDrawer({
+export function ConnectDrawer({
   open,
   builds,
   onClose,
@@ -219,8 +147,8 @@ function ConnectDrawer({
   };
 
   return (
-    <Drawer open={open} title="◆ connect repository" onClose={onClose} width={460}>
-      <label className={styles.label}>IDENTITY</label>
+    <Drawer open={open} title="Connect repository" onClose={onClose} width={460}>
+      <label className={styles.label}>Identity</label>
       <select
         className={styles.select}
         value={identityId ?? ""}
@@ -237,7 +165,7 @@ function ConnectDrawer({
         ))}
       </select>
 
-      <label className={styles.label}>REPOSITORY</label>
+      <label className={styles.label}>Repository</label>
       <select
         className={styles.select}
         value={externalId}
@@ -254,7 +182,7 @@ function ConnectDrawer({
       </select>
 
       <label className={styles.label}>
-        СБОРКА <span className={styles.note}>— optional, default build applies</span>
+        Сборка <span className={styles.note}>— optional, the default build applies</span>
       </label>
       <select className={styles.select} value={buildId} onChange={(e) => setBuildId(e.target.value)}>
         <option value="">— default —</option>
@@ -268,13 +196,15 @@ function ConnectDrawer({
       {error && <p className={styles.error}>{error}</p>}
       <div className={styles.actions}>
         <Button variant="primary" disabled={busy || identityId == null || !externalId} onClick={submit}>
-          ▶ connect
+          Connect
         </Button>
         <Button variant="ghost" onClick={onClose}>
-          cancel
+          Cancel
         </Button>
       </div>
-      <p className={styles.hint}>The hub installs a webhook for all repo actions; events start flowing immediately.</p>
+      <p className={styles.hint}>
+        Connecting installs a webhook on the repository. Its agent starts receiving События immediately.
+      </p>
     </Drawer>
   );
 }

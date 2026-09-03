@@ -50,8 +50,15 @@
   /* typography */
   --font-mono: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-mono); /* characterful display face; themes may override */
+  --font-ui: var(--font-mono); /* body/controls face; themes may override */
   --fs-root: 13px;
   --lh-root: 1.35;
+
+  /* shape — terminal look is square; themes may round */
+  --radius: 0px;
+  --radius-sm: 0px;
+  --on-accent: #000; /* text on --amber fills */
 
   /* spacing scale (px) */
   --sp-1: 4px;
@@ -109,4 +116,55 @@
   /* hover fills */
   --hover: #efe9df;
   --hover-2: #f1ece2;
+}
+
+/* Claude theme — the hub island (repos/builds/account). Warm ivory ground,
+   serif display, coral accent, rounded surfaces; mono is demoted to a data
+   voice (shas, refs, keys). Scoped to any element, not :root, so a screen
+   subtree can opt in via data-theme="claude" on a wrapper. */
+[data-theme="claude"] {
+  /* surfaces */
+  --bg: #f5f3ec;
+  --bg-deep: #edeae0;
+  --panel: #fbfaf6;
+  --panel-2: #f3f1e8;
+  --elevated: #ffffff;
+  --subtle: #e4e1d5;
+
+  /* borders */
+  --border: #ded9ca;
+  --border-soft: #e9e6da;
+
+  /* text */
+  --text: #1f1e1b;
+  --muted: #6f695c;
+  --comment: #57534a;
+  --dim: #a49b8a;
+
+  /* brand accents — Claude coral, darkened for contrast on ivory */
+  --amber: #c15f3c;
+  --amber-hover: #a84d2c;
+  --amber-bright: #d97757;
+  --burnt: #8f3e20;
+  --blue: #4c7e9e;
+
+  /* severity scale (warm, AA on ivory) */
+  --crit: #b42318;
+  --high: #c15f3c;
+  --med: #9a7016;
+  --low: #56753f;
+  --info: #6f695c;
+
+  /* hover fills */
+  --hover: #efece2;
+  --hover-2: #f1eee4;
+
+  /* voice */
+  --font-display: "Copernicus", "Tiempos Headline", Georgia, "Times New Roman", serif;
+  --font-ui: "Styrene A", "Avenir Next", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+
+  /* shape */
+  --radius: 14px;
+  --radius-sm: 9px;
+  --on-accent: #fff;
 }

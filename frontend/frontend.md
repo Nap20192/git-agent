@@ -55,7 +55,7 @@ bun dev
 
 ### Hub (Go backend)
 
-The `/repos`, `/builds`, `/instances`, `/account` screens talk to the **Go hub** service
+The `/repos`, `/repos/:id`, `/builds`, `/account` screens talk to the **Go hub** service
 (contract: `backend/docs/openapi.yaml`, camelCase, authoritative) through a separate API layer in
 `src/api/hub/` — same mock-as-spec pattern: `contract.ts` (wire types) + `client.ts` (`HubApi`) +
 `mock.ts` (executable spec, **default**) + `http.ts` (real adapter). Switch with
@@ -63,6 +63,19 @@ The `/repos`, `/builds`, `/instances`, `/account` screens talk to the **Go hub**
 screens in `src/features/hub/` behind `HubGate` (OAuth sign-in via `GET /api/me`, Railway model).
 The chat SSE frame shape (`ChatEvent`) is the frontend's provisional spec — the openapi contract
 only says "события chat"; keep mock and backend in sync when it lands.
+
+**UX model: repo-centric.** The Экземпляр Агента is 1:1 with a repository, so there is no
+instances screen — the repo page (`/repos/:id`) is the agent's home: presence (awake/asleep,
+the breathing-halo signature element), chat, Событие journal, reports, findings, and settings
+(Сборка binding, disconnect). The repos list is a card grid; connecting a repo is a drawer flow
+(identity → provider repo → connect).
+
+**Claude design island.** Hub screens render inside `HubGate`'s shell (`data-theme="claude"`),
+a scope in `tokens.css`: ivory surfaces, coral accent (`--amber` remapped), serif display
+(`--font-display`), sans UI (`--font-ui`), rounded shape (`--radius`); mono is reserved for
+machine facts (shas, refs, keys — `.mono` in `hub.module.css`). Terminal screens keep the base
+tokens (`--radius: 0`), so primitives round only inside the island. To retheme the whole app the
+same way, move the attribute up to `<html>`.
 
 ---
 

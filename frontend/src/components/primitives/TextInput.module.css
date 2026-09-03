@@ -3,6 +3,7 @@
   align-items: center;
   border: 1px solid var(--border);
   background: var(--bg-deep);
+  border-radius: var(--radius-sm);
 }
 .wrap.active {
   border-color: var(--amber);
