@@ -1,10 +1,19 @@
 # Схема БД v1 + миграции
 
 Type: wayfinder:grilling
-Status: open
-Assignee:
+Status: closed
+Assignee: vnkjd
 Blocked by: [Модель вебхуков](002-webhooks-model.md), [Пользователи и OAuth-связки](003-users-oauth.md), [Сборки Агентов и реестр раннеров](004-agent-registry.md)
 
 ## Question
 
-Итоговая схема: users, oauth-связки, repositories (+привязка к Сборке, per-repo webhook-секрет), журнал событий (unique provider+delivery_id) + outbox, сборки агентов, экземпляры агентов (долгоживущие: один на сборка+repo, статус down/running с single-running инвариантом, журнал обработанных Событий с dedup_key), раннеры (адрес, слоты, heartbeat), llm/sandbox connections, sandbox_instances — поля, связи, уникальности (Экземпляр: сборка+repo+commit). Одна общая Postgres — подтвердить и решить границы схем (`hub.*`/`agent.*`?) и судьбу текущих таблиц агента. Инструмент миграций на Go (goose / golang-migrate / нумерованные SQL как в Python-части). Это финальный тикет карты — его Answer и есть «сделаем базу данных».
+Итоговая схема всех сущностей, границы владения в Postgres, инструмент миграций.
+
+## Answer
+
+- **Одна база** `git_agent` (порт 5433); таблицы backend'а — в Postgres-схеме **`hub.*`**, агентские остаются в `public`.
+- **Мигратор** — нумерованные SQL в `migrations/backend/` + мини-раннер на Go (`backend/cmd/migrate`, таблица `hub.schema_migrations`), зеркало питоновского. `task backend:migrate`.
+- **Схема** — [migrations/backend/001_init.sql](../../migrations/backend/001_init.sql), диаграмма — [migrations/backend/ERD.md](../../migrations/backend/ERD.md). 15 таблиц: users/sessions/identities; llm_connections/sandbox_connections/agent_builds; repositories/events/outbox; sandbox_instances/agent_instances/instance_events/runners; reports/findings.
+- **Ключевые инварианты в DDL**: identities unique (provider, provider_user_id); repositories unique (user_id, provider, external_id); events unique (provider, delivery_id); agent_instances unique (build_id, repository_id) + CHECK «running ⇒ есть runner_id»; instance_events PK (instance_id, dedup_key); partial-индекс на неопубликованный outbox.
+- **Песочница ↔ агенты = 1:N**: у Экземпляра одна песочница (FK), песочницу могут делить несколько Экземпляров.
+- Применено к локальной БД и проверено на идемпотентность (повторный прогон — no-op, 16 таблиц в hub).

@@ -22,19 +22,22 @@ label: wayfinder:map
 - Go-сервис — слой НАД агентом (агент со временем станет консьюмером Rabbit), но агента сейчас не трогаем.
 - Экземпляры Сэндбоксов создаёт и владеет ими Go-сервис; агенту в Таске едет external_id.
 - Мониторинг — webhooks (не polling).
-- Пользователи локальные; OAuth GitHub/GitLab — подключаемые связки для доступа к репозиториям, не логин.
+- ~~Пользователи локальные; OAuth не для логина~~ — пересмотрено тикетом 003 (вход как в Railway).
 - Реестр агентов — в скоупе; профили агентов — вне.
 - ~~Новый термин: **Таск**~~ — отменён (см. ниже).
 - [Контракт Таска → модель Событий](tickets/001-task-contract.md) — Таск и backend-Ран отменены; по Rabbit летят тонкие **События** с вебхуков, в БД живут **Сборки Агентов** (repo→Сборка 1:1) и **Экземпляры Агентов** (идемпотентность по сборка+repo+commit); слоты у Python-раннера, гарантии — БД+чекпоинты (auto-ack), результат агент пишет в БД тулзой.
 - [Research: OpenSandbox из Go](tickets/007-opensandbox-go.md) — официальный Go SDK есть (alibaba/OpenSandbox, sdks/sandbox/go); API — `/v1/sandboxes` + заголовок `OPEN-SANDBOX-API-KEY`, тонкий клиент возможен, но SDK предпочтительнее.
 - [Размещение Go-сервиса в монорепе](tickets/008-monorepo-skeleton.md) — верхний уровень `frontend/ backend/ agent/ deploy/ migrations/`; Python переехал в `agent/`, миграции per-service в `migrations/*`, Go-модуль `github.com/vnkjd/git-agent/backend` (`cmd/hub`). Перенос выполнен и проверен.
 - [Модель вебхуков](tickets/002-webhooks-model.md) — хук на ВСЕ действия, backend вешает его сам при «подключении» Репозитория; per-repo секрет; всегда 200 наружу; дедуп по (provider, delivery_id) + `dedup_key` Экземпляра (commit_sha или event_id); **transactional outbox** → Rabbit; dev через cloudflared-туннель.
+- [Пользователи и OAuth-связки](tickets/003-users-oauth.md) — вход кнопкой GitHub/GitLab (Railway-модель, паролей нет), session cookie; OAuth App у обоих; токены/секреты шифруются (AES-GCM, ключ в env); связок много (unique provider+provider_user_id), Репозиторий ссылается на свою связку.
 - [Сборки Агентов и реестр раннеров](tickets/004-agent-registry.md) — Экземпляр пересмотрен: **долгоживущий агент Репозитория** (один на Сборка+repo, один чекпоинт-тред, копит знание; События и чат — в него), статусы down/running (single-running инвариант), опускание по idle-таймауту; чат пользователя — только через backend с прокси в API раннера; Сборка = llm+sandbox connections+промпт+пресет+лимиты; раннер — саморегистрация+heartbeat+слоты.
+
+- [Схема БД v1 + миграции](tickets/006-db-schema.md) — одна база `git_agent`, backend в Postgres-схеме `hub.*`; 15 таблиц ([001_init.sql](../migrations/backend/001_init.sql), [ERD](../migrations/backend/ERD.md)); мигратор — нумерованные SQL + `backend/cmd/migrate` (`task backend:migrate`); применено и идемпотентно.
+- [Топология RabbitMQ](tickets/005-rabbit-topology.md) — свой rabbitmq:4 в deploy (порты 5673/15673); topic exchange `events` (`provider.repo.action`), одна durable-очередь `#`, competing consumers; outbox-паблишер с publisher confirm (at-least-once), ре-публикация по heartbeat-таймауту раннера.
 
 ## Not yet specified
 
-- HTTP-поверхность Go-сервиса (роуты v1) — прояснится после решений по пользователям, вебхукам и реестру.
-- Деплой: сервис в deploy/docker-compose.yml, RabbitMQ туда же — детали после выбора топологии.
+- Деплой: сервис в deploy/docker-compose.yml — добавить сам Go-сервис (Rabbit решён в 005).
 - Отношение фронтенда к новому сервису (сейчас фронт ходит в Python-gateway).
 
 ## Out of scope

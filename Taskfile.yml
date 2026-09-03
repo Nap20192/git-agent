@@ -27,7 +27,7 @@ tasks:
       - "{{.COMPOSE}} down"
 
   migrate:
-    desc: Применить миграции БД агента (идемпотентно)
+    desc: Применить все миграции БД — agent + backend (идемпотентно)
     dir: agent
     cmds:
       - uv run python -m migrations.migrate
