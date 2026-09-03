@@ -82,7 +82,7 @@ async def runner_deps():
 
     store = HubInstanceStore()
     hub = HttpHubClient(hub_url=settings.hub_url, token=settings.runner_token)
-    decrypt_key = partial(decrypt, key_b64=settings.hub_enc_key)
+    decrypt_key = partial(decrypt, key_hex=settings.secrets_key)
     cp_cm = AsyncPostgresSaver.from_conn_string(settings.database_url)
     checkpointer = await cp_cm.__aenter__()
     service = RunnerService(

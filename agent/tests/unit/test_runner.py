@@ -51,9 +51,7 @@ def test_parse_event_optional_and_bad():
 
 
 def test_crypto_roundtrip():
-    import base64
-
-    key = base64.b64encode(b"k" * 32).decode()
+    key = (b"k" * 32).hex()
     blob = encrypt("s3cret", key, nonce=os.urandom(12))
     assert decrypt(blob, key) == "s3cret"
     assert decrypt(None, key) is None

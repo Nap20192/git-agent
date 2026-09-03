@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     runner_idle_timeout_seconds: float = 900.0
     runner_token: str = ""  # X-Runner-Token для backend
     hub_url: str = ""  # адрес hub; пусто = регистрация/heartbeat выключены
-    hub_enc_key: str = ""  # base64 32 байта, AES-GCM для hub.*_enc
+    secrets_key: str = ""  # 64 hex-символа, AES-GCM для hub.*_enc (общий с backend)
 
 
 settings = Settings()
