@@ -1,6 +1,4 @@
-// Package runners — реестр раннеров (тикет 004): саморегистрация + heartbeat,
-// оба роута за заголовком X-Runner-Token.
-package runners
+package httpapi
 
 import (
 	"crypto/subtle"
@@ -9,16 +7,18 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 )
 
-type Handler struct {
-	DB    *pgxpool.Pool
+// RunnersHandler — реестр Раннеров (тикет 004): саморегистрация + heartbeat,
+// оба роута за заголовком X-Runner-Token.
+type RunnersHandler struct {
+	Store domain.RunnerStore
 	Token string
 }
 
 // Auth — middleware: constant-time сравнение X-Runner-Token с RUNNER_TOKEN.
-func (h *Handler) Auth(next http.HandlerFunc) http.HandlerFunc {
+func (h *RunnersHandler) Auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		got := r.Header.Get("X-Runner-Token")
 		if subtle.ConstantTimeCompare([]byte(got), []byte(h.Token)) != 1 {
@@ -31,7 +31,7 @@ func (h *Handler) Auth(next http.HandlerFunc) http.HandlerFunc {
 
 // Register — POST /api/runners: upsert по уникальному имени; повторная
 // регистрация обновляет адрес/слоты и продлевает heartbeat.
-func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
+func (h *RunnersHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name    string `json:"name"`
 		Address string `json:"address"`
@@ -41,15 +41,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"name, address and slots >= 1 are required"}`, http.StatusBadRequest)
 		return
 	}
-	var id int64
-	err := h.DB.QueryRow(r.Context(),
-		`INSERT INTO hub.runners (name, address, slots)
-		 VALUES ($1, $2, $3)
-		 ON CONFLICT (name) DO UPDATE
-		   SET address = $2, slots = $3, last_heartbeat_at = now()
-		 RETURNING id`,
-		req.Name, req.Address, req.Slots,
-	).Scan(&id)
+	id, err := h.Store.Upsert(r.Context(), domain.Runner{Name: req.Name, Address: req.Address, Slots: req.Slots})
 	if err != nil {
 		slog.Error("runners: register failed", "name", req.Name, "err", err)
 		http.Error(w, `{"error":"internal"}`, http.StatusInternalServerError)
@@ -60,20 +52,19 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 // Heartbeat — POST /api/runners/{id}/heartbeat.
-func (h *Handler) Heartbeat(w http.ResponseWriter, r *http.Request) {
+func (h *RunnersHandler) Heartbeat(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		http.Error(w, `{"error":"bad id"}`, http.StatusBadRequest)
 		return
 	}
-	tag, err := h.DB.Exec(r.Context(),
-		`UPDATE hub.runners SET last_heartbeat_at = now() WHERE id = $1`, id)
+	ok, err := h.Store.Heartbeat(r.Context(), id)
 	if err != nil {
 		slog.Error("runners: heartbeat failed", "id", id, "err", err)
 		http.Error(w, `{"error":"internal"}`, http.StatusInternalServerError)
 		return
 	}
-	if tag.RowsAffected() == 0 {
+	if !ok {
 		http.Error(w, `{"error":"unknown runner"}`, http.StatusNotFound)
 		return
 	}

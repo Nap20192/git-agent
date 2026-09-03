@@ -1,4 +1,4 @@
-package runners
+package httpapi
 
 import (
 	"net/http"
@@ -6,12 +6,13 @@ import (
 	"strings"
 	"testing"
 
+	pgstore "github.com/vnkjd/git-agent/backend/internal/hub/adapters/postgres"
 	"github.com/vnkjd/git-agent/backend/internal/pkg/testdb"
 )
 
 func TestRunnerRoutes(t *testing.T) {
 	db := testdb.Setup(t)
-	h := &Handler{DB: db, Token: "runner-token"}
+	h := &RunnersHandler{Store: &pgstore.Store{Pool: db}, Token: "runner-token"}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/runners", h.Auth(h.Register))
 	mux.HandleFunc("POST /api/runners/{id}/heartbeat", h.Auth(h.Heartbeat))

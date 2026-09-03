@@ -1,4 +1,4 @@
-package outbox
+package app
 
 import (
 	"context"
@@ -9,11 +9,13 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
+	pgstore "github.com/vnkjd/git-agent/backend/internal/hub/adapters/postgres"
+	rmq "github.com/vnkjd/git-agent/backend/internal/hub/adapters/rabbitmq"
 	"github.com/vnkjd/git-agent/backend/internal/pkg/testdb"
 )
 
 // Полный цикл: строка outbox → publish с confirm → published_at → сообщение в очереди.
-func TestPublisher(t *testing.T) {
+func TestOutboxService(t *testing.T) {
 	url := os.Getenv("HUB_TEST_RABBITMQ_URL")
 	if url == "" {
 		url = "amqp://guest:guest@localhost:5673/"
@@ -47,7 +49,9 @@ func TestPublisher(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	go (&Worker{DB: db, URL: url}).Run(ctx)
+	pub := &rmq.Publisher{URL: url}
+	defer pub.Close()
+	go (&OutboxService{Store: &pgstore.Store{Pool: db}, Publisher: pub}).Run(ctx)
 
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -75,12 +79,11 @@ func TestPublisher(t *testing.T) {
 			t.Fatal(err)
 		}
 		if ok {
+			// очередь durable и переживает прошлые прогоны — ищем своё сообщение,
+			// чужие (в т.ч. не-JSON) пропускаем
 			var body map[string]any
-			if err := json.Unmarshal(msg.Body, &body); err != nil {
-				t.Fatal(err)
-			}
-			// очередь durable и переживает прошлые прогоны — ищем своё сообщение
-			if msg.RoutingKey == "github.1.push" && body["eventId"] == float64(1) {
+			if json.Unmarshal(msg.Body, &body) == nil &&
+				msg.RoutingKey == "github.1.push" && body["eventId"] == float64(1) {
 				return
 			}
 			continue
