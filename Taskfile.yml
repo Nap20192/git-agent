@@ -123,9 +123,22 @@ tasks:
       - go test ./...
 
   tunnel:
-    desc: Перезапустить cloudflared-туннель и перепрописать GitHub-хуки на новый URL
+    desc: Перезапустить cloudflared-туннель и перепрописать GitHub-хуки (fallback, основной путь — relay)
     cmds:
       - ./scripts/retunnel.sh
+
+  relay:deploy:
+    desc: Задеплоить релей вебхуков на Railway (нужен railway login; см. tunnel/README.md)
+    dir: tunnel
+    cmds:
+      - railway up
+
+  relay:pull:
+    desc: Локальный пуллер вебхуков — relay → hub :8081 (RELAY_URL/RELAY_TOKEN из .env)
+    dir: tunnel
+    dotenv: [".env"]
+    cmds:
+      - go run ./cmd/puller
 
   front:
     desc: Фронтенд (vite dev, :5173) с http-адаптером к беку
