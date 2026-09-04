@@ -55,6 +55,8 @@ async def runner_deps():
     from functools import partial
 
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from psycopg.rows import dict_row
+    from psycopg_pool import AsyncConnectionPool
 
     from core.config import settings
     from core.runner.crypto import decrypt
@@ -72,8 +74,18 @@ async def runner_deps():
     store = HubInstanceStore()
     hub = HttpHubClient(hub_url=settings.hub_url, token=settings.runner_token)
     decrypt_key = partial(decrypt, key_hex=settings.secrets_key)
-    cp_cm = AsyncPostgresSaver.from_conn_string(settings.database_url)
-    checkpointer = await cp_cm.__aenter__()
+    # Чекпоинтер — над пулом, не над одним соединением: ходы идут параллельно
+    # (слоты + чат), а одно AsyncConnection в pipeline-режиме двумя корутинами
+    # не делится («cannot enter pipeline mode, connection not idle»).
+    cp_pool = AsyncConnectionPool(
+        settings.database_url,
+        min_size=1,
+        max_size=settings.runner_slots + 4,
+        kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
+        open=False,
+    )
+    await cp_pool.open(wait=True, timeout=30)
+    checkpointer = AsyncPostgresSaver(cp_pool)
     service = RunnerService(
         store=store,
         hub=hub,
@@ -110,7 +122,7 @@ async def runner_deps():
         for step, closer in (
             ("service shutdown", service.shutdown),
             ("hub client close", hub.aclose),
-            ("checkpointer close", lambda: cp_cm.__aexit__(None, None, None)),
+            ("checkpointer close", cp_pool.close),
             ("async pool close", close_async_pool),
         ):
             try:
