@@ -73,10 +73,15 @@ def _connection_config(domain: str | None = None, api_key: str | None = None) ->
 async def connect_sandbox(
     external_id: str, *, domain: str | None = None, api_key: str | None = None
 ) -> OpenSandboxAdapter:
-    """Переподключение к существующему сэндбоксу по id (для resume/kill)."""
+    """Переподключение к существующему сэндбоксу по id (для resume/kill).
+
+    С health check: запись в OpenSandbox переживает рестарт Docker, а контейнер —
+    нет; без проверки connect «успешен», и первая же команда падает
+    SandboxConnectionException посреди хода. Живая песочница отвечает сразу,
+    мёртвая — исключение через connect_timeout, и раннер помечает её dead."""
     sandbox = await _OpenSandbox.connect(
         external_id,
         connection_config=_connection_config(domain, api_key),
-        skip_health_check=True,
+        connect_timeout=timedelta(seconds=10),
     )
     return OpenSandboxAdapter(sandbox)
