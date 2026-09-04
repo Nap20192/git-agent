@@ -24,7 +24,9 @@ class RecordingStore:
         self.reports: list[tuple[int, int | None, str]] = []
         self.structured: list[dict[str, Any] | None] = []
 
-    async def add_finding(self, instance_id: int, finding: dict[str, Any], *, event_id=None) -> None:
+    async def add_finding(
+        self, instance_id: int, finding: dict[str, Any], *, event_id=None
+    ) -> None:
         self.findings.append((instance_id, finding))
 
     async def add_report(

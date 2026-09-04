@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -363,19 +364,34 @@ func (q *Queries) Messages(ctx context.Context, arg MessagesParams) ([]MessagesR
 }
 
 const reports = `-- name: Reports :many
-SELECT id, instance_id, event_id, summary, created_at, structured
-  FROM hub.reports WHERE instance_id = $1 ORDER BY id DESC
+SELECT r.id, r.instance_id, r.event_id, r.summary, r.created_at, r.structured,
+       e.commit_sha, e.ref, e.action
+  FROM hub.reports r LEFT JOIN hub.events e ON e.id = r.event_id
+ WHERE r.instance_id = $1 ORDER BY r.id DESC
 `
 
-func (q *Queries) Reports(ctx context.Context, instanceID int64) ([]HubReport, error) {
+type ReportsRow struct {
+	ID         int64
+	InstanceID int64
+	EventID    *int64
+	Summary    string
+	CreatedAt  time.Time
+	Structured json.RawMessage
+	CommitSHA  *string
+	Ref        *string
+	Action     *string
+}
+
+// Отчёты несут коммит/ref/action своего События (NULL у отчётов чата).
+func (q *Queries) Reports(ctx context.Context, instanceID int64) ([]ReportsRow, error) {
 	rows, err := q.db.Query(ctx, reports, instanceID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []HubReport
+	var items []ReportsRow
 	for rows.Next() {
-		var i HubReport
+		var i ReportsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.InstanceID,
@@ -383,6 +399,9 @@ func (q *Queries) Reports(ctx context.Context, instanceID int64) ([]HubReport, e
 			&i.Summary,
 			&i.CreatedAt,
 			&i.Structured,
+			&i.CommitSHA,
+			&i.Ref,
+			&i.Action,
 		); err != nil {
 			return nil, err
 		}
@@ -395,20 +414,34 @@ func (q *Queries) Reports(ctx context.Context, instanceID int64) ([]HubReport, e
 }
 
 const repositoryReports = `-- name: RepositoryReports :many
-SELECT r.id, r.instance_id, r.event_id, r.summary, r.created_at, r.structured
+SELECT r.id, r.instance_id, r.event_id, r.summary, r.created_at, r.structured,
+       e.commit_sha, e.ref, e.action
   FROM hub.reports r JOIN hub.agent_instances i ON i.id = r.instance_id
+  LEFT JOIN hub.events e ON e.id = r.event_id
  WHERE i.repository_id = $1 ORDER BY r.id DESC
 `
 
-func (q *Queries) RepositoryReports(ctx context.Context, repositoryID int64) ([]HubReport, error) {
+type RepositoryReportsRow struct {
+	ID         int64
+	InstanceID int64
+	EventID    *int64
+	Summary    string
+	CreatedAt  time.Time
+	Structured json.RawMessage
+	CommitSHA  *string
+	Ref        *string
+	Action     *string
+}
+
+func (q *Queries) RepositoryReports(ctx context.Context, repositoryID int64) ([]RepositoryReportsRow, error) {
 	rows, err := q.db.Query(ctx, repositoryReports, repositoryID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []HubReport
+	var items []RepositoryReportsRow
 	for rows.Next() {
-		var i HubReport
+		var i RepositoryReportsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.InstanceID,
@@ -416,6 +449,9 @@ func (q *Queries) RepositoryReports(ctx context.Context, repositoryID int64) ([]
 			&i.Summary,
 			&i.CreatedAt,
 			&i.Structured,
+			&i.CommitSHA,
+			&i.Ref,
+			&i.Action,
 		); err != nil {
 			return nil, err
 		}

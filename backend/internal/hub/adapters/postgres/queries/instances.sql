@@ -53,13 +53,18 @@ UPDATE hub.agent_instances i SET sandbox_instance_id = @sandbox_instance_id::big
   FROM hub.repositories r
  WHERE i.id = @id AND r.id = i.repository_id AND r.user_id = @user_id;
 
+-- Отчёты несут коммит/ref/action своего События (NULL у отчётов чата).
 -- name: Reports :many
-SELECT id, instance_id, event_id, summary, created_at, structured
-  FROM hub.reports WHERE instance_id = @instance_id ORDER BY id DESC;
+SELECT r.id, r.instance_id, r.event_id, r.summary, r.created_at, r.structured,
+       e.commit_sha, e.ref, e.action
+  FROM hub.reports r LEFT JOIN hub.events e ON e.id = r.event_id
+ WHERE r.instance_id = @instance_id ORDER BY r.id DESC;
 
 -- name: RepositoryReports :many
-SELECT r.id, r.instance_id, r.event_id, r.summary, r.created_at, r.structured
+SELECT r.id, r.instance_id, r.event_id, r.summary, r.created_at, r.structured,
+       e.commit_sha, e.ref, e.action
   FROM hub.reports r JOIN hub.agent_instances i ON i.id = r.instance_id
+  LEFT JOIN hub.events e ON e.id = r.event_id
  WHERE i.repository_id = @repository_id ORDER BY r.id DESC;
 
 -- Находки v2 (миграция 007): скоуп — Экземпляр либо Репозиторий (все его

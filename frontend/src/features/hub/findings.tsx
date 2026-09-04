@@ -203,6 +203,9 @@ export function ReportView({ report }: { report: Report }) {
   if (!s) return <Rich>{report.summary}</Rich>;
   const scope = s.scope;
   const files = Array.isArray(scope?.filesTouched) ? scope.filesTouched : null;
+  const commit = report.commitSha ?? scope?.commit ?? null;
+  const rng = scope?.range;
+  const range = typeof rng === "string" ? rng : rng ? (rng.base && rng.head ? `${rng.base.slice(0, 7)}...${rng.head.slice(0, 7)}` : rng.before && rng.after ? `${rng.before.slice(0, 7)}..${rng.after.slice(0, 7)}` : "") : "";
   const sev = Object.entries(s.findingsBySeverity ?? {}).sort(([a], [b]) => sevRank(a) - sevRank(b));
   return (
     <div className="report">
@@ -210,7 +213,7 @@ export function ReportView({ report }: { report: Report }) {
         <div className="report-head">
           {scope && (
             <div className="small comment">
-              <b>scope</b> · {scope.eventType ?? "—"}{scope.range ? ` · ${scope.range}` : ""}
+              <b>scope</b> · {report.action ?? scope.eventType ?? "—"}{commit ? <> @ <b title={commit}>{commit.slice(0, 7)}</b></> : ""}{range ? ` · ${range}` : ""}
               {files ? ` · ${files.length} files` : typeof scope.filesTouched === "number" ? ` · ${scope.filesTouched} files` : ""}
               {scope.linesChanged != null ? ` · ${scope.linesChanged} lines` : ""}
               {files && <div className="muted ellip" title={files.join("\n")}>{files.join(", ")}</div>}

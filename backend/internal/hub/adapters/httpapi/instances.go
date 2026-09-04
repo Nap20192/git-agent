@@ -31,6 +31,9 @@ type reportDTO struct {
 	Summary    string          `json:"summary"`
 	CreatedAt  time.Time       `json:"createdAt"`
 	Structured json.RawMessage `json:"structured"` // ReportStructured (openapi); null у старых
+	CommitSHA  *string         `json:"commitSha"`  // из События отчёта; null у отчётов чата
+	Ref        *string         `json:"ref"`
+	Action     *string         `json:"action"`
 }
 
 func (s *Server) instance(r *http.Request) (*domain.AgentInstance, error) {

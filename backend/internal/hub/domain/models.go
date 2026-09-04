@@ -119,6 +119,10 @@ type Report struct {
 	Summary    string // markdown-рендер Structured (делает раннер)
 	CreatedAt  time.Time
 	Structured json.RawMessage // {summary, scope, method, findingsBySeverity, topRisks, recommendations, limitations}; nil у старых
+	// Из События отчёта (nil у отчётов чата / без События).
+	CommitSHA *string
+	Ref       *string
+	Action    *string
 }
 
 // Finding — Находка v2 (миграция 007). Порядок полей = hub.findings (sqlc-модель

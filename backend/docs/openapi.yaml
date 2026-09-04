@@ -953,6 +953,9 @@ components:
           oneOf: [{ $ref: "#/components/schemas/ReportStructured" }, { type: "null" }]
           description: null у отчётов до миграции 007
         createdAt: { type: string, format: date-time }
+        commitSha: { type: [string, "null"], description: коммит События отчёта; null у отчётов чата }
+        ref: { type: [string, "null"] }
+        action: { type: [string, "null"] }
     ReportStructured:
       type: object
       description: Структурированный отчёт хода (hub.reports.structured, пишет раннер).

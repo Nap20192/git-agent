@@ -36,13 +36,15 @@ def build_hub_security_tools(
     sandbox: Sandbox | None = None,
     scope_range: tuple[str, str] | None = None,
     event_type: str = "",
+    commit: str | None = None,
 ) -> list[BaseTool]:
     """report_finding/write_report, пишущие в hub.findings/hub.reports (тикет 001:
     «результат агент пишет в БД сам, через тулзу»). Схема и описание report_finding —
     канонические из report_finding, здесь добавляются blame и персист. Один набор
     инстансов на ход — общий для Лида и Сабагентов, поэтому `recorded` и кэш blame
     покрывают весь ход. scope_range — (before, after) диапазон изменений События для
-    introducedBy; None — не определяется (full_scan, чат)."""
+    introducedBy; None — не определяется (full_scan, чат). commit — коммит События,
+    попадает в scope и заголовок Отчёта (у full_scan диапазона нет, коммит есть)."""
     resolver = BlameResolver(sandbox, scope_range) if sandbox is not None else None
     recorded: list[dict[str, Any]] = []
 
@@ -84,7 +86,7 @@ def build_hub_security_tools(
             if event_type in PR_ACTIONS
             else ReportRange(before=scope_range[0], after=scope_range[1])
         )
-    default_scope = ReportScope(event_type=event_type, range=default_range)
+    default_scope = ReportScope(event_type=event_type, commit=commit, range=default_range)
 
     async def _write_report(**kwargs: Any) -> str:
         args = WriteReportArgs(**kwargs)

@@ -25,6 +25,7 @@ class ReportScope(BaseModel):
     event_type: str = Field(
         "", description="push | pull_request | merge_request | manual | full_scan"
     )
+    commit: str | None = Field(None, description="коммит События — HEAD разобранного скоупа")
     range: ReportRange | None = None
     files_touched: list[str] = Field(default_factory=list, description="файлы, реально разобранные")
     lines_changed: int | None = Field(None, description="строк в диффе скоупа, если известно")
@@ -70,6 +71,7 @@ def build_structured_report(
     if default_scope:
         scope = ReportScope(
             event_type=scope.event_type or default_scope.event_type,
+            commit=scope.commit or default_scope.commit,
             range=scope.range or default_scope.range,
             files_touched=scope.files_touched or default_scope.files_touched,
             lines_changed=scope.lines_changed
@@ -80,6 +82,7 @@ def build_structured_report(
         "summary": args.summary.strip(),
         "scope": {
             "eventType": scope.event_type,
+            "commit": scope.commit,
             "range": scope.range.model_dump(exclude_none=True) if scope.range else None,
             "filesTouched": list(scope.files_touched),
             "linesChanged": scope.lines_changed,
@@ -134,7 +137,10 @@ def render_report_markdown(structured: dict[str, Any]) -> str:
         if rng.get("base") and rng.get("head")
         else ""
     )
-    head = " ".join(x for x in ("# Security report", scope.get("eventType") or "", range_text) if x)
+    commit = f"@ {scope['commit'][:7]}" if scope.get("commit") else ""
+    head = " ".join(
+        x for x in ("# Security report", scope.get("eventType") or "", commit, range_text) if x
+    )
     out = [head, "", "## Summary", structured.get("summary") or "", ""]
     scope_lines = []
     if scope.get("filesTouched"):

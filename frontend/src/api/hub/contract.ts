@@ -155,8 +155,10 @@ export interface ReportStructured {
   summary?: string | null;
   scope?: {
     eventType?: string | null;
-    /** commit range, e.g. "a1b2c3d..e4f5a6b" */
-    range?: string | null;
+    /** HEAD commit of the reviewed scope (the Событие's commit). */
+    commit?: string | null;
+    /** commit range: push — {before, after}; PR — {base, head}; null for full_scan/chat. */
+    range?: { before?: string | null; after?: string | null; base?: string | null; head?: string | null } | string | null;
     filesTouched?: number | string[] | null;
     linesChanged?: number | null;
   } | null;
@@ -174,6 +176,10 @@ export interface Report {
   summary: string;
   structured?: ReportStructured | null;
   createdAt: string;
+  /** From the report's Событие; null for chat-turn reports. */
+  commitSha?: string | null;
+  ref?: string | null;
+  action?: string | null;
 }
 
 /** Whether the Событие under review introduced the finding or it predates it. */

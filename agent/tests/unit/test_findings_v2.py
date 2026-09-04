@@ -153,7 +153,13 @@ def test_report_finding_enriches_blame_and_write_report_structured():
         tools = {
             t.name: t
             for t in build_hub_security_tools(
-                store, 3, 7, sandbox=sb, scope_range=("mb", "head"), event_type="pull_request"
+                store,
+                3,
+                7,
+                sandbox=sb,
+                scope_range=("mb", "head"),
+                event_type="pull_request",
+                commit="head",
             )
         }
         result = await tools["report_finding"].ainvoke(
@@ -198,6 +204,7 @@ def test_report_finding_enriches_blame_and_write_report_structured():
         summary, structured = store.reports[0]
         assert structured["scope"] == {
             "eventType": "pull_request",  # дефолт системы, модель не задала
+            "commit": "head",
             "range": {"base": "mb", "head": "head"},
             "filesTouched": ["app/db.py"],
             "linesChanged": 12,
@@ -211,7 +218,7 @@ def test_report_finding_enriches_blame_and_write_report_structured():
         }
         assert structured["method"] == ["git_diff", "grep_code", "semgrep"]
         assert [x["title"] for x in structured["findings"]] == ["SQLi", "Weak config"]
-        assert summary.startswith("# Security report pull_request mb...head\n")
+        assert summary.startswith("# Security report pull_request @ head mb...head\n")
         assert (
             "| high | SQLi | app/db.py:10-12 | Alice @ 2024-06-01 `aaaaaaa` (this event) | CWE-89 | medium |"
             in summary

@@ -268,6 +268,7 @@ class EventExecutor:
             sandbox=sandbox,
             scope_range=scope_range(event, merge_base) if event else None,
             event_type=event.action if event else "chat",
+            commit=(event.head_sha or event.commit_sha) if event else None,
         )
         model = self._make_model(
             model=ctx["llm_model"],

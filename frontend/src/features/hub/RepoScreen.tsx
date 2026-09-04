@@ -242,9 +242,9 @@ export function RepoScreen() {
           return (
             <details key={r.id} className="lrow" style={{ padding: "8px 12px", display: "block" }}>
               <summary style={{ cursor: "pointer", display: "grid", gridTemplateColumns: JCOLS, gap: 8, alignItems: "baseline" }}>
-                <span><b>{e?.action ?? "report"}</b></span>
-                <span className="comment ellip">{e ? shortRef(e.ref) : "—"}{inst ? ` · ${buildName(inst.buildId)} #${inst.id}` : ""}</span>
-                <span className="comment">{sha(e?.commitSha)}</span>
+                <span><b>{r.action ?? e?.action ?? "report"}</b></span>
+                <span className="comment ellip">{shortRef(r.ref ?? e?.ref)}{inst ? ` · ${buildName(inst.buildId)} #${inst.id}` : ""}</span>
+                <span className="comment" title={r.commitSha ?? e?.commitSha ?? undefined}>{sha(r.commitSha ?? e?.commitSha)}</span>
                 <span className="muted">{ago(r.createdAt)}</span>
               </summary>
               <div style={{ marginTop: 8 }}><ReportView report={r} /></div>

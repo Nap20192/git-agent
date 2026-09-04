@@ -452,12 +452,19 @@ func (s *Store) LinkInstanceSandbox(ctx context.Context, instanceID, sandboxInst
 
 func (s *Store) Reports(ctx context.Context, instanceID int64) ([]domain.Report, error) {
 	rows, err := s.q().Reports(ctx, instanceID)
-	return mapRows(rows, err, func(r db.HubReport) domain.Report { return domain.Report(r) })
+	return mapRows(rows, err, func(r db.ReportsRow) domain.Report { return reportFrom(db.RepositoryReportsRow(r)) })
 }
 
 func (s *Store) RepositoryReports(ctx context.Context, repositoryID int64) ([]domain.Report, error) {
 	rows, err := s.q().RepositoryReports(ctx, repositoryID)
-	return mapRows(rows, err, func(r db.HubReport) domain.Report { return domain.Report(r) })
+	return mapRows(rows, err, reportFrom)
+}
+
+func reportFrom(r db.RepositoryReportsRow) domain.Report {
+	return domain.Report{
+		ID: r.ID, InstanceID: r.InstanceID, EventID: r.EventID, Summary: r.Summary, CreatedAt: r.CreatedAt,
+		Structured: r.Structured, CommitSHA: r.CommitSHA, Ref: r.Ref, Action: r.Action,
+	}
 }
 
 func (s *Store) Findings(ctx context.Context, f domain.FindingFilter) ([]domain.Finding, error) {
