@@ -613,6 +613,22 @@ export function createMockHubApi(): HubApi {
       await delay();
       return exportFindings(filterFindings(findings[id] ?? [], f), format);
     },
+    async raiseRepository(id) {
+      await delay(300);
+      authed();
+      const mine = instances.filter((i) => i.repositoryId === id);
+      for (const inst of mine) {
+        inst.status = "running";
+        inst.runnerId = 1;
+        inst.updatedAt = new Date().toISOString();
+      }
+      return { instances: mine.map((i) => ({ id: i.id, status: "running" as const })) };
+    },
+    async listRepositoryReports(id) {
+      await delay();
+      const ids = instances.filter((i) => i.repositoryId === id).map((i) => i.id);
+      return ids.flatMap((iid) => reports[iid] ?? []).sort((a, b) => b.id - a.id);
+    },
     async listRepositoryFindings(repositoryId, f) {
       await delay();
       const ids = instances.filter((i) => i.repositoryId === repositoryId).map((i) => i.id);

@@ -62,6 +62,8 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("GET /api/repositories/{id}/findings", user(s.repositoryFindings))
 	mux.HandleFunc("GET /api/repositories/{id}/findings/export", user(s.exportRepositoryFindings))
 	mux.HandleFunc("POST /api/repositories/{id}/trigger", user(s.triggerRepository))
+	mux.HandleFunc("POST /api/repositories/{id}/raise", user(s.raiseRepository))
+	mux.HandleFunc("GET /api/repositories/{id}/reports", user(s.repositoryReports))
 	mux.HandleFunc("GET /api/repositories/{id}/subscriptions", user(s.listSubscriptions))
 	mux.HandleFunc("POST /api/repositories/{id}/subscriptions", user(s.createSubscription))
 	mux.HandleFunc("DELETE /api/subscriptions/{id}", user(s.deleteSubscription))

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/vnkjd/git-agent/backend/internal/hub/app"
 	"github.com/vnkjd/git-agent/backend/internal/hub/domain"
 )
 
@@ -178,4 +179,59 @@ func (s *Server) repositoryEvents(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 	return respond(w, http.StatusOK, mapSlice(events, func(e domain.EventRecord) eventDTO { return eventDTO(e) }))
+}
+
+// POST /api/repositories/{id}/raise — поднять агента без скана: Экземпляры
+// Сборок, что отвечают за репо (как у run agent), создаются и поднимаются
+// на Раннере; Событие не публикуется. instances пуст — никто не обслуживает.
+func (s *Server) raiseRepository(w http.ResponseWriter, r *http.Request) error {
+	id, err := pathID(r)
+	if err != nil {
+		return err
+	}
+	repo, err := found(s.Store.Repository(r.Context(), id, userID(r)))
+	if err != nil {
+		return err
+	}
+	ref := ""
+	if repo.DefaultBranch != nil {
+		ref = *repo.DefaultBranch
+	}
+	buildIDs, err := s.Webhook.MatchedBuilds(r.Context(), repo, "manual", ref)
+	if err != nil {
+		return err
+	}
+	raised, err := s.Instances.RaiseForRepository(r.Context(), repo, buildIDs, userID(r))
+	if err != nil {
+		return err
+	}
+	type item struct {
+		ID     int64  `json:"id"`
+		Status string `json:"status"`
+	}
+	items := mapSlice(raised, func(x app.RaisedInstance) item {
+		st := "running"
+		if x.Queued {
+			st = "queued"
+		}
+		return item{ID: x.ID, Status: st}
+	})
+	return respond(w, http.StatusOK, map[string]any{"instances": items})
+}
+
+// GET /api/repositories/{id}/reports — отчёты всех Экземпляров репо, новые сверху
+// (eventId → коммит берётся из журнала Событий).
+func (s *Server) repositoryReports(w http.ResponseWriter, r *http.Request) error {
+	id, err := pathID(r)
+	if err != nil {
+		return err
+	}
+	if _, err := found(s.Store.Repository(r.Context(), id, userID(r))); err != nil {
+		return err
+	}
+	reports, err := s.Store.RepositoryReports(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	return respond(w, http.StatusOK, mapSlice(reports, func(rep domain.Report) reportDTO { return reportDTO(rep) }))
 }

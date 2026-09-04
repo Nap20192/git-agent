@@ -22,6 +22,7 @@ import type {
   Repository,
   Runner,
   TerminalEvent,
+  RaiseResult,
   TriggerResult,
   SandboxConnection,
   SandboxInstance,
@@ -64,6 +65,12 @@ export interface HubApi {
     id: number,
     input?: { ref?: string; commitSha?: string; mode?: "manual" | "full" },
   ): Promise<TriggerResult>;
+  /** Raise the repo's agents without a scan: instances of the builds that serve the repo
+   *  (subscriptions, else the default build) are created if missing and raised on a runner.
+   *  No Событие, no turn. Empty list = no build serves this repository. */
+  raiseRepository(id: number): Promise<RaiseResult>;
+  /** Reports of every agent of the repository, newest first; eventId → commit via the journal. */
+  listRepositoryReports(id: number): Promise<Report[]>;
 
   // Подписки — which Сборки watch a repo (upsert per build+repo pair)
   listSubscriptions(repositoryId: number): Promise<Subscription[]>;

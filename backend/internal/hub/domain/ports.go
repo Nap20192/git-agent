@@ -140,6 +140,8 @@ type InstanceStore interface {
 	Instances(ctx context.Context, userID int64, repositoryID *int64) ([]AgentInstance, error)
 	Instance(ctx context.Context, id, userID int64) (*AgentInstance, error)
 	Reports(ctx context.Context, instanceID int64) ([]Report, error)
+	// RepositoryReports — отчёты всех Экземпляров Репозитория, новые сверху.
+	RepositoryReports(ctx context.Context, repositoryID int64) ([]Report, error)
 	// Findings — Находки по фильтру (скоуп: Экземпляр либо Репозиторий), новые сверху.
 	Findings(ctx context.Context, f FindingFilter) ([]Finding, error)
 	// UpsertInstance — Экземпляр (Сборка, Репозиторий), тот же, что создаст

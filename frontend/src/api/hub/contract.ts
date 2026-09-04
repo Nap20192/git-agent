@@ -127,6 +127,10 @@ export interface AgentInstance {
  * path as a webhook push (backend/docs/openapi.yaml). `duplicate` — this
  * commit was already triggered in this mode (manual only; full is never a dup).
  */
+export interface RaiseResult {
+  instances: { id: number; status: "running" | "queued" }[];
+}
+
 export interface TriggerResult {
   commitSha: string;
   duplicate: boolean;

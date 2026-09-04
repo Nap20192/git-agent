@@ -181,6 +181,38 @@ paths:
             text/csv: { schema: { type: string } }
             text/markdown: { schema: { type: string } }
         "400": { description: format не csv|md }
+  /api/repositories/{id}/raise:
+    post:
+      summary: Поднять агента без скана
+      description: >
+        Экземпляры Сборок, что отвечают за Репозиторий (подписки, иначе
+        дефолтная — как у trigger), создаются при нужде и поднимаются на
+        Раннере (песочница обеспечивается). Событие не публикуется, ход не
+        начинается. instances пуст — ни одна Сборка не обслуживает репо.
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  instances:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer, format: int64 }
+                        status: { type: string, enum: [running, queued] }
+  /api/repositories/{id}/reports:
+    get:
+      summary: Отчёты всех Экземпляров Репозитория (новые сверху; коммит — по eventId из журнала)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Report" } }
   /api/repositories/{id}/trigger:
     post:
       summary: Запустить агента вручную (без вебхука)

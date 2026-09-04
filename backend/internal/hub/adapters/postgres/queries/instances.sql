@@ -57,6 +57,11 @@ UPDATE hub.agent_instances i SET sandbox_instance_id = @sandbox_instance_id::big
 SELECT id, instance_id, event_id, summary, created_at, structured
   FROM hub.reports WHERE instance_id = @instance_id ORDER BY id DESC;
 
+-- name: RepositoryReports :many
+SELECT r.id, r.instance_id, r.event_id, r.summary, r.created_at, r.structured
+  FROM hub.reports r JOIN hub.agent_instances i ON i.id = r.instance_id
+ WHERE i.repository_id = @repository_id ORDER BY r.id DESC;
+
 -- Находки v2 (миграция 007): скоуп — Экземпляр либо Репозиторий (все его
 -- Экземпляры), фильтры — NULL = без фильтра.
 -- name: Findings :many

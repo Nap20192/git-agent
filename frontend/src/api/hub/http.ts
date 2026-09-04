@@ -113,6 +113,8 @@ export function createHttpHubApi(): HubApi {
     listRepositoryEvents: (id) => req(`/repositories/${id}/events`),
     triggerRepository: (id, input) =>
       req(`/repositories/${id}/trigger`, { method: "POST", body: JSON.stringify(input ?? {}) }),
+    raiseRepository: (id) => req(`/repositories/${id}/raise`, { method: "POST" }),
+    listRepositoryReports: (id) => req(`/repositories/${id}/reports`),
 
     listSubscriptions: (repositoryId) => req(`/repositories/${repositoryId}/subscriptions`),
     createSubscription: (repositoryId, input) =>

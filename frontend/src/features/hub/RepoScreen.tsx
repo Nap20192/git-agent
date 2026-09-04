@@ -5,8 +5,8 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useHubApi, type Subscription } from "@/api/hub";
-import { useBuilds, useHubRepositories, useInstances, useRepoEvents, useSubscriptions } from "@/hooks";
-import { FindingsPanel, type FindingsSource } from "./findings.tsx";
+import { useBuilds, useHubRepositories, useInstances, useRepoEvents, useRepositoryReports, useSubscriptions } from "@/hooks";
+import { FindingsPanel, ReportView, type FindingsSource } from "./findings.tsx";
 import { InstanceChatPanel } from "./InstanceChatPanel.tsx";
 import { Dot, Panel, ago, sha, shortRef, useScreenCtx, useShell } from "./ui.tsx";
 
@@ -29,6 +29,7 @@ export function RepoScreen() {
   const instancesQ = useInstances();
   const eventsQ = useRepoEvents(id);
   const subsQ = useSubscriptions(id);
+  const reportsQ = useRepositoryReports(id);
   const [busy, setBusy] = useState(false);
   const [f, setF] = useState({ build: "", actions: "", ref: "" });
   const findingsSource = useMemo<FindingsSource>(() => ({ list: (x) => api.listRepositoryFindings(id, x), export: (format, x) => api.exportRepositoryFindings(id, format, x) }), [api, id]);
@@ -38,6 +39,8 @@ export function RepoScreen() {
   const builds = buildsQ.data ?? [];
   const events = eventsQ.data ?? [];
   const subs = subsQ.data ?? [];
+  const reports = reportsQ.data ?? [];
+  const eventOf = (eid?: number | null) => events.find((e) => e.id === eid);
   const mine = (instancesQ.data ?? []).filter((i) => i.repositoryId === id);
   const buildName = (bid: number) => builds.find((b) => b.id === bid)?.name ?? `build #${bid}`;
   const subFor = (bid: number) => subs.find((s) => s.buildId === bid);
@@ -83,13 +86,21 @@ export function RepoScreen() {
     setBusy(true);
     try {
       await fn();
-      say(ok);
+      if (ok) say(ok);
     } catch (e) {
       fail(e, "failed");
     } finally {
       setBusy(false);
     }
   };
+  // raise without a scan: no Событие, no turn — the agent just comes up on a runner (chat/terminal work right away)
+  const raiseAll = () => act(async () => {
+    const { instances: raised } = await api.raiseRepository(repo.id);
+    instancesQ.reload();
+    if (raised.length === 0) throw new Error("no build serves this repository — make a build the default or subscribe one below");
+    say(raised.map((x) => `agent #${x.id} ${x.status === "queued" ? "queued for a slot" : "raised"}`).join(" · "));
+  }, "");
+  const raiseOne = (instId: number) => act(async () => { const { status } = await api.raiseInstance(instId); instancesQ.reload(); say(status === "queued" ? `agent #${instId} queued for a slot` : `agent #${instId} raised`); }, "");
   const stop = (instId: number) => act(async () => { await api.stopInstance(instId); instancesQ.reload(); }, `instance #${instId} stopped`);
   const unsub = (s: Subscription) => act(async () => { await api.deleteSubscription(s.id); subsQ.reload(); }, `unsubscribed ${buildName(s.buildId)}`);
   const disconnect = () => {
@@ -130,6 +141,7 @@ export function RepoScreen() {
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
           <div className="row">
             <button className="btn primary" disabled={busy || !canRun} title={canRun ? `review HEAD of ${branch}; the hub creates the sandbox instance and the runner picks it up` : "no build serves this repository"} onClick={() => run()}>❯ run agent @ {branch}</button>
+            <button className="btn md" disabled={busy || !canRun} title="bring the agent up on a runner without a scan — chat and terminal work right away, nothing is reviewed" onClick={raiseAll}>raise agent</button>
             <button className="btn md" disabled={busy || !canRun} title="full security audit of the whole repository — long and expensive" onClick={() => run("full")}>full scan</button>
             <button className="btn md danger" disabled={busy} onClick={disconnect}>disconnect</button>
           </div>
@@ -161,7 +173,7 @@ export function RepoScreen() {
                   </div>
                   <div className="row" style={{ flexWrap: "nowrap" }}>
                     <button className="btn" onClick={() => navigate(`/instances/${w.id}`)}>playground →</button>
-                    {running && <button className="btn" disabled={busy} onClick={() => stop(w.id)}>stop</button>}
+                    {running ? <button className="btn" disabled={busy} onClick={() => stop(w.id)}>stop</button> : <button className="btn" disabled={busy} title="bring this agent up without a scan" onClick={() => raiseOne(w.id)}>raise</button>}
                     {sub && <button className="btn danger" disabled={busy} onClick={() => unsub(sub)}>unsubscribe</button>}
                   </div>
                 </div>
@@ -222,6 +234,25 @@ export function RepoScreen() {
           </div>
         </Panel>
       </div>
+
+      <Panel label="reports" dim={reports.length ? `${reports.length} · by commit` : "none yet"}>
+        {reports.map((r) => {
+          const e = eventOf(r.eventId);
+          const inst = mine.find((i) => i.id === r.instanceId);
+          return (
+            <details key={r.id} className="lrow" style={{ padding: "8px 12px", display: "block" }}>
+              <summary style={{ cursor: "pointer", display: "grid", gridTemplateColumns: JCOLS, gap: 8, alignItems: "baseline" }}>
+                <span><b>{e?.action ?? "report"}</b></span>
+                <span className="comment ellip">{e ? shortRef(e.ref) : "—"}{inst ? ` · ${buildName(inst.buildId)} #${inst.id}` : ""}</span>
+                <span className="comment">{sha(e?.commitSha)}</span>
+                <span className="muted">{ago(r.createdAt)}</span>
+              </summary>
+              <div style={{ marginTop: 8 }}><ReportView report={r} /></div>
+            </details>
+          );
+        })}
+        {reports.length === 0 && <div className="empty small" style={{ padding: 12 }}>{reportsQ.loading ? "loading…" : "no reports yet — the agent writes one at the end of each run."}</div>}
+      </Panel>
 
       <div>
         <h2 style={{ marginBottom: 12 }}>findings <span className="muted small" style={{ fontWeight: 400 }}>· across every agent of this repository</span></h2>

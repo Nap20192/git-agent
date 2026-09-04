@@ -60,6 +60,10 @@ export function useInstanceReports(id: number) {
   const api = useHubApi();
   return useAsync(() => api.listInstanceReports(id), [id]);
 }
+export function useRepositoryReports(id: number) {
+  const api = useHubApi();
+  return useAsync(() => api.listRepositoryReports(id), [id]);
+}
 export function useInstanceFindings(id: number, filters?: FindingFilters) {
   const api = useHubApi();
   return useAsync(() => api.listInstanceFindings(id, filters), [id, JSON.stringify(filters ?? {})]);

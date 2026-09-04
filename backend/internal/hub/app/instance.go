@@ -54,6 +54,39 @@ func (s *InstanceService) Raise(ctx context.Context, id, userID int64) (bool, er
 	return queued, err
 }
 
+// RaisedInstance — результат подъёма одного Экземпляра для фронта.
+type RaisedInstance struct {
+	ID     int64
+	Queued bool
+}
+
+// RaiseForRepository — «поднять агента» без скана: Экземпляры Сборок, что
+// отвечают за Репозиторий (те же, что взял бы run agent — подписки, иначе
+// дефолтная), создаются при нужде и поднимаются на Раннере; Событие не
+// публикуется, ход не начинается. Пусто = ни одна Сборка не обслуживает репо.
+func (s *InstanceService) RaiseForRepository(ctx context.Context, repo *domain.Repository, buildIDs []int64, userID int64) ([]RaisedInstance, error) {
+	out := []RaisedInstance{}
+	for _, buildID := range buildIDs {
+		id, err := s.Instances.UpsertInstance(ctx, buildID, repo.ID)
+		if err != nil {
+			return nil, err
+		}
+		inst, err := s.Instances.Instance(ctx, id, userID)
+		if err != nil {
+			return nil, err
+		}
+		if inst == nil {
+			return nil, domain.ErrNotFound
+		}
+		_, queued, err := s.ensureRunning(ctx, inst, userID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, RaisedInstance{ID: id, Queued: queued})
+	}
+	return out, nil
+}
+
 // Resume — «Продолжить»: незавершённые События Экземпляра — снова в outbox
 // (механика heartbeat-ре-публикации); раннер поднимет Экземпляр сам, получив
 // Событие из очереди. Возвращает пере-опубликованные eventId (пусто = нечего).

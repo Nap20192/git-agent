@@ -455,6 +455,11 @@ func (s *Store) Reports(ctx context.Context, instanceID int64) ([]domain.Report,
 	return mapRows(rows, err, func(r db.HubReport) domain.Report { return domain.Report(r) })
 }
 
+func (s *Store) RepositoryReports(ctx context.Context, repositoryID int64) ([]domain.Report, error) {
+	rows, err := s.q().RepositoryReports(ctx, repositoryID)
+	return mapRows(rows, err, func(r db.HubReport) domain.Report { return domain.Report(r) })
+}
+
 func (s *Store) Findings(ctx context.Context, f domain.FindingFilter) ([]domain.Finding, error) {
 	rows, err := s.q().Findings(ctx, db.FindingsParams(f))
 	return mapRows(rows, err, func(r db.HubFinding) domain.Finding { return domain.Finding(r) })

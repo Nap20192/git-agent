@@ -394,6 +394,39 @@ func (q *Queries) Reports(ctx context.Context, instanceID int64) ([]HubReport, e
 	return items, nil
 }
 
+const repositoryReports = `-- name: RepositoryReports :many
+SELECT r.id, r.instance_id, r.event_id, r.summary, r.created_at, r.structured
+  FROM hub.reports r JOIN hub.agent_instances i ON i.id = r.instance_id
+ WHERE i.repository_id = $1 ORDER BY r.id DESC
+`
+
+func (q *Queries) RepositoryReports(ctx context.Context, repositoryID int64) ([]HubReport, error) {
+	rows, err := q.db.Query(ctx, repositoryReports, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []HubReport
+	for rows.Next() {
+		var i HubReport
+		if err := rows.Scan(
+			&i.ID,
+			&i.InstanceID,
+			&i.EventID,
+			&i.Summary,
+			&i.CreatedAt,
+			&i.Structured,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const sandboxInstance = `-- name: SandboxInstance :one
 SELECT id, external_id, sandbox_connection_id, status, created_at, killed_at
   FROM hub.sandbox_instances WHERE id = $1
