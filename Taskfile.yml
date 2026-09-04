@@ -2,6 +2,11 @@ version: "3"
 
 vars:
   COMPOSE: docker compose -f deploy/docker-compose.yml
+  # humanlog (go install github.com/humanlogio/humanlog/cmd/humanlog@latest) стоит → сервисы пишут JSON и красиво печатаются им; нет → как есть
+  HUMANLOG:
+    sh: command -v humanlog >/dev/null && echo "| humanlog -m event" || true
+  LOGFMT:
+    sh: command -v humanlog >/dev/null && echo "LOG_FORMAT=json" || true
 
 tasks:
   default:
@@ -83,7 +88,7 @@ tasks:
     desc: Раннер — консьюмер Событий RabbitMQ + HTTP API на :8082 (:8081 у hub)
     dir: agent
     cmds:
-      - uv run uvicorn runner:app --port 8082
+      - "{{.LOGFMT}} uv run uvicorn runner:app --port 8082 2>&1 {{.HUMANLOG}}"
 
   demo:runner:
     desc: Интерактивное демо Раннера (реальные Rabbit+Postgres, без LLM)
@@ -102,7 +107,7 @@ tasks:
     desc: Запустить Go-бекенд (hub)
     dir: backend
     cmds:
-      - go run ./cmd/hub
+      - "{{.LOGFMT}} go run ./cmd/hub 2>&1 {{.HUMANLOG}}"
 
   backend:lint:
     desc: Линтер Go-бекенда (golangci-lint, конфиг backend/.golangci.yml; установка — go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest)
@@ -168,7 +173,7 @@ tasks:
       - |
         bash -c '
         trap "kill 0" INT TERM
-        (cd backend && go run ./cmd/hub) &
-        (cd agent && uv run uvicorn runner:app --port 8082) &
+        (cd backend && {{.LOGFMT}} go run ./cmd/hub 2>&1 {{.HUMANLOG}}) &
+        (cd agent && {{.LOGFMT}} uv run uvicorn runner:app --port 8082 2>&1 {{.HUMANLOG}}) &
         (cd frontend && bun install --silent && bun dev) &
         wait'

@@ -25,10 +25,10 @@ func main() {
 	}
 }
 
-// newLogger — HUB_ENV=prod → JSON-продакшен, иначе dev-консоль; порог — LOG_LEVEL.
+// newLogger — HUB_ENV=prod или LOG_FORMAT=json → JSON (под humanlog/сборщик), иначе dev-консоль; порог — LOG_LEVEL.
 func newLogger(level zapcore.Level) *zap.Logger {
 	cfg := zap.NewDevelopmentConfig()
-	if os.Getenv("HUB_ENV") == "prod" {
+	if os.Getenv("HUB_ENV") == "prod" || os.Getenv("LOG_FORMAT") == "json" {
 		cfg = zap.NewProductionConfig()
 	}
 	cfg.Level = zap.NewAtomicLevelAt(level)

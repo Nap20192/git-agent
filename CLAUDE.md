@@ -48,7 +48,7 @@ git-agent — система security-ревью git-репозиториев: G
 
 ## Commands
 
-Основной путь — Taskfile (`task --list`): `task up`/`down` (инфраструктура: Postgres, RabbitMQ, OpenSandbox), `task migrate`, `task lint`/`fix`/`fmt` (ruff, конфиг в pyproject.toml), `task test` / `test:unit` / `test:integration` / `test:e2e`, `task check` (lint+test), `task runner` (раннер :8082), `task demo:runner`, `task backend:build|run|test|lint` (hub :8081; lint — golangci-lint, `backend/.golangci.yml`, ставится `go install .../golangci-lint/v2/cmd/golangci-lint@latest` под текущий toolchain), `task front` (vite :5173), `task app` (всё: hub + раннер + фронт). Напрямую: `uv add <package>` — зависимости (pyproject.toml руками не редактировать), `uv sync` — окружение.
+Основной путь — Taskfile (`task --list`): `task up`/`down` (инфраструктура: Postgres, RabbitMQ, OpenSandbox), `task migrate`, `task lint`/`fix`/`fmt` (ruff, конфиг в pyproject.toml), `task test` / `test:unit` / `test:integration` / `test:e2e`, `task check` (lint+test), `task runner` (раннер :8082; если установлен humanlog — `go install github.com/humanlogio/humanlog/cmd/humanlog@latest` — `task runner`/`backend:run`/`app` включают `LOG_FORMAT=json` и печатают через `humanlog -m event`), `task demo:runner`, `task backend:build|run|test|lint` (hub :8081; lint — golangci-lint, `backend/.golangci.yml`, ставится `go install .../golangci-lint/v2/cmd/golangci-lint@latest` под текущий toolchain), `task front` (vite :5173), `task app` (всё: hub + раннер + фронт). Напрямую: `uv add <package>` — зависимости (pyproject.toml руками не редактировать), `uv sync` — окружение.
 
 ## Notes
 
