@@ -29,7 +29,6 @@ type HubAgentBuild struct {
 	Prompt              *string
 	MemoryPreset        *string
 	Limits              []byte
-	IsDefault           bool
 	CreatedAt           time.Time
 }
 

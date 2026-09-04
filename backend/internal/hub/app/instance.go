@@ -61,9 +61,9 @@ type RaisedInstance struct {
 }
 
 // RaiseForRepository — «поднять агента» без скана: Экземпляры Сборок, что
-// отвечают за Репозиторий (те же, что взял бы run agent — подписки, иначе
-// дефолтная), создаются при нужде и поднимаются на Раннере; Событие не
-// публикуется, ход не начинается. Пусто = ни одна Сборка не обслуживает репо.
+// подписаны на Репозиторий (те же, что взял бы run agent), создаются при
+// нужде и поднимаются на Раннере; Событие не публикуется, ход не начинается.
+// Пусто = ни одна Сборка не подписана.
 func (s *InstanceService) RaiseForRepository(ctx context.Context, repo *domain.Repository, buildIDs []int64, userID int64) ([]RaisedInstance, error) {
 	out := []RaisedInstance{}
 	for _, buildID := range buildIDs {

@@ -66,7 +66,6 @@ export interface AgentBuildInput {
   prompt?: string | null;
   memoryPreset?: string | null;
   limits?: Record<string, unknown>;
-  isDefault?: boolean;
 }
 
 export interface AgentBuild extends AgentBuildInput {
@@ -322,7 +321,7 @@ export interface ActivityEvent {
 /**
  * Подписка Сборки на События Репозитория (ticket 011). Empty actions = all
  * actions; null refMask = any ref (mask is a glob over the short ref, e.g.
- * "release/*"). A repo with no subscriptions is served by the default Сборка.
+ * "release/*"). A repo with no subscriptions is served by nobody — events are journaled only.
  * Mirrors the wt/backend DTO; re-check once its openapi.yaml commit lands.
  */
 export interface Subscription {

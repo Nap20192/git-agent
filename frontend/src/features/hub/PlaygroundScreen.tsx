@@ -220,7 +220,7 @@ export function PlaygroundScreen() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
             <Panel label="build" className="elev pad">
-              <div><b>{build?.name ?? "—"}</b>{build?.isDefault && <span className="muted"> · default</span>}</div>
+              <div><b>{build?.name ?? "—"}</b></div>
               <div className="small comment pretty" style={{ marginTop: 4 }}>{build?.prompt || "no prompt — runs the reviewer default"}</div>
               <div className="small muted" style={{ marginTop: 6 }}>
                 llm {(llmQ.data ?? []).find((c) => c.id === build?.llmConnectionId)?.name ?? "—"}<br />

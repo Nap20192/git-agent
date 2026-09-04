@@ -270,23 +270,15 @@ func TestWebhookIngest(t *testing.T) {
 	}
 }
 
-// Репо вовсе без подписок обслуживает дефолтная Сборка (тикет 011).
-func TestWebhookDefaultBuildFallback(t *testing.T) {
+// Репо без подписок никто не обслуживает: Событие только в журнал, Экземпляров
+// и outbox нет (дефолтной Сборки больше нет — юзер подписывает сам).
+func TestWebhookNoSubscriptionsJournalOnly(t *testing.T) {
 	db := testdb.Setup(t)
 	box, _ := secrets.New(bytes.Repeat([]byte{1}, 32))
 	repoID := seed(t, db, box)
 	ctx := context.Background()
 
-	// сносим подписку и заводим дефолтную Сборку того же пользователя
 	if _, err := db.Exec(ctx, `DELETE FROM hub.build_subscriptions`); err != nil {
-		t.Fatal(err)
-	}
-	var defaultBuild int64
-	if err := db.QueryRow(ctx, `
-		INSERT INTO hub.agent_builds (user_id, name, llm_connection_id, sandbox_connection_id, is_default)
-		SELECT user_id, 'fallback', llm_connection_id, sandbox_connection_id, true
-		  FROM hub.agent_builds LIMIT 1
-		RETURNING id`).Scan(&defaultBuild); err != nil {
 		t.Fatal(err)
 	}
 
@@ -307,11 +299,13 @@ func TestWebhookDefaultBuildFallback(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	if n := count(t, db,
-		`SELECT count(*) FROM hub.agent_instances WHERE build_id = $1`, defaultBuild); n != 1 {
-		t.Fatalf("instances for default build: %d", n)
+	if n := count(t, db, `SELECT count(*) FROM hub.events`); n != 1 {
+		t.Fatalf("events journaled: %d", n)
 	}
-	if n := count(t, db, `SELECT count(*) FROM hub.outbox`); n != 1 {
-		t.Fatalf("outbox: %d", n)
+	if n := count(t, db, `SELECT count(*) FROM hub.agent_instances`); n != 0 {
+		t.Fatalf("instances without subscriptions: %d", n)
+	}
+	if n := count(t, db, `SELECT count(*) FROM hub.outbox`); n != 0 {
+		t.Fatalf("outbox without subscriptions: %d", n)
 	}
 }

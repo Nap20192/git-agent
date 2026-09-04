@@ -42,12 +42,11 @@ export function RepositoriesScreen() {
     async () => new Map(await Promise.all(repos.map(async (r) => [r.id, (await api.listRepositoryEvents(r.id))[0]] as const))),
     [repos.map((r) => r.id).join(",")],
   );
-  const defaultBuild = builds.find((b) => b.isDefault);
   const buildName = (id?: number | null) => (id != null ? builds.find((b) => b.id === id)?.name : undefined);
   const running = instances.filter((i) => i.status === "running").length;
   const alive = sbx.filter((s) => s.status === "alive").length;
   const loaded = !reposQ.loading && !buildsQ.loading && !llmQ.loading;
-  const onboarding = { llm: (llmQ.data ?? []).length > 0, build: defaultBuild != null, repo: repos.length > 0 };
+  const onboarding = { llm: (llmQ.data ?? []).length > 0, build: builds.length > 0, repo: repos.length > 0 };
   const showOnboarding = loaded && !(onboarding.llm && onboarding.build && onboarding.repo);
 
   return (
@@ -85,7 +84,7 @@ export function RepositoriesScreen() {
                 {run > 0 && <span className="accent">● </span>}
                 {mine.length ? `${run} running · ${mine.length - run} down` : "none"}
               </span>
-              <span className="comment ellip">{buildName(r.buildId) ?? (defaultBuild ? `${defaultBuild.name} (default)` : <span className="err">no build — nothing will run</span>)}</span>
+              <span className="comment ellip">{buildName(r.buildId) ?? <span className="err">no subscription — nothing will run</span>}</span>
               <span className="comment ellip">{last ? `${last.action} · ${shortRef(last.ref)} @ ${sha(last.commitSha)} · ${ago(last.receivedAt)}` : lastQ.loading ? "…" : "no events"}</span>
             </div>
           );
@@ -118,14 +117,11 @@ export function RepositoriesScreen() {
           <div className="kv"><span>agents</span><span className="comment">{running} running · {instances.length - running} down</span></div>
           <div className="kv"><span>sandbox instances</span><span className="comment">{alive} alive · {sbx.length - alive} dead</span></div>
         </Panel>
-        <Panel label="default build" className="elev pad">
-          <div>
-            <b>{defaultBuild?.name ?? "none"}</b>
-            {defaultBuild?.memoryPreset && <span className="muted"> · {defaultBuild.memoryPreset}</span>}
-          </div>
+        <Panel label="builds" className="elev pad">
+          <div><b>{builds.length ? builds.map((b) => b.name).join(", ") : "none"}</b></div>
           <div className="small muted pretty">
-            {defaultBuild ? "serves any repo without its own subscription." : <span className="err">without a default build, repos without a subscription never run.</span>}{" "}
-            <a href="/builds" onClick={(e) => { e.preventDefault(); navigate("/builds"); }}>{defaultBuild ? "edit builds →" : "create a build →"}</a>
+            {builds.length ? "a repo runs only the builds subscribed to it — subscribe on the repo page." : <span className="err">no builds yet — nothing can run.</span>}{" "}
+            <a href="/builds" onClick={(e) => { e.preventDefault(); navigate("/builds"); }}>{builds.length ? "edit builds →" : "create a build →"}</a>
           </div>
         </Panel>
       </div>
@@ -174,7 +170,7 @@ export function ConnectDrawer({ open, builds, onClose, reload }: { open: boolean
 
   return (
     <Drawer open={open} title="connect repository" onClose={onClose}>
-      <div className="small comment pretty">pick an identity; the hub lists what that account can see and installs a webhook on connect. events go to the default build unless you subscribe another one below.</div>
+      <div className="small comment pretty">pick an identity; the hub lists what that account can see and installs a webhook on connect. nothing runs until a build is subscribed — pick one below or later on the repo page.</div>
       <div className="segs">
         {identities.map((i) => (
           <button key={i.id} className={`seg${i.id === current ? " active" : ""}`} onClick={() => setIdentityId(i.id)}>
@@ -186,7 +182,7 @@ export function ConnectDrawer({ open, builds, onClose, reload }: { open: boolean
       <div className="row">
         <span className="small muted">subscribe build</span>
         <select className="select" value={buildId} onChange={(e) => setBuildId(e.target.value)}>
-          <option value="">none — served by the default build</option>
+          <option value="">none — subscribe later on the repo page</option>
           {builds.map((b) => (
             <option key={b.id} value={b.id}>{b.name}</option>
           ))}

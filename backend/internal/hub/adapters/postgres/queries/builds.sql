@@ -2,26 +2,26 @@
 
 -- name: Builds :many
 SELECT id, user_id, name, llm_connection_id, sandbox_connection_id,
-       prompt, memory_preset, limits, is_default, created_at
+       prompt, memory_preset, limits, created_at
   FROM hub.agent_builds WHERE user_id = @user_id ORDER BY id;
 
 -- name: Build :one
 SELECT id, user_id, name, llm_connection_id, sandbox_connection_id,
-       prompt, memory_preset, limits, is_default, created_at
+       prompt, memory_preset, limits, created_at
   FROM hub.agent_builds WHERE id = @id;
 
 -- name: CreateBuild :one
 INSERT INTO hub.agent_builds
-  (user_id, name, llm_connection_id, sandbox_connection_id, prompt, memory_preset, limits, is_default)
+  (user_id, name, llm_connection_id, sandbox_connection_id, prompt, memory_preset, limits)
 VALUES (@user_id, @name, @llm_connection_id, @sandbox_connection_id, @prompt, @memory_preset,
-        COALESCE(@limits::jsonb, '{}'::jsonb), @is_default)
+        COALESCE(@limits::jsonb, '{}'::jsonb))
 RETURNING id;
 
 -- name: UpdateBuild :execrows
 UPDATE hub.agent_builds
    SET name = @name, llm_connection_id = @llm_connection_id, sandbox_connection_id = @sandbox_connection_id,
        prompt = @prompt, memory_preset = @memory_preset,
-       limits = COALESCE(@limits::jsonb, '{}'::jsonb), is_default = @is_default
+       limits = COALESCE(@limits::jsonb, '{}'::jsonb)
  WHERE id = @id AND user_id = @user_id;
 
 -- name: DeleteBuild :execrows

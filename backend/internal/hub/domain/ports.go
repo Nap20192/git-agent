@@ -27,9 +27,6 @@ type SubscriptionStore interface {
 	// UpsertSubscription — по unique (build, repo); обновляет actions/ref_mask.
 	UpsertSubscription(ctx context.Context, s *BuildSubscription) (int64, error)
 	DeleteSubscription(ctx context.Context, id, userID int64) error
-	// DefaultBuild — дефолтная Сборка пользователя (фолбэк для репо без
-	// подписок); nil — не задана.
-	DefaultBuild(ctx context.Context, userID int64) (*AgentBuild, error)
 }
 
 // OutboxMessage — неопубликованная строка hub.outbox.

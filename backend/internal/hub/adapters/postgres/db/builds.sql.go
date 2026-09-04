@@ -11,7 +11,7 @@ import (
 
 const build = `-- name: Build :one
 SELECT id, user_id, name, llm_connection_id, sandbox_connection_id,
-       prompt, memory_preset, limits, is_default, created_at
+       prompt, memory_preset, limits, created_at
   FROM hub.agent_builds WHERE id = $1
 `
 
@@ -27,7 +27,6 @@ func (q *Queries) Build(ctx context.Context, id int64) (HubAgentBuild, error) {
 		&i.Prompt,
 		&i.MemoryPreset,
 		&i.Limits,
-		&i.IsDefault,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -36,7 +35,7 @@ func (q *Queries) Build(ctx context.Context, id int64) (HubAgentBuild, error) {
 const builds = `-- name: Builds :many
 
 SELECT id, user_id, name, llm_connection_id, sandbox_connection_id,
-       prompt, memory_preset, limits, is_default, created_at
+       prompt, memory_preset, limits, created_at
   FROM hub.agent_builds WHERE user_id = $1 ORDER BY id
 `
 
@@ -59,7 +58,6 @@ func (q *Queries) Builds(ctx context.Context, userID int64) ([]HubAgentBuild, er
 			&i.Prompt,
 			&i.MemoryPreset,
 			&i.Limits,
-			&i.IsDefault,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -74,9 +72,9 @@ func (q *Queries) Builds(ctx context.Context, userID int64) ([]HubAgentBuild, er
 
 const createBuild = `-- name: CreateBuild :one
 INSERT INTO hub.agent_builds
-  (user_id, name, llm_connection_id, sandbox_connection_id, prompt, memory_preset, limits, is_default)
+  (user_id, name, llm_connection_id, sandbox_connection_id, prompt, memory_preset, limits)
 VALUES ($1, $2, $3, $4, $5, $6,
-        COALESCE($7::jsonb, '{}'::jsonb), $8)
+        COALESCE($7::jsonb, '{}'::jsonb))
 RETURNING id
 `
 
@@ -88,7 +86,6 @@ type CreateBuildParams struct {
 	Prompt              *string
 	MemoryPreset        *string
 	Limits              []byte
-	IsDefault           bool
 }
 
 func (q *Queries) CreateBuild(ctx context.Context, arg CreateBuildParams) (int64, error) {
@@ -100,7 +97,6 @@ func (q *Queries) CreateBuild(ctx context.Context, arg CreateBuildParams) (int64
 		arg.Prompt,
 		arg.MemoryPreset,
 		arg.Limits,
-		arg.IsDefault,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -289,8 +285,8 @@ const updateBuild = `-- name: UpdateBuild :execrows
 UPDATE hub.agent_builds
    SET name = $1, llm_connection_id = $2, sandbox_connection_id = $3,
        prompt = $4, memory_preset = $5,
-       limits = COALESCE($6::jsonb, '{}'::jsonb), is_default = $7
- WHERE id = $8 AND user_id = $9
+       limits = COALESCE($6::jsonb, '{}'::jsonb)
+ WHERE id = $7 AND user_id = $8
 `
 
 type UpdateBuildParams struct {
@@ -300,7 +296,6 @@ type UpdateBuildParams struct {
 	Prompt              *string
 	MemoryPreset        *string
 	Limits              []byte
-	IsDefault           bool
 	ID                  int64
 	UserID              int64
 }
@@ -313,7 +308,6 @@ func (q *Queries) UpdateBuild(ctx context.Context, arg UpdateBuildParams) (int64
 		arg.Prompt,
 		arg.MemoryPreset,
 		arg.Limits,
-		arg.IsDefault,
 		arg.ID,
 		arg.UserID,
 	)

@@ -298,10 +298,12 @@ func TestTriggerAutoProvisionsSandbox(t *testing.T) {
 		l AS (INSERT INTO hub.llm_connections (user_id, name, api_base, api_key_enc, model)
 		      SELECT id, 'llm', 'http://x', '\x00', 'm' FROM u RETURNING id, user_id),
 		s AS (INSERT INTO hub.sandbox_connections (name, domain, image) VALUES ('sbx', 'x', 'img') RETURNING id),
-		b AS (INSERT INTO hub.agent_builds (user_id, name, llm_connection_id, sandbox_connection_id, is_default)
-		      SELECT l.user_id, 'default', l.id, s.id, true FROM l, s RETURNING id, user_id)
-		INSERT INTO hub.repositories (user_id, mode, provider, external_id, owner, name, default_branch)
-		SELECT user_id, 'watch', 'github', '500', 'acme', 'pub', 'main' FROM b RETURNING user_id, id`,
+		b AS (INSERT INTO hub.agent_builds (user_id, name, llm_connection_id, sandbox_connection_id)
+		      SELECT l.user_id, 'default', l.id, s.id FROM l, s RETURNING id, user_id),
+		r AS (INSERT INTO hub.repositories (user_id, mode, provider, external_id, owner, name, default_branch)
+		      SELECT user_id, 'watch', 'github', '500', 'acme', 'pub', 'main' FROM b RETURNING user_id, id)
+		INSERT INTO hub.build_subscriptions (build_id, repository_id)
+		SELECT b.id, r.id FROM b, r RETURNING (SELECT user_id FROM r), repository_id`,
 	).Scan(&userID, &repoID); err != nil {
 		t.Fatal(err)
 	}
@@ -363,10 +365,12 @@ func TestTriggerSandboxFailureDoesNotPublish(t *testing.T) {
 		l AS (INSERT INTO hub.llm_connections (user_id, name, api_base, api_key_enc, model)
 		      SELECT id, 'llm', 'http://x', '\x00', 'm' FROM u RETURNING id, user_id),
 		s AS (INSERT INTO hub.sandbox_connections (name, domain, image) VALUES ('sbx', 'x', 'img') RETURNING id),
-		b AS (INSERT INTO hub.agent_builds (user_id, name, llm_connection_id, sandbox_connection_id, is_default)
-		      SELECT l.user_id, 'default', l.id, s.id, true FROM l, s RETURNING id, user_id)
-		INSERT INTO hub.repositories (user_id, mode, provider, external_id, owner, name, default_branch)
-		SELECT user_id, 'watch', 'github', '500', 'acme', 'pub', 'main' FROM b RETURNING user_id, id`,
+		b AS (INSERT INTO hub.agent_builds (user_id, name, llm_connection_id, sandbox_connection_id)
+		      SELECT l.user_id, 'default', l.id, s.id FROM l, s RETURNING id, user_id),
+		r AS (INSERT INTO hub.repositories (user_id, mode, provider, external_id, owner, name, default_branch)
+		      SELECT user_id, 'watch', 'github', '500', 'acme', 'pub', 'main' FROM b RETURNING user_id, id)
+		INSERT INTO hub.build_subscriptions (build_id, repository_id)
+		SELECT b.id, r.id FROM b, r RETURNING (SELECT user_id FROM r), repository_id`,
 	).Scan(&userID, &repoID); err != nil {
 		t.Fatal(err)
 	}

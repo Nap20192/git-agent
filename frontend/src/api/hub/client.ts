@@ -65,9 +65,8 @@ export interface HubApi {
     id: number,
     input?: { ref?: string; commitSha?: string; mode?: "manual" | "full" },
   ): Promise<TriggerResult>;
-  /** Raise the repo's agents without a scan: instances of the builds that serve the repo
-   *  (subscriptions, else the default build) are created if missing and raised on a runner.
-   *  No Событие, no turn. Empty list = no build serves this repository. */
+  /** Raise the repo's agents without a scan: instances of the builds subscribed to the repo
+   *  are created if missing and raised on a runner. No Событие, no turn. Empty list = no build is subscribed. */
   raiseRepository(id: number): Promise<RaiseResult>;
   /** Reports of every agent of the repository, newest first; eventId → commit via the journal. */
   listRepositoryReports(id: number): Promise<Report[]>;

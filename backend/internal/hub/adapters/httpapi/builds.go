@@ -19,7 +19,6 @@ type buildDTO struct {
 	Prompt              *string         `json:"prompt"`
 	MemoryPreset        *string         `json:"memoryPreset"`
 	Limits              json.RawMessage `json:"limits"`
-	IsDefault           bool            `json:"isDefault"`
 	CreatedAt           time.Time       `json:"createdAt"`
 }
 
@@ -32,7 +31,7 @@ func toBuildDTO(b domain.AgentBuild) buildDTO {
 		ID: b.ID, Name: b.Name,
 		LlmConnectionID: b.LlmConnectionID, SandboxConnectionID: b.SandboxConnectionID,
 		Prompt: b.Prompt, MemoryPreset: b.MemoryPreset, Limits: limits,
-		IsDefault: b.IsDefault, CreatedAt: b.CreatedAt,
+		CreatedAt: b.CreatedAt,
 	}
 }
 
@@ -43,7 +42,6 @@ type buildInput struct {
 	Prompt              *string         `json:"prompt"`
 	MemoryPreset        *string         `json:"memoryPreset"`
 	Limits              json.RawMessage `json:"limits"`
-	IsDefault           bool            `json:"isDefault"`
 }
 
 var knownLimitKeys = []string{"maxSubagents", "maxTotalSubagents", "subagentTimeout", "queueTimeout", "tokenBudget"}
@@ -75,7 +73,7 @@ func (in *buildInput) toDomain(userID int64) *domain.AgentBuild {
 	return &domain.AgentBuild{
 		UserID: userID, Name: in.Name,
 		LlmConnectionID: in.LlmConnectionID, SandboxConnectionID: in.SandboxConnectionID,
-		Prompt: in.Prompt, MemoryPreset: in.MemoryPreset, Limits: in.Limits, IsDefault: in.IsDefault,
+		Prompt: in.Prompt, MemoryPreset: in.MemoryPreset, Limits: in.Limits,
 	}
 }
 
@@ -134,13 +132,6 @@ func (s *Server) createBuild(w http.ResponseWriter, r *http.Request) error {
 	}
 	if err := s.applyBuildDefaults(r.Context(), b); err != nil {
 		return err
-	}
-	if !b.IsDefault { // первая Сборка пользователя — default: иначе репо без подписки некому обслуживать
-		existing, err := s.Store.Builds(r.Context(), b.UserID)
-		if err != nil {
-			return err
-		}
-		b.IsDefault = len(existing) == 0
 	}
 	if b.ID, err = s.Store.CreateBuild(r.Context(), b); err != nil {
 		return err

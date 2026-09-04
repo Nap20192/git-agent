@@ -12,12 +12,10 @@ import { Dot, Panel, ago, sha, shortRef, useScreenCtx, useShell } from "./ui.tsx
 
 const JCOLS = "150px 1fr 110px 1fr";
 
-const subText = (sub: Subscription | undefined, othersSubscribed: boolean) =>
+const subText = (sub: Subscription | undefined) =>
   sub
     ? `subscribed: ${sub.actions.length ? sub.actions.join(", ") : "all actions"} · ${sub.refMask ?? "any ref"}`
-    : othersSubscribed
-      ? "no subscription · idle — events go to the subscribed builds; subscribe this build to serve it again"
-      : "served by default build · no subscription";
+    : "no subscription · idle — events go to the subscribed builds only; subscribe this build to serve it again";
 
 export function RepoScreen() {
   const id = Number(useParams().id);
@@ -48,9 +46,8 @@ export function RepoScreen() {
   const chatInst = mine.find((i) => i.status === "running") ?? mine[0];
   // subscriptions whose Сборка has no Экземпляр yet (raised on the first Событие)
   const pending = subs.filter((s) => !mine.some((i) => i.buildId === s.buildId));
-  // who answers an event here: a subscribed build, else the default build; nobody = nothing runs
-  const defaultBuild = builds.find((b) => b.isDefault);
-  const served = subs.length > 0 || defaultBuild != null;
+  // who answers an event here: subscribed builds only; nobody = nothing runs (there is no default build)
+  const served = subs.length > 0;
   const canRun = !buildsQ.loading && !subsQ.loading && served;
   const branch = repo?.defaultBranch ?? "main";
 
@@ -147,7 +144,7 @@ export function RepoScreen() {
           </div>
           {!served && !buildsQ.loading && !subsQ.loading && (
             <div className="small err pretty">
-              {builds.length === 0 ? <>no builds yet — <a href="/builds" onClick={(e) => { e.preventDefault(); navigate("/builds"); }}>create a build</a> (llm connection + sandbox connection) and make it the default.</> : <>no default build and no subscription — <a href="/builds" onClick={(e) => { e.preventDefault(); navigate("/builds"); }}>make a build the default</a> or subscribe one below.</>}
+              {builds.length === 0 ? <>no builds yet — <a href="/builds" onClick={(e) => { e.preventDefault(); navigate("/builds"); }}>create a build</a> (llm connection + sandbox connection), then subscribe it below.</> : <>no subscription — nothing runs here until you subscribe a build below.</>}
             </div>
           )}
         </div>
@@ -169,7 +166,7 @@ export function RepoScreen() {
                     <div className="small comment" style={{ marginTop: 2 }}>
                       sandbox instance {w.sandboxExternalId ?? "none yet — created on run"}{w.sandboxStatus ? ` (${w.sandboxStatus})` : ""} · runner {w.runnerId ?? "—"} · updated {ago(w.updatedAt)}
                     </div>
-                    <div className="small muted" style={{ marginTop: 2 }}>{subText(sub, subs.length > 0)}</div>
+                    <div className="small muted" style={{ marginTop: 2 }}>{subText(sub)}</div>
                   </div>
                   <div className="row" style={{ flexWrap: "nowrap" }}>
                     <button className="btn" onClick={() => navigate(`/instances/${w.id}`)}>playground →</button>
@@ -190,14 +187,14 @@ export function RepoScreen() {
             ))}
             {mine.length + pending.length === 0 && (
               <div className="empty small pretty">
-                {instancesQ.loading ? "loading…" : served ? <>no agent yet — <b>{defaultBuild?.name ?? "the subscribed build"}</b> answers the first event; press <b>run agent</b> to raise it now. subscribe another build to narrow or split the coverage.</> : "no build serves this repository — nothing will run until a build is the default or subscribed here."}
+                {instancesQ.loading ? "loading…" : served ? <>no agent yet — the subscribed build answers the first event; press <b>run agent</b> or <b>raise agent</b> to bring it up now.</> : "no build is subscribed to this repository — nothing will run until you subscribe one below."}
               </div>
             )}
             <div className="row" style={{ padding: 12, background: "var(--bg-elevated)" }}>
               <span className="small muted">subscribe build</span>
               <select className="select" value={f.build} onChange={(e) => setF({ ...f, build: e.target.value })}>
                 {builds.map((b) => (
-                  <option key={b.id} value={b.id}>{b.name}{b.isDefault ? " (default)" : ""}</option>
+                  <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
               </select>
               <input className="input" style={{ flex: 1, minWidth: 180 }} value={f.actions} onChange={(e) => setF({ ...f, actions: e.target.value })} placeholder="actions · push, pull_request.opened · empty = all" />

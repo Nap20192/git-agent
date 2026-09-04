@@ -54,7 +54,6 @@ erDiagram
         text prompt
         text memory_preset
         jsonb limits
-        bool is_default
     }
     repositories {
         text external_id UK

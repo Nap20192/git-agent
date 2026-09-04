@@ -62,10 +62,9 @@ const builds: AgentBuild[] = [
     prompt: "Review every push for security issues.",
     memoryPreset: "prod_v2",
     limits: { maxSubagents: 3, tokenBudget: 500_000 },
-    isDefault: true,
     createdAt: iso(60 * 24 * 5),
   },
-  { id: 2, name: "docs-watcher", llmConnectionId: 1, sandboxConnectionId: 1, memoryPreset: "prod", isDefault: false, createdAt: iso(60 * 24) },
+  { id: 2, name: "docs-watcher", llmConnectionId: 1, sandboxConnectionId: 1, memoryPreset: "prod", createdAt: iso(60 * 24) },
 ];
 
 const repositories: Repository[] = [
@@ -307,7 +306,7 @@ export function createMockHubApi(): HubApi {
           throw new Error("409 repository already connected");
         const repo: Repository = {
           id: nextId++, identityId: null, mode: "watch", provider, externalId, owner, name,
-          defaultBranch: "main", buildId: input.buildId ?? builds.find((b) => b.isDefault)?.id ?? null,
+          defaultBranch: "main", buildId: input.buildId ?? null,
           connectedAt: new Date().toISOString(),
         };
         repositories.push(repo);
@@ -329,7 +328,7 @@ export function createMockHubApi(): HubApi {
         owner: src.owner,
         name: src.name,
         defaultBranch: src.defaultBranch,
-        buildId: buildId ?? builds.find((b) => b.isDefault)?.id ?? null,
+        buildId: buildId ?? null,
         connectedAt: new Date().toISOString(),
       };
       repositories.push(repo);
@@ -452,7 +451,6 @@ export function createMockHubApi(): HubApi {
     async createBuild(input) {
       await delay();
       const build: AgentBuild = { ...input, id: nextId++, createdAt: new Date().toISOString() };
-      if (build.isDefault) builds.forEach((b) => (b.isDefault = false));
       builds.push(build);
       return build;
     },
@@ -461,7 +459,6 @@ export function createMockHubApi(): HubApi {
       const build = builds.find((b) => b.id === id);
       if (!build) throw new Error("404 build not found");
       Object.assign(build, input);
-      if (build.isDefault) builds.forEach((b) => b.id !== id && (b.isDefault = false));
       return { ...build };
     },
     async deleteBuild(id) {

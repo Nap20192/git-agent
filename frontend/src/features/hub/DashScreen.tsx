@@ -49,7 +49,7 @@ export function DashScreen() {
   const sev = SEVERITIES.map((s) => [s, findings.filter((f) => f.severity === s).length] as const).filter(([, n]) => n > 0);
   const buildName = (id: number) => (buildsQ.data ?? []).find((b) => b.id === id)?.name ?? `instance`;
   const repoName = (id: number) => { const r = repos.find((x) => x.id === id); return r ? `${r.owner}/${r.name}` : `repo #${id}`; };
-  const onboarding = { llm: (llmQ.data ?? []).length > 0, build: (buildsQ.data ?? []).some((b) => b.isDefault), repo: repos.length > 0 };
+  const onboarding = { llm: (llmQ.data ?? []).length > 0, build: (buildsQ.data ?? []).length > 0, repo: repos.length > 0 };
   const showOnboarding = !reposQ.loading && !buildsQ.loading && !llmQ.loading && !(onboarding.llm && onboarding.build && onboarding.repo);
 
   return (

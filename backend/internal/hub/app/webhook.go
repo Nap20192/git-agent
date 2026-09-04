@@ -57,8 +57,8 @@ func (s *WebhookService) Handle(ctx context.Context, provider string, repoID int
 }
 
 // FanOut — общий путь вебхука и ручного запуска (тикет 011): Сборки с
-// совпавшей подпиской (репо вовсе без подписок обслуживает дефолтная Сборка
-// на все события) → транзакционный ingest (журнал + Экземпляры + outbox).
+// совпавшей подпиской (репо без подписок — только журнал: юзер подписывает
+// Сборки сам, дефолтной нет) → транзакционный ingest (журнал + Экземпляры + outbox).
 // trace_id События = trace_id запроса (вебхука или /trigger) из ctx.
 func (s *WebhookService) FanOut(ctx context.Context, repo *domain.Repository, e domain.Event, payload []byte) (duplicate bool, instanceIDs []int64, err error) {
 	if e.TraceID = trace.FromContext(ctx); e.TraceID == "" {
@@ -70,8 +70,8 @@ func (s *WebhookService) FanOut(ctx context.Context, repo *domain.Repository, e 
 	}
 	// Событие без кода (ping, issues, comments) — только в журнал: Экземпляр под
 	// него не поднимаем, раннер такой ход всё равно пропускает (skipped_no_commit).
-	// Иначе ping сразу после подключения плодит Экземпляр дефолтной Сборки,
-	// который потом висит рядом с настоящими подписками.
+	// Иначе ping сразу после подключения плодит Экземпляр, который потом висит
+	// рядом с настоящими ходами.
 	if e.CommitSHA == "" && e.HeadSHA == "" && e.Action != "full_scan" {
 		buildIDs = nil
 	}
@@ -79,21 +79,11 @@ func (s *WebhookService) FanOut(ctx context.Context, repo *domain.Repository, e 
 }
 
 // MatchedBuilds — Сборки, которые получат Событие (action, ref) Репозитория:
-// по подпискам, а у репо без подписок — дефолтная Сборка юзера.
+// строго по подпискам; репо без подписок никто не обслуживает (пусто).
 func (s *WebhookService) MatchedBuilds(ctx context.Context, repo *domain.Repository, action, ref string) ([]int64, error) {
 	subs, err := s.Subs.SubscriptionsByRepo(ctx, repo.ID)
 	if err != nil {
 		return nil, fmt.Errorf("subscriptions lookup: %w", err)
 	}
-	buildIDs := domain.MatchedBuilds(subs, action, ref)
-	if len(subs) == 0 {
-		def, err := s.Subs.DefaultBuild(ctx, repo.UserID)
-		if err != nil {
-			return nil, fmt.Errorf("default build lookup: %w", err)
-		}
-		if def != nil {
-			buildIDs = []int64{def.ID}
-		}
-	}
-	return buildIDs, nil
+	return domain.MatchedBuilds(subs, action, ref), nil
 }

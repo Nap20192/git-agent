@@ -63,7 +63,6 @@ type AgentBuild struct {
 	Prompt              *string
 	MemoryPreset        *string
 	Limits              []byte // JSONB как есть
-	IsDefault           bool
 	CreatedAt           time.Time
 }
 

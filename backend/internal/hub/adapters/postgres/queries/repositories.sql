@@ -63,7 +63,3 @@ RETURNING id;
 DELETE FROM hub.build_subscriptions bs
  USING hub.repositories r
  WHERE bs.id = @id AND r.id = bs.repository_id AND r.user_id = @user_id;
-
--- name: DefaultBuild :one
-SELECT id, user_id, name FROM hub.agent_builds
- WHERE user_id = @user_id AND is_default ORDER BY id LIMIT 1;

@@ -303,14 +303,6 @@ func (s *Store) DeleteSubscription(ctx context.Context, id, userID int64) error 
 	return affected(s.q().DeleteSubscription(ctx, db.DeleteSubscriptionParams{ID: id, UserID: userID}))
 }
 
-func (s *Store) DefaultBuild(ctx context.Context, userID int64) (*domain.AgentBuild, error) {
-	b, err := optional(s.q().DefaultBuild(ctx, userID))
-	if b == nil || err != nil {
-		return nil, err
-	}
-	return &domain.AgentBuild{ID: b.ID, UserID: b.UserID, Name: b.Name}, nil
-}
-
 // ── Builds ──────────────────────────────────────────────────────────────────
 
 func (s *Store) Build(ctx context.Context, id int64) (*domain.AgentBuild, error) {
@@ -329,7 +321,7 @@ func (s *Store) Builds(ctx context.Context, userID int64) ([]domain.AgentBuild, 
 func (s *Store) CreateBuild(ctx context.Context, b *domain.AgentBuild) (int64, error) {
 	return conflictOnFK(s.q().CreateBuild(ctx, db.CreateBuildParams{
 		UserID: b.UserID, Name: b.Name, LlmConnectionID: b.LlmConnectionID, SandboxConnectionID: b.SandboxConnectionID,
-		Prompt: b.Prompt, MemoryPreset: b.MemoryPreset, Limits: b.Limits, IsDefault: b.IsDefault,
+		Prompt: b.Prompt, MemoryPreset: b.MemoryPreset, Limits: b.Limits,
 	}))
 }
 
@@ -337,7 +329,7 @@ func (s *Store) UpdateBuild(ctx context.Context, b *domain.AgentBuild) error {
 	return affected(s.q().UpdateBuild(ctx, db.UpdateBuildParams{
 		ID: b.ID, UserID: b.UserID, Name: b.Name, LlmConnectionID: b.LlmConnectionID,
 		SandboxConnectionID: b.SandboxConnectionID, Prompt: b.Prompt, MemoryPreset: b.MemoryPreset,
-		Limits: b.Limits, IsDefault: b.IsDefault,
+		Limits: b.Limits,
 	}))
 }
 

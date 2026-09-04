@@ -122,16 +122,9 @@ func TestTrigger(t *testing.T) {
 		t.Fatalf("outbox after dup: %d", n)
 	}
 
-	// репо без подписок → дефолтная Сборка (как в webhook)
+	// репо без подписок никто не обслуживает: Событие в журнал (с beforeSha —
+	// коммит последнего обработанного), Экземпляров/outbox не прибавляется
 	if _, err := db.Exec(ctx, `DELETE FROM hub.build_subscriptions`); err != nil {
-		t.Fatal(err)
-	}
-	var defaultBuild int64
-	if err := db.QueryRow(ctx, `
-		INSERT INTO hub.agent_builds (user_id, name, llm_connection_id, sandbox_connection_id, is_default)
-		SELECT user_id, 'fallback', llm_connection_id, sandbox_connection_id, true
-		  FROM hub.agent_builds LIMIT 1
-		RETURNING id`).Scan(&defaultBuild); err != nil {
 		t.Fatal(err)
 	}
 	// первое Событие обработано → следующий manual несёт beforeSha = его коммит
@@ -139,17 +132,18 @@ func TestTrigger(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, res = trigger(repoID, `{"commitSha":"othersha"}`)
-	if status != http.StatusAccepted || res.Duplicate || len(res.InstanceIDs) != 1 {
-		t.Fatalf("fallback status=%d res=%+v", status, res)
+	if status != http.StatusAccepted || res.Duplicate || len(res.InstanceIDs) != 0 {
+		t.Fatalf("no subscriptions status=%d res=%+v", status, res)
 	}
 	if n := count(t, db, `SELECT count(*) FROM hub.events WHERE commit_sha = 'othersha' AND before_sha = 'headsha'`); n != 1 {
 		t.Fatalf("events.before_sha: %d", n)
 	}
-	if n := count(t, db, `SELECT count(*) FROM hub.outbox WHERE payload->>'commitSha' = 'othersha' AND payload->>'beforeSha' = 'headsha'`); n != 1 {
-		t.Fatalf("outbox beforeSha: %d", n)
+	if n := count(t, db, `SELECT count(*) FROM hub.outbox`); n != 1 {
+		t.Fatalf("outbox without subscriptions: %d", n)
 	}
-	if n := count(t, db, `SELECT count(*) FROM hub.agent_instances WHERE build_id = $1`, defaultBuild); n != 1 {
-		t.Fatalf("instances for default build: %d", n)
+	// возвращаем подписку — дальше нужен обслуживающий Сборка
+	if _, err := db.Exec(ctx, `INSERT INTO hub.build_subscriptions (build_id, repository_id) SELECT id, $1 FROM hub.agent_builds LIMIT 1`, repoID); err != nil {
+		t.Fatal(err)
 	}
 
 	// mode=full: Событие full_scan, не дедупится об manual на том же коммите;

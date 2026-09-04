@@ -47,24 +47,6 @@ func (q *Queries) CreateRepository(ctx context.Context, arg CreateRepositoryPara
 	return id, err
 }
 
-const defaultBuild = `-- name: DefaultBuild :one
-SELECT id, user_id, name FROM hub.agent_builds
- WHERE user_id = $1 AND is_default ORDER BY id LIMIT 1
-`
-
-type DefaultBuildRow struct {
-	ID     int64
-	UserID int64
-	Name   string
-}
-
-func (q *Queries) DefaultBuild(ctx context.Context, userID int64) (DefaultBuildRow, error) {
-	row := q.db.QueryRow(ctx, defaultBuild, userID)
-	var i DefaultBuildRow
-	err := row.Scan(&i.ID, &i.UserID, &i.Name)
-	return i, err
-}
-
 const deleteRepository = `-- name: DeleteRepository :exec
 DELETE FROM hub.repositories WHERE id = $1
 `

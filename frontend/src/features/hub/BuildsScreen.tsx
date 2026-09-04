@@ -52,7 +52,6 @@ export function BuildsScreen() {
       setBusy(false);
     }
   };
-  const makeDefault = (b: AgentBuild) => act(async () => { await api.updateBuild(b.id, { ...b, isDefault: true }); buildsQ.reload(); }, `${b.name} is now the default build`);
   const removeBuild = (b: AgentBuild) => window.confirm(`delete build ${b.name}?`) && act(async () => { await api.deleteBuild(b.id); buildsQ.reload(); }, `deleted build ${b.name}`);
   const removeLlm = (c: LlmConnection) => window.confirm(`delete llm connection ${c.name}?`) && act(async () => { await api.deleteLlmConnection(c.id); llmQ.reload(); }, `deleted llm connection ${c.name}`);
   const removeSbx = (c: SandboxConnection) => window.confirm(`delete sandbox connection ${c.name}?`) && act(async () => { await api.deleteSandboxConnection(c.id); sbxQ.reload(); }, `deleted sandbox connection ${c.name}`);
@@ -64,7 +63,7 @@ export function BuildsScreen() {
         <div className="head" style={{ marginBottom: 12 }}>
           <div>
             <h1>builds</h1>
-            <div className="sub">an agent build is a stored definition — prompt, llm connection, sandbox connection, memory preset, limits. not a live process; the default build serves every repo without its own subscription.</div>
+            <div className="sub">an agent build is a stored definition — prompt, llm connection, sandbox connection, memory preset, limits. not a live process; a build runs on a repo only once subscribed to it on the repo page.</div>
           </div>
           <button className="btn primary" onClick={() => { setEditing(null); setDrawer("build"); }}>+ new build</button>
         </div>
@@ -75,7 +74,7 @@ export function BuildsScreen() {
           {builds.map((b) => (
             <div key={b.id} className="trow click" style={{ "--cols": BCOLS, padding: "8px 12px" } as React.CSSProperties} onClick={() => { setEditing(b); setDrawer("build"); }}>
               <span>
-                <b>{b.name}</b>{b.isDefault && <span className="accent"> ● default</span>}
+                <b>{b.name}</b>
                 <div className="small muted pretty">{b.prompt || "no prompt"}</div>
               </span>
               <span className="comment ellip">{llmName(b.llmConnectionId)}</span>
@@ -84,7 +83,6 @@ export function BuildsScreen() {
               <span className="comment small">{limitsText(b.limits)}</span>
               <span className="muted small">{ago(b.createdAt)}</span>
               <span className="row" style={{ flexWrap: "nowrap" }} onClick={(e) => e.stopPropagation()}>
-                {!b.isDefault && <button className="btn sm" disabled={busy} onClick={() => makeDefault(b)}>make default</button>}
                 <button className="btn sm danger" disabled={busy} onClick={() => removeBuild(b)}>delete</button>
               </span>
             </div>
@@ -196,7 +194,7 @@ function BuildDrawer({ open, build, llms, sandboxes, first, onClose, reload }: {
   const api = useHubApi();
   const { say, fail } = useShell();
   const dflt = useDefaults().data;
-  const [f, setF] = useState({ name: "", llm: "", sbx: "", prompt: "", memory: "", isDefault: false });
+  const [f, setF] = useState({ name: "", llm: "", sbx: "", prompt: "", memory: "" });
   const [lim, setLim] = useState<Record<string, string>>({});
   // unknown keys of an existing limits object are kept as-is, never dropped
   const [extra, setExtra] = useState<Record<string, unknown>>({});
@@ -207,8 +205,8 @@ function BuildDrawer({ open, build, llms, sandboxes, first, onClose, reload }: {
   const seedKey = build?.id ?? null;
   if (open && seeded !== seedKey) {
     setSeeded(seedKey);
-    // new build: prefilled name, default limits, first build becomes the default one
-    setF({ name: build?.name ?? (first ? "default" : ""), llm: build?.llmConnectionId != null ? String(build.llmConnectionId) : "", sbx: build?.sandboxConnectionId != null ? String(build.sandboxConnectionId) : "", prompt: build?.prompt ?? "", memory: build?.memoryPreset ?? "", isDefault: build?.isDefault ?? first });
+    // new build: prefilled name and default limits
+    setF({ name: build?.name ?? (first ? "reviewer" : ""), llm: build?.llmConnectionId != null ? String(build.llmConnectionId) : "", sbx: build?.sandboxConnectionId != null ? String(build.sandboxConnectionId) : "", prompt: build?.prompt ?? "", memory: build?.memoryPreset ?? "" });
     const vals: Record<string, string> = {};
     if (!build) for (const [k, v] of Object.entries(dflt?.limits ?? {})) vals[k] = String(v);
     const ex: Record<string, unknown> = {};
@@ -230,7 +228,7 @@ function BuildDrawer({ open, build, llms, sandboxes, first, onClose, reload }: {
         const v = (lim[x.key] ?? "").trim();
         if (v !== "" && Number.isFinite(Number(v))) limits[x.key] = Number(v);
       }
-      const input = { name: f.name.trim(), llmConnectionId: f.llm ? Number(f.llm) : undefined, sandboxConnectionId: f.sbx ? Number(f.sbx) : undefined, prompt: f.prompt.trim() || null, memoryPreset: f.memory.trim() || null, limits, isDefault: f.isDefault };
+      const input = { name: f.name.trim(), llmConnectionId: f.llm ? Number(f.llm) : undefined, sandboxConnectionId: f.sbx ? Number(f.sbx) : undefined, prompt: f.prompt.trim() || null, memoryPreset: f.memory.trim() || null, limits };
       if (build) await api.updateBuild(build.id, input);
       else await api.createBuild(input);
       say(`${build ? "saved" : "created"} build ${input.name}`);
@@ -268,7 +266,6 @@ function BuildDrawer({ open, build, llms, sandboxes, first, onClose, reload }: {
           <Field key={x.key} label={x.label}><input className="input" type="number" value={lim[x.key] ?? ""} onChange={(e) => setLim({ ...lim, [x.key]: e.target.value })} placeholder={x.ph} /></Field>
         ))}
       </div>
-      <label className="check"><input type="checkbox" checked={f.isDefault} onChange={(e) => setF({ ...f, isDefault: e.target.checked })} /><span>make this the default build — serves every repo without its own subscription</span></label>
       <button className="btn lg primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={submit}>❯ {build ? "save build" : "create build"}</button>
     </Drawer>
   );
