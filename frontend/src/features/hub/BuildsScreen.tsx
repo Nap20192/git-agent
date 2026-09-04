@@ -89,7 +89,7 @@ export function BuildsScreen() {
           ))}
           {builds.length === 0 && (
             <div className="empty pretty">
-              {buildsQ.loading ? "loading…" : llms.length === 0 && !llmQ.loading ? "no builds — add an llm connection below first, then create a build and make it the default." : "no builds — create one and make it the default; it serves every repo without a subscription."}
+              {buildsQ.loading ? "loading…" : llms.length === 0 && !llmQ.loading ? "no builds — add an llm connection below first, then create a build." : "no builds — create one and subscribe it to a repository."}
             </div>
           )}
         </div>

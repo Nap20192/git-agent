@@ -121,7 +121,7 @@ export function PlaygroundScreen() {
       const res = await api.triggerRepository(inst.repositoryId, mode ? { mode } : undefined);
       setGraphEventId(null);
       if (res.duplicate) return `already ran @ ${sha(res.commitSha)} — nothing new to do`;
-      if (res.instanceIds.length === 0) throw new Error("no build serves this repository — make a build the default or subscribe one on the repository page");
+      if (res.instanceIds.length === 0) throw new Error("no build is subscribed to this repository — subscribe one on the repository page");
       return `${mode === "full" ? "full scan" : "run"} @ ${sha(res.commitSha)} → agent #${res.instanceIds.join(", #")}`;
     });
   };

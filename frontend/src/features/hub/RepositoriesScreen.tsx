@@ -1,5 +1,5 @@
 /** Repositories — the hub's home. Table of connected repos (provider, name,
- *  branch, watchers, build, last Событие) + runners / instances / default
+ *  branch, watchers, build, last Событие) + runners / instances / builds
  *  build cards. Connect drawer: identity → provider repo → POST /api/repositories
  *  (hub installs the webhook), or a public repo by URL (watch mode: no webhook,
  *  manual runs only). */

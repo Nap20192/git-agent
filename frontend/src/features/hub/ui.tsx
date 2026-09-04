@@ -129,7 +129,7 @@ export function Onboarding({ state, onConnect }: { state: OnboardingState; onCon
   const go = (to: string) => (e: React.MouseEvent) => { e.preventDefault(); navigate(to); };
   const steps: { done: boolean; text: ReactNode; action: ReactNode }[] = [
     { done: state.llm, text: <>add an <b>llm connection</b> — api base, model, key</>, action: <a href="/builds" onClick={go("/builds")}>builds → llm connections</a> },
-    { done: state.build, text: <>create a <b>build</b> and make it the default — it serves every repo without its own subscription</>, action: <a href="/builds" onClick={go("/builds")}>builds → new build</a> },
+    { done: state.build, text: <>create a <b>build</b> — then subscribe it to a repository on the repo page</>, action: <a href="/builds" onClick={go("/builds")}>builds → new build</a> },
     { done: state.repo, text: <>connect a <b>repository</b> — your own (webhook) or any public one by url</>, action: onConnect ? <a href="/repos" onClick={(e) => { e.preventDefault(); onConnect(); }}>connect repository</a> : <a href="/repos" onClick={go("/repos")}>repositories</a> },
   ];
   const next = steps.findIndex((s) => !s.done);

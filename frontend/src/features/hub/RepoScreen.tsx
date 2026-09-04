@@ -1,5 +1,5 @@
 /** Repository page. Watchers = the repo's Экземпляры (one per subscribed
- *  Сборка; no subscriptions → the default Сборка covers everything) with
+ *  Сборка; no subscriptions → nothing runs, events are journaled only) with
  *  playground/stop/unsubscribe, a subscribe form (build + actions + ref mask),
  *  the Событие journal and a chat with the active watcher. */
 import { useMemo, useState } from "react";
@@ -63,7 +63,7 @@ export function RepoScreen() {
         return;
       }
       if (res.instanceIds.length === 0) {
-        fail(new Error("no build serves this repository — make a build the default or subscribe one below"), "nothing to run");
+        fail(new Error("no build is subscribed to this repository — subscribe one below"), "nothing to run");
         return;
       }
       say(`${mode === "full" ? "full scan" : "run"} @ ${sha(res.commitSha)} → agent #${res.instanceIds.join(", #")}`);
@@ -94,7 +94,7 @@ export function RepoScreen() {
   const raiseAll = () => act(async () => {
     const { instances: raised } = await api.raiseRepository(repo.id);
     instancesQ.reload();
-    if (raised.length === 0) throw new Error("no build serves this repository — make a build the default or subscribe one below");
+    if (raised.length === 0) throw new Error("no build is subscribed to this repository — subscribe one below");
     say(raised.map((x) => `agent #${x.id} ${x.status === "queued" ? "queued for a slot" : "raised"}`).join(" · "));
   }, "");
   const raiseOne = (instId: number) => act(async () => { const { status } = await api.raiseInstance(instId); instancesQ.reload(); say(status === "queued" ? `agent #${instId} queued for a slot` : `agent #${instId} raised`); }, "");
@@ -180,7 +180,7 @@ export function RepoScreen() {
               <div key={`s${s.id}`} className="lrow" style={{ padding: 12 }}>
                 <div>
                   <div><Dot on={false} /><b>{buildName(s.buildId)}</b> <span className="muted">· not raised yet</span></div>
-                  <div className="small muted" style={{ marginTop: 2 }}>{subText(s, true)} · instance appears on the first matching event</div>
+                  <div className="small muted" style={{ marginTop: 2 }}>{subText(s)} · instance appears on the first matching event</div>
                 </div>
                 <button className="btn danger" disabled={busy} onClick={() => unsub(s)}>unsubscribe</button>
               </div>
