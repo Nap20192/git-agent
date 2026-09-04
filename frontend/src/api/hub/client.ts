@@ -14,6 +14,7 @@ import type {
   FindingFilters,
   Identity,
   LlmConnection,
+  LlmConnectionInput,
   Me,
   Provider,
   ProviderRepo,
@@ -87,7 +88,9 @@ export interface HubApi {
 
   // connections (keys masked)
   listLlmConnections(): Promise<LlmConnection[]>;
-  createLlmConnection(input: { name: string; apiBase: string; apiKey: string; model: string }): Promise<LlmConnection>;
+  createLlmConnection(input: LlmConnectionInput): Promise<LlmConnection>;
+  /** apiKey empty = keep the stored key. */
+  updateLlmConnection(id: number, input: LlmConnectionInput): Promise<LlmConnection>;
   deleteLlmConnection(id: number): Promise<void>;
   listSandboxConnections(): Promise<SandboxConnection[]>;
   getDefaults(): Promise<HubDefaults>;

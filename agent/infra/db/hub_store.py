@@ -20,6 +20,7 @@ _CONTEXT_SQL = """
            l.api_base  AS llm_api_base,
            l.api_key_enc AS llm_api_key_enc,
            l.model     AS llm_model,
+           l.params    AS llm_params,
            sc.id       AS sandbox_connection_id,
            sc.domain   AS sandbox_domain,
            sc.api_key_enc AS sandbox_api_key_enc,

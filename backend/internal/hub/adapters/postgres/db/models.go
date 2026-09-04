@@ -128,6 +128,7 @@ type HubLlmConnection struct {
 	APIKeyEnc []byte
 	Model     string
 	CreatedAt time.Time
+	Params    []byte
 }
 
 type HubOutbox struct {

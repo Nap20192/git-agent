@@ -74,6 +74,7 @@ type LlmConnection struct {
 	APIKeyEnc []byte
 	Model     string
 	CreatedAt time.Time
+	Params    []byte // jsonb {temperature, topP, maxTokens, contextWindow, reasoningEffort, timeoutSeconds, maxRetries, extra{…}}; {} = дефолты провайдера
 }
 
 type SandboxConnection struct {

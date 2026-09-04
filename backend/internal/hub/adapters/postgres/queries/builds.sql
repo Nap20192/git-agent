@@ -28,12 +28,24 @@ UPDATE hub.agent_builds
 DELETE FROM hub.agent_builds WHERE id = @id AND user_id = @user_id;
 
 -- name: LlmConnections :many
-SELECT id, user_id, name, api_base, api_key_enc, model, created_at
+SELECT id, user_id, name, api_base, api_key_enc, model, created_at, params
   FROM hub.llm_connections WHERE user_id = @user_id ORDER BY id;
 
+-- name: LlmConnection :one
+SELECT id, user_id, name, api_base, api_key_enc, model, created_at, params
+  FROM hub.llm_connections WHERE id = @id AND user_id = @user_id;
+
 -- name: CreateLlmConnection :one
-INSERT INTO hub.llm_connections (user_id, name, api_base, api_key_enc, model)
-VALUES (@user_id, @name, @api_base, @api_key_enc, @model) RETURNING id;
+INSERT INTO hub.llm_connections (user_id, name, api_base, api_key_enc, model, params)
+VALUES (@user_id, @name, @api_base, @api_key_enc, @model, COALESCE(@params::jsonb, '{}'::jsonb)) RETURNING id;
+
+-- Ключ меняется только если передан (NULL — оставить прежний).
+-- name: UpdateLlmConnection :execrows
+UPDATE hub.llm_connections
+   SET name = @name, api_base = @api_base, model = @model,
+       params = COALESCE(@params::jsonb, '{}'::jsonb),
+       api_key_enc = COALESCE(sqlc.narg('api_key_enc')::bytea, api_key_enc)
+ WHERE id = @id AND user_id = @user_id;
 
 -- name: DeleteLlmConnection :execrows
 DELETE FROM hub.llm_connections WHERE id = @id AND user_id = @user_id;

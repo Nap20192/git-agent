@@ -104,8 +104,8 @@ func (q *Queries) CreateBuild(ctx context.Context, arg CreateBuildParams) (int64
 }
 
 const createLlmConnection = `-- name: CreateLlmConnection :one
-INSERT INTO hub.llm_connections (user_id, name, api_base, api_key_enc, model)
-VALUES ($1, $2, $3, $4, $5) RETURNING id
+INSERT INTO hub.llm_connections (user_id, name, api_base, api_key_enc, model, params)
+VALUES ($1, $2, $3, $4, $5, COALESCE($6::jsonb, '{}'::jsonb)) RETURNING id
 `
 
 type CreateLlmConnectionParams struct {
@@ -114,6 +114,7 @@ type CreateLlmConnectionParams struct {
 	APIBase   string
 	APIKeyEnc []byte
 	Model     string
+	Params    []byte
 }
 
 func (q *Queries) CreateLlmConnection(ctx context.Context, arg CreateLlmConnectionParams) (int64, error) {
@@ -123,6 +124,7 @@ func (q *Queries) CreateLlmConnection(ctx context.Context, arg CreateLlmConnecti
 		arg.APIBase,
 		arg.APIKeyEnc,
 		arg.Model,
+		arg.Params,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -199,8 +201,34 @@ func (q *Queries) DeleteSandboxConnection(ctx context.Context, id int64) (int64,
 	return result.RowsAffected(), nil
 }
 
+const llmConnection = `-- name: LlmConnection :one
+SELECT id, user_id, name, api_base, api_key_enc, model, created_at, params
+  FROM hub.llm_connections WHERE id = $1 AND user_id = $2
+`
+
+type LlmConnectionParams struct {
+	ID     int64
+	UserID int64
+}
+
+func (q *Queries) LlmConnection(ctx context.Context, arg LlmConnectionParams) (HubLlmConnection, error) {
+	row := q.db.QueryRow(ctx, llmConnection, arg.ID, arg.UserID)
+	var i HubLlmConnection
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.APIBase,
+		&i.APIKeyEnc,
+		&i.Model,
+		&i.CreatedAt,
+		&i.Params,
+	)
+	return i, err
+}
+
 const llmConnections = `-- name: LlmConnections :many
-SELECT id, user_id, name, api_base, api_key_enc, model, created_at
+SELECT id, user_id, name, api_base, api_key_enc, model, created_at, params
   FROM hub.llm_connections WHERE user_id = $1 ORDER BY id
 `
 
@@ -221,6 +249,7 @@ func (q *Queries) LlmConnections(ctx context.Context, userID int64) ([]HubLlmCon
 			&i.APIKeyEnc,
 			&i.Model,
 			&i.CreatedAt,
+			&i.Params,
 		); err != nil {
 			return nil, err
 		}
@@ -308,6 +337,41 @@ func (q *Queries) UpdateBuild(ctx context.Context, arg UpdateBuildParams) (int64
 		arg.Prompt,
 		arg.MemoryPreset,
 		arg.Limits,
+		arg.ID,
+		arg.UserID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateLlmConnection = `-- name: UpdateLlmConnection :execrows
+UPDATE hub.llm_connections
+   SET name = $1, api_base = $2, model = $3,
+       params = COALESCE($4::jsonb, '{}'::jsonb),
+       api_key_enc = COALESCE($5::bytea, api_key_enc)
+ WHERE id = $6 AND user_id = $7
+`
+
+type UpdateLlmConnectionParams struct {
+	Name      string
+	APIBase   string
+	Model     string
+	Params    []byte
+	APIKeyEnc []byte
+	ID        int64
+	UserID    int64
+}
+
+// Ключ меняется только если передан (NULL — оставить прежний).
+func (q *Queries) UpdateLlmConnection(ctx context.Context, arg UpdateLlmConnectionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateLlmConnection,
+		arg.Name,
+		arg.APIBase,
+		arg.Model,
+		arg.Params,
+		arg.APIKeyEnc,
 		arg.ID,
 		arg.UserID,
 	)

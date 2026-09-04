@@ -346,8 +346,23 @@ func (s *Store) LlmConnections(ctx context.Context, userID int64) ([]domain.LlmC
 
 func (s *Store) CreateLlmConnection(ctx context.Context, c *domain.LlmConnection) (int64, error) {
 	return s.q().CreateLlmConnection(ctx, db.CreateLlmConnectionParams{
-		UserID: c.UserID, Name: c.Name, APIBase: c.APIBase, APIKeyEnc: c.APIKeyEnc, Model: c.Model,
+		UserID: c.UserID, Name: c.Name, APIBase: c.APIBase, APIKeyEnc: c.APIKeyEnc, Model: c.Model, Params: c.Params,
 	})
+}
+
+func (s *Store) LlmConnection(ctx context.Context, id, userID int64) (*domain.LlmConnection, error) {
+	r, err := optional(s.q().LlmConnection(ctx, db.LlmConnectionParams{ID: id, UserID: userID}))
+	if err != nil || r == nil {
+		return nil, err
+	}
+	c := domain.LlmConnection(*r)
+	return &c, nil
+}
+
+func (s *Store) UpdateLlmConnection(ctx context.Context, c *domain.LlmConnection) error {
+	return affected(s.q().UpdateLlmConnection(ctx, db.UpdateLlmConnectionParams{
+		ID: c.ID, UserID: c.UserID, Name: c.Name, APIBase: c.APIBase, Model: c.Model, Params: c.Params, APIKeyEnc: c.APIKeyEnc,
+	}))
 }
 
 func (s *Store) DeleteLlmConnection(ctx context.Context, id, userID int64) error {

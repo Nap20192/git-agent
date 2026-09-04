@@ -47,7 +47,7 @@ const providerRepos: Record<number, ProviderRepo[]> = {
 let me: Me | null = { id: 1, displayName: "vnkjd", identities };
 
 const llmConnections: LlmConnection[] = [
-  { id: 1, name: "openrouter", apiBase: "https://openrouter.ai/api/v1", apiKeyMasked: "sk-…4f", model: "anthropic/claude-sonnet-4" },
+  { id: 1, name: "openrouter", apiBase: "https://openrouter.ai/api/v1", apiKeyMasked: "sk-…4f", model: "anthropic/claude-sonnet-4", params: { temperature: 0.2, maxTokens: 16384 } },
 ];
 const sandboxConnections: SandboxConnection[] = [
   { id: 1, name: "local-opensandbox", domain: "http://localhost:8090", apiKeyMasked: "dev…ey", image: "opensandbox/base" },
@@ -472,11 +472,18 @@ export function createMockHubApi(): HubApi {
       authed();
       return [...llmConnections];
     },
-    async createLlmConnection({ name, apiBase, apiKey, model }) {
+    async createLlmConnection({ name, apiBase, apiKey, model, params }) {
       await delay();
-      const c: LlmConnection = { id: nextId++, name, apiBase, apiKeyMasked: mask(apiKey), model };
+      const c: LlmConnection = { id: nextId++, name, apiBase, apiKeyMasked: mask(apiKey), model, params: params ?? {} };
       llmConnections.push(c);
       return c;
+    },
+    async updateLlmConnection(id, { name, apiBase, apiKey, model, params }) {
+      await delay();
+      const c = llmConnections.find((x) => x.id === id);
+      if (!c) throw new Error("404 llm connection not found");
+      Object.assign(c, { name, apiBase, model, params: params ?? {} }, apiKey ? { apiKeyMasked: mask(apiKey) } : {});
+      return { ...c };
     },
     async deleteLlmConnection(id) {
       await delay();

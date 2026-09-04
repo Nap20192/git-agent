@@ -76,6 +76,7 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("GET /api/connections/llm", user(s.listLlmConnections))
 	mux.HandleFunc("GET /api/defaults", user(s.getDefaults))
 	mux.HandleFunc("POST /api/connections/llm", user(s.createLlmConnection))
+	mux.HandleFunc("PUT /api/connections/llm/{id}", user(s.updateLlmConnection))
 	mux.HandleFunc("DELETE /api/connections/llm/{id}", user(s.deleteLlmConnection))
 	mux.HandleFunc("GET /api/connections/sandbox", user(s.listSandboxConnections))
 	mux.HandleFunc("POST /api/connections/sandbox", user(s.createSandboxConnection))

@@ -49,6 +49,19 @@ func (s *ConnectionService) CreateLlm(ctx context.Context, c *domain.LlmConnecti
 	return s.Store.CreateLlmConnection(ctx, c)
 }
 
+// UpdateLlm — правка подключения; пустой apiKey = ключ не менять.
+func (s *ConnectionService) UpdateLlm(ctx context.Context, c *domain.LlmConnection, apiKey string) error {
+	c.APIKeyEnc = nil
+	if apiKey != "" {
+		enc, err := s.Secrets.Encrypt([]byte(apiKey))
+		if err != nil {
+			return err
+		}
+		c.APIKeyEnc = enc
+	}
+	return s.Store.UpdateLlmConnection(ctx, c)
+}
+
 // CreateSandbox — пустой apiKey = подключение без ключа.
 func (s *ConnectionService) CreateSandbox(ctx context.Context, c *domain.SandboxConnection, apiKey string) (int64, error) {
 	if apiKey != "" {

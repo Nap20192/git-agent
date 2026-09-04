@@ -128,6 +128,7 @@ export function createHttpHubApi(): HubApi {
 
     listLlmConnections: () => req("/connections/llm"),
     createLlmConnection: (input) => req("/connections/llm", { method: "POST", body: JSON.stringify(input) }),
+    updateLlmConnection: (id, input) => req(`/connections/llm/${id}`, { method: "PUT", body: JSON.stringify(input) }),
     deleteLlmConnection: (id) => req(`/connections/llm/${id}`, { method: "DELETE" }),
     listSandboxConnections: () => req("/connections/sandbox"),
     getDefaults: () => req("/defaults"),

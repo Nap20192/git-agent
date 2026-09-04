@@ -107,6 +107,9 @@ type BuildStore interface {
 type ConnectionStore interface {
 	LlmConnections(ctx context.Context, userID int64) ([]LlmConnection, error)
 	CreateLlmConnection(ctx context.Context, c *LlmConnection) (int64, error)
+	LlmConnection(ctx context.Context, id, userID int64) (*LlmConnection, error)
+	// UpdateLlmConnection — name/apiBase/model/params; APIKeyEnc nil = ключ не менять.
+	UpdateLlmConnection(ctx context.Context, c *LlmConnection) error
 	DeleteLlmConnection(ctx context.Context, id, userID int64) error
 	SandboxConnections(ctx context.Context) ([]SandboxConnection, error)
 	// SandboxConnection — nil, nil для незнакомого id.

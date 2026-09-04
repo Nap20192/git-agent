@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -10,18 +11,70 @@ import (
 // LLM/sandbox-подключения.
 
 type llmConnectionDTO struct {
-	ID           int64  `json:"id"`
-	Name         string `json:"name"`
-	APIBase      string `json:"apiBase"`
-	APIKeyMasked string `json:"apiKeyMasked"`
-	Model        string `json:"model"`
+	ID           int64           `json:"id"`
+	Name         string          `json:"name"`
+	APIBase      string          `json:"apiBase"`
+	APIKeyMasked string          `json:"apiKeyMasked"`
+	Model        string          `json:"model"`
+	Params       json.RawMessage `json:"params"` // LlmParams (openapi); {} = дефолты провайдера
 }
 
 func (s *Server) toLlmConnectionDTO(c domain.LlmConnection) llmConnectionDTO {
+	params := json.RawMessage(c.Params)
+	if len(params) == 0 {
+		params = json.RawMessage(`{}`)
+	}
 	return llmConnectionDTO{
 		ID: c.ID, Name: c.Name, APIBase: c.APIBase,
-		APIKeyMasked: s.Connections.MaskedKey(c.APIKeyEnc), Model: c.Model,
+		APIKeyMasked: s.Connections.MaskedKey(c.APIKeyEnc), Model: c.Model, Params: params,
 	}
+}
+
+// llmParams — тело params: JSON-объект с известными ключами нужных типов; неизвестные
+// верхнеуровневые ключи — 400 (опечатка молча ничего не сделает), extra — свободный объект.
+func llmParams(raw json.RawMessage) ([]byte, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return []byte(`{}`), nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, domain.Invalid("params must be a JSON object")
+	}
+	for k, v := range m {
+		switch k {
+		case "temperature", "topP", "maxTokens", "contextWindow", "timeoutSeconds", "maxRetries":
+			if _, ok := v.(float64); !ok && v != nil {
+				return nil, domain.Invalid("params." + k + " must be a number")
+			}
+		case "reasoningEffort":
+			if _, ok := v.(string); !ok && v != nil {
+				return nil, domain.Invalid("params.reasoningEffort must be a string")
+			}
+		case "extra":
+			if _, ok := v.(map[string]any); !ok && v != nil {
+				return nil, domain.Invalid("params.extra must be an object")
+			}
+		default:
+			return nil, domain.Invalid("params: unknown key " + k)
+		}
+		if v == nil {
+			delete(m, k)
+		}
+	}
+	return json.Marshal(m)
+}
+
+type llmConnectionReq struct {
+	Name    string          `json:"name"`
+	APIBase string          `json:"apiBase"`
+	APIKey  string          `json:"apiKey"`
+	Model   string          `json:"model"`
+	Params  json.RawMessage `json:"params"`
+}
+
+func (q *llmConnectionReq) trim() {
+	q.Name, q.APIBase = strings.TrimSpace(q.Name), strings.TrimSpace(q.APIBase)
+	q.APIKey, q.Model = strings.TrimSpace(q.APIKey), strings.TrimSpace(q.Model)
 }
 
 type sandboxConnectionDTO struct {
@@ -52,18 +105,16 @@ func (s *Server) listLlmConnections(w http.ResponseWriter, r *http.Request) erro
 
 // POST /api/connections/llm.
 func (s *Server) createLlmConnection(w http.ResponseWriter, r *http.Request) error {
-	var req struct {
-		Name    string `json:"name"`
-		APIBase string `json:"apiBase"`
-		APIKey  string `json:"apiKey"`
-		Model   string `json:"model"`
-	}
+	var req llmConnectionReq
 	if err := decode(r, &req); err != nil {
 		return err
 	}
-	req.Name, req.APIBase = strings.TrimSpace(req.Name), strings.TrimSpace(req.APIBase)
-	req.APIKey, req.Model = strings.TrimSpace(req.APIKey), strings.TrimSpace(req.Model)
-	c := &domain.LlmConnection{UserID: userID(r), Name: req.Name, APIBase: req.APIBase, Model: req.Model}
+	req.trim()
+	params, err := llmParams(req.Params)
+	if err != nil {
+		return err
+	}
+	c := &domain.LlmConnection{UserID: userID(r), Name: req.Name, APIBase: req.APIBase, Model: req.Model, Params: params}
 	c.ApplyDefaults(s.Defaults) // apiBase/model → LLM_API_BASE/LLM_MODEL из .env
 	if req.Name == "" || req.APIKey == "" || c.APIBase == "" || c.Model == "" {
 		return domain.Invalid("name and apiKey are required; apiBase/model may be empty only with LLM_API_BASE/LLM_MODEL in .env")
@@ -74,6 +125,40 @@ func (s *Server) createLlmConnection(w http.ResponseWriter, r *http.Request) err
 	}
 	c.ID = id
 	return respond(w, http.StatusCreated, s.toLlmConnectionDTO(*c))
+}
+
+// PUT /api/connections/llm/{id} — name/apiBase/model/params; apiKey пустой = не менять.
+func (s *Server) updateLlmConnection(w http.ResponseWriter, r *http.Request) error {
+	id, err := pathID(r)
+	if err != nil {
+		return err
+	}
+	cur, err := found(s.Store.LlmConnection(r.Context(), id, userID(r)))
+	if err != nil {
+		return err
+	}
+	var req llmConnectionReq
+	if err := decode(r, &req); err != nil {
+		return err
+	}
+	req.trim()
+	params, err := llmParams(req.Params)
+	if err != nil {
+		return err
+	}
+	c := &domain.LlmConnection{ID: id, UserID: userID(r), Name: req.Name, APIBase: req.APIBase, Model: req.Model, Params: params}
+	c.ApplyDefaults(s.Defaults)
+	if c.Name == "" || c.APIBase == "" || c.Model == "" {
+		return domain.Invalid("name, apiBase and model are required")
+	}
+	if err := s.Connections.UpdateLlm(r.Context(), c, req.APIKey); err != nil {
+		return err
+	}
+	c.APIKeyEnc = cur.APIKeyEnc
+	if req.APIKey != "" {
+		c.APIKeyEnc, _ = s.Connections.Secrets.Encrypt([]byte(req.APIKey))
+	}
+	return respond(w, http.StatusOK, s.toLlmConnectionDTO(*c))
 }
 
 // DELETE /api/connections/llm/{id}.

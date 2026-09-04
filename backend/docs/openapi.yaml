@@ -356,10 +356,30 @@ paths:
                 apiBase: { type: string }
                 apiKey: { type: string }
                 model: { type: string }
+                params: { $ref: "#/components/schemas/LlmParams" }
       responses:
         "201":
           content: { application/json: { schema: { $ref: "#/components/schemas/LlmConnection" } } }
   /api/connections/llm/{id}:
+    put:
+      summary: Изменить LLM-подключение (apiKey пустой — не менять)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                apiBase: { type: string }
+                apiKey: { type: string }
+                model: { type: string }
+                params: { $ref: "#/components/schemas/LlmParams" }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LlmConnection" }
     delete:
       summary: Удалить LLM-подключение
       parameters: [{ $ref: "#/components/parameters/Id" }]
@@ -819,15 +839,33 @@ components:
           properties:
             id: { type: integer }
             createdAt: { type: string, format: date-time }
+    LlmParams:
+      type: object
+      description: >
+        Параметры модели у LLM-подключения; раннер отдаёт их в OpenAI-совместимый
+        запрос. Отсутствующее поле = дефолт провайдера. Неизвестный верхнеуровневый ключ — 400.
+      properties:
+        temperature: { type: number }
+        topP: { type: number }
+        maxTokens: { type: integer, description: потолок токенов ответа (max_tokens) }
+        contextWindow: { type: integer, description: окно контекста модели, токены — для управления контекстом }
+        reasoningEffort: { type: string, enum: [none, low, medium, high], description: reasoning_effort у reasoning-моделей }
+        timeoutSeconds: { type: number }
+        maxRetries: { type: integer }
+        extra:
+          type: object
+          additionalProperties: true
+          description: провайдер-специфичные поля тела запроса (extra_body — top_k, min_p, repeat_penalty, seed…)
     LlmConnection:
       type: object
-      required: [id, name, apiBase, apiKeyMasked, model]
+      required: [id, name, apiBase, apiKeyMasked, model, params]
       properties:
         id: { type: integer }
         name: { type: string }
         apiBase: { type: string }
         apiKeyMasked: { type: string, description: "инвариант redaction — только маска" }
         model: { type: string }
+        params: { $ref: "#/components/schemas/LlmParams" }
     SandboxConnection:
       type: object
       required: [id, name, domain]

@@ -2,7 +2,7 @@
  *  limits) + llm / sandbox connections (keys masked) + sandbox instances
  *  (no ttl, killed only on command) + runners. Row click → edit drawer. */
 import { useState } from "react";
-import { useHubApi, type AgentBuild, type LlmConnection, type SandboxConnection } from "@/api/hub";
+import { useHubApi, type AgentBuild, type LlmConnection, type LlmParams, type SandboxConnection } from "@/api/hub";
 import { useBuilds, useDefaults, useInstances, useLlmConnections, useRunners, useSandboxConnections, useSandboxInstancesHub } from "@/hooks";
 import { limitsText } from "./PlaygroundScreen.tsx";
 import { Dot, Drawer, ago, useScreenCtx, useShell } from "./ui.tsx";
@@ -30,6 +30,7 @@ export function BuildsScreen() {
   const agentsQ = useInstances();
   const [drawer, setDrawer] = useState<"build" | "llm" | "sbx" | null>(null);
   const [editing, setEditing] = useState<AgentBuild | null>(null);
+  const [editingLlm, setEditingLlm] = useState<LlmConnection | null>(null);
   const [busy, setBusy] = useState(false);
   const [showDead, setShowDead] = useState(false);
 
@@ -99,16 +100,20 @@ export function BuildsScreen() {
         <div>
           <div className="head" style={{ marginBottom: 12 }}>
             <div><h2>llm connections</h2><div className="sub">openai-compatible endpoint + model; only the key mask ever crosses the wire.</div></div>
-            <button className="btn" onClick={() => setDrawer("llm")}>+ add</button>
+            <button className="btn" onClick={() => { setEditingLlm(null); setDrawer("llm"); }}>+ add</button>
           </div>
           <div className="box">
             {llms.map((c) => (
               <div key={c.id} className="lrow">
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <b>{c.name}</b> <span className="muted">· {c.model}</span>
                   <div className="small comment">{c.apiBase} · key {c.apiKeyMasked}</div>
+                  <div className="small muted ellip">{paramsText(c.params) || "provider defaults"}</div>
                 </div>
-                <button className="btn sm danger" disabled={busy} onClick={() => removeLlm(c)}>delete</button>
+                <span className="row" style={{ flexWrap: "nowrap" }}>
+                  <button className="btn sm" disabled={busy} onClick={() => { setEditingLlm(c); setDrawer("llm"); }}>edit</button>
+                  <button className="btn sm danger" disabled={busy} onClick={() => removeLlm(c)}>delete</button>
+                </span>
               </div>
             ))}
             {llms.length === 0 && <div className="empty small">{llmQ.loading ? "loading…" : "none."}</div>}
@@ -175,7 +180,7 @@ export function BuildsScreen() {
       </div>
 
       <BuildDrawer open={drawer === "build"} build={editing} llms={llms} sandboxes={sbxs} first={builds.length === 0} onClose={() => setDrawer(null)} reload={buildsQ.reload} />
-      <LlmDrawer open={drawer === "llm"} onClose={() => setDrawer(null)} reload={llmQ.reload} />
+      <LlmDrawer open={drawer === "llm"} conn={editingLlm} onClose={() => { setDrawer(null); setEditingLlm(null); }} reload={llmQ.reload} />
       <SbxDrawer open={drawer === "sbx"} onClose={() => setDrawer(null)} reload={sbxQ.reload} />
     </div>
   );
@@ -271,36 +276,119 @@ function BuildDrawer({ open, build, llms, sandboxes, first, onClose, reload }: {
   );
 }
 
-function LlmDrawer({ open, onClose, reload }: { open: boolean; onClose: () => void; reload: () => void }) {
+const PARAM_KEYS = ["temperature", "topP", "maxTokens", "contextWindow", "timeoutSeconds", "maxRetries"] as const;
+type ParamKey = (typeof PARAM_KEYS)[number];
+const PARAM_LABEL: Record<ParamKey, string> = {
+  temperature: "temperature · 0–2",
+  topP: "top p · 0–1",
+  maxTokens: "max tokens · answer cap (raise for reasoning models / long tool calls)",
+  contextWindow: "context window · tokens, for context management",
+  timeoutSeconds: "timeout · seconds per request",
+  maxRetries: "max retries",
+};
+const PARAM_PH: Record<ParamKey, string> = { temperature: "provider default", topP: "provider default", maxTokens: "provider default (llama.cpp: server -n)", contextWindow: "e.g. 131072", timeoutSeconds: "e.g. 600", maxRetries: "e.g. 2" };
+
+/** One line for the connection list: "temp 0.2 · max 16k · effort high · +2 extra". */
+function paramsText(p: LlmParams | undefined): string {
+  if (!p) return "";
+  const parts: string[] = [];
+  if (p.temperature != null) parts.push(`temp ${p.temperature}`);
+  if (p.topP != null) parts.push(`top_p ${p.topP}`);
+  if (p.maxTokens != null) parts.push(`max ${p.maxTokens}`);
+  if (p.contextWindow != null) parts.push(`ctx ${p.contextWindow}`);
+  if (p.reasoningEffort && p.reasoningEffort !== "none") parts.push(`effort ${p.reasoningEffort}`);
+  if (p.timeoutSeconds != null) parts.push(`timeout ${p.timeoutSeconds}s`);
+  if (p.maxRetries != null) parts.push(`retries ${p.maxRetries}`);
+  const extra = Object.keys(p.extra ?? {}).length;
+  if (extra) parts.push(`+${extra} extra`);
+  return parts.join(" · ");
+}
+
+function LlmDrawer({ open, conn, onClose, reload }: { open: boolean; conn: LlmConnection | null; onClose: () => void; reload: () => void }) {
   const api = useHubApi();
   const { say, fail } = useShell();
   const dflt = useDefaults().data;
-  // undefined = not touched → the hub default is shown and sent
+  // undefined = not touched → the hub default (or the stored value when editing) is shown and sent
   const [f, setF] = useState<{ name?: string; base?: string; model?: string; key: string }>({ key: "" });
-  const v = { name: f.name ?? (dflt?.llmModel || "default"), base: f.base ?? dflt?.llmApiBase ?? "", model: f.model ?? dflt?.llmModel ?? "" };
+  const [num, setNum] = useState<Partial<Record<ParamKey, string>>>({});
+  const [effort, setEffort] = useState<string>("");
+  const [extra, setExtra] = useState<string>("");
+  const [seeded, setSeeded] = useState<string | null>(null);
+  const seedKey = open ? `${conn?.id ?? "new"}` : null;
+  if (open && seeded !== seedKey) {
+    setSeeded(seedKey);
+    setF({ key: "" });
+    const p = conn?.params ?? {};
+    const vals: Partial<Record<ParamKey, string>> = {};
+    for (const k of PARAM_KEYS) if (p[k] != null) vals[k] = String(p[k]);
+    setNum(vals);
+    setEffort(p.reasoningEffort ?? "");
+    setExtra(p.extra && Object.keys(p.extra).length ? JSON.stringify(p.extra, null, 2) : "");
+  }
+  const v = {
+    name: f.name ?? conn?.name ?? (dflt?.llmModel || "default"),
+    base: f.base ?? conn?.apiBase ?? dflt?.llmApiBase ?? "",
+    model: f.model ?? conn?.model ?? dflt?.llmModel ?? "",
+  };
   const [busy, setBusy] = useState(false);
   const submit = async () => {
-    if (!v.name.trim() || !f.key) return fail(new Error("name and api key are required"), "");
+    if (!v.name.trim() || (!conn && !f.key)) return fail(new Error("name and api key are required"), "");
+    const params: LlmParams = {};
+    for (const k of PARAM_KEYS) {
+      const raw = (num[k] ?? "").trim();
+      if (raw === "") continue;
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return fail(new Error(`${k} must be a number`), "");
+      params[k] = n;
+    }
+    if (effort) params.reasoningEffort = effort as LlmParams["reasoningEffort"];
+    if (extra.trim()) {
+      try {
+        const parsed: unknown = JSON.parse(extra);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("extra must be a JSON object");
+        params.extra = parsed as Record<string, unknown>;
+      } catch (e) {
+        return fail(e, "extra is not valid JSON");
+      }
+    }
     setBusy(true);
     try {
-      await api.createLlmConnection({ name: v.name.trim(), apiBase: v.base.trim(), apiKey: f.key, model: v.model.trim() });
-      say(`added llm connection ${v.name.trim()}`);
+      const input = { name: v.name.trim(), apiBase: v.base.trim(), apiKey: f.key, model: v.model.trim(), params };
+      if (conn) await api.updateLlmConnection(conn.id, input);
+      else await api.createLlmConnection(input);
+      say(`${conn ? "saved" : "added"} llm connection ${input.name}`);
       setF({ key: "" });
       reload();
       onClose();
     } catch (e) {
-      fail(e, "create failed");
+      fail(e, conn ? "save failed" : "create failed");
     } finally {
       setBusy(false);
     }
   };
   return (
-    <Drawer open={open} title="new llm connection" onClose={onClose}>
+    <Drawer open={open} title={conn ? `edit llm connection · ${conn.name}` : "new llm connection"} onClose={onClose}>
       <Field label="name"><input className="input" value={v.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="openrouter" /></Field>
       <Field label="api base · prefilled from LLM_API_BASE in .env"><input className="input" value={v.base} onChange={(e) => setF({ ...f, base: e.target.value })} placeholder="https://openrouter.ai/api/v1" /></Field>
       <Field label="model · prefilled from LLM_MODEL in .env"><input className="input" value={v.model} onChange={(e) => setF({ ...f, model: e.target.value })} placeholder="anthropic/claude-sonnet-4" /></Field>
-      <Field label="api key · stored masked, never returned"><input className="input" type="password" value={f.key} onChange={(e) => setF({ ...f, key: e.target.value })} placeholder="sk-…" /></Field>
-      <button className="btn lg primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={submit}>❯ add connection</button>
+      <Field label={conn ? `api key · stored ${conn.apiKeyMasked} — leave empty to keep` : "api key · stored masked, never returned"}><input className="input" type="password" value={f.key} onChange={(e) => setF({ ...f, key: e.target.value })} placeholder={conn ? "unchanged" : "sk-…"} /></Field>
+      <div className="flabel">model parameters · empty = provider default</div>
+      <div className="grid2">
+        {PARAM_KEYS.map((k) => (
+          <Field key={k} label={PARAM_LABEL[k]}><input className="input" inputMode="decimal" value={num[k] ?? ""} onChange={(e) => setNum({ ...num, [k]: e.target.value })} placeholder={PARAM_PH[k]} /></Field>
+        ))}
+        <Field label="reasoning effort · reasoning models only">
+          <select className="select" value={effort} onChange={(e) => setEffort(e.target.value)}>
+            <option value="">provider default</option>
+            <option value="none">none</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
+        </Field>
+      </div>
+      <Field label="extra · provider-specific request fields as JSON (top_k, min_p, repeat_penalty, seed…)"><textarea className="input" rows={3} value={extra} onChange={(e) => setExtra(e.target.value)} placeholder='{"top_k": 20, "min_p": 0.05}' style={{ fontFamily: "inherit" }} /></Field>
+      <button className="btn lg primary" style={{ alignSelf: "flex-start" }} disabled={busy} onClick={submit}>❯ {conn ? "save connection" : "add connection"}</button>
     </Drawer>
   );
 }

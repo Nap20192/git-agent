@@ -274,6 +274,7 @@ class EventExecutor:
             model=ctx["llm_model"],
             api_base=ctx["llm_api_base"],
             api_key=self._decrypt(ctx["llm_api_key_enc"]),
+            params=ctx.get("llm_params") or None,
         )
         # ponytail: memory_preset Сборки не резолвится — лид-профиль пресетов пока не берёт
         profile = build_lead_profile(mcp_tools=self._mcp_tools, security_tools=tools)

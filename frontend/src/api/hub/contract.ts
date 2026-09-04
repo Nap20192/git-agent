@@ -73,6 +73,31 @@ export interface AgentBuild extends AgentBuildInput {
   createdAt?: string;
 }
 
+/** Model parameters of an LLM connection; a missing field = the provider's default.
+ *  The runner passes them into the OpenAI-compatible request. */
+export interface LlmParams {
+  temperature?: number;
+  topP?: number;
+  /** max_tokens — cap on the answer; raise it for reasoning models / long tool calls. */
+  maxTokens?: number;
+  /** model context window (tokens) — for context management, not sent to the provider. */
+  contextWindow?: number;
+  reasoningEffort?: "none" | "low" | "medium" | "high";
+  timeoutSeconds?: number;
+  maxRetries?: number;
+  /** provider-specific request body fields (extra_body): top_k, min_p, repeat_penalty, seed… */
+  extra?: Record<string, unknown>;
+}
+
+export interface LlmConnectionInput {
+  name: string;
+  apiBase: string;
+  /** empty on update = keep the stored key */
+  apiKey: string;
+  model: string;
+  params?: LlmParams;
+}
+
 export interface LlmConnection {
   id: number;
   name: string;
@@ -80,6 +105,7 @@ export interface LlmConnection {
   /** Redaction invariant: only the mask ever crosses the wire. */
   apiKeyMasked: string;
   model: string;
+  params: LlmParams;
 }
 
 export interface SandboxConnection {
