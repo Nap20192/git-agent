@@ -110,3 +110,44 @@ def test_dangling_in_middle_is_answered_in_place():
         assert await repair_dangling_tool_calls(graph, CONFIG) == 0
 
     asyncio.run(run())
+
+
+def test_truncated_tool_call_is_dropped_with_note():
+    """AIMessage с invalid_tool_calls (JSON обрезан лимитом вывода) переписывается без
+    них и с пометкой — иначе провайдер отвергает историю на входе каждого хода."""
+    from core.runner.history import TRUNCATED_TOOL_CALL_NOTE
+
+    async def run():
+        graph = _graph()
+        bad = AIMessage(
+            "thinking…",
+            tool_calls=[_call("c1")],
+            invalid_tool_calls=[
+                {"name": "task", "args": '{"prompt": "You are', "id": "c2", "error": "EOF"}
+            ],
+            id="a1",
+        )
+        await _seed(
+            graph,
+            [
+                HumanMessage("hi", id="h1"),
+                bad,
+                ToolMessage("ok", tool_call_id="c1", id="t1"),
+                HumanMessage("next", id="h2"),
+            ],
+        )
+        assert await repair_dangling_tool_calls(graph, CONFIG) == 1
+        msgs = await _messages(graph)
+        ai = [m for m in msgs if isinstance(m, AIMessage)]
+        assert len(ai) == 1 and ai[0].invalid_tool_calls == []
+        assert ai[0].tool_calls[0]["id"] == "c1"
+        assert ai[0].content == "thinking…\n\n" + TRUNCATED_TOOL_CALL_NOTE
+        assert [type(m).__name__ for m in msgs] == [
+            "HumanMessage",
+            "AIMessage",
+            "ToolMessage",
+            "HumanMessage",
+        ]
+        assert await repair_dangling_tool_calls(graph, CONFIG) == 0
+
+    asyncio.run(run())

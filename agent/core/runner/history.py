@@ -1,4 +1,4 @@
-"""Санация треда Экземпляра: висящие tool_calls без ToolMessage.
+"""Санация треда Экземпляра: висящие tool_calls без ToolMessage и обрезанные tool_calls.
 
 Ход, отменённый (stop / обрыв клиента / краш) после того, как модель эмитнула
 tool_calls, но до записи результатов тулов, оставляет в чекпоинте AIMessage с
@@ -6,6 +6,12 @@ tool_calls без ответов. Следующий ход добавляет H
 провайдер (OpenAI 400 «tool_calls must be followed by tool messages…»)
 отвергает историю — тред сломан навсегда. Лечение: дописать за каждый висящий
 tool_call_id синтетический ToolMessage. Идемпотентно: чистый тред — ноль записей.
+
+Второй случай — `invalid_tool_calls`: генерация упёрлась в лимит вывода (n_predict /
+max_tokens), JSON аргументов обрезан. langchain_openai шлёт такие вызовы провайдеру
+как есть, и llama.cpp отвечает 500 «Failed to parse tool call arguments as JSON» уже
+на ВХОДЕ — каждый следующий ход падает за секунды. Лечение: выкинуть invalid_tool_calls
+из AIMessage, оставив в тексте пометку, что вызов был обрезан.
 """
 
 from __future__ import annotations
@@ -15,12 +21,17 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage, RemoveMessage, ToolMessage
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
+from core.runner.activity import message_text
 from pkg.logger import get_logger
 
 log = get_logger(__name__)
 
 CANCELLED_TOOL_RESULT = (
     "tool call was cancelled before it produced a result (turn interrupted); do not assume it ran"
+)
+TRUNCATED_TOOL_CALL_NOTE = (
+    "[a tool call was truncated by the output token limit and dropped; "
+    "re-issue it in a shorter form]"
 )
 TOOLS_NODE = "tools"  # имя tools-узла create_agent (langchain 1.x)
 
@@ -31,6 +42,17 @@ def repaired_messages(messages: list[BaseMessage]) -> tuple[list[BaseMessage], i
     out: list[BaseMessage] = []
     added = 0
     for m in messages:
+        if isinstance(m, AIMessage) and m.invalid_tool_calls:
+            text = m.content if isinstance(m.content, str) else message_text(m.content)
+            m = m.model_copy(
+                update={
+                    "content": "\n\n".join(
+                        x for x in (text.strip(), TRUNCATED_TOOL_CALL_NOTE) if x
+                    ),
+                    "invalid_tool_calls": [],
+                }
+            )
+            added += 1
         out.append(m)
         if not isinstance(m, AIMessage):
             continue
@@ -67,6 +89,8 @@ async def repair_dangling_tool_calls(graph: Any, config: dict[str, Any]) -> int:
         update = [RemoveMessage(id=REMOVE_ALL_MESSAGES), *fixed]
     await graph.aupdate_state(config, {"messages": update}, as_node=TOOLS_NODE)
     log.warning(
-        "thread sanitized: dangling tool_calls answered", repaired=added, rewritten=len(update)
+        "thread sanitized: dangling/truncated tool_calls repaired",
+        repaired=added,
+        rewritten=len(update),
     )
     return added
