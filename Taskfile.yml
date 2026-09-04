@@ -2,6 +2,8 @@ version: "3"
 
 vars:
   COMPOSE: docker compose --env-file .env -f deploy/docker-compose.yml
+  # инфраструктура для dev: hub из compose НЕ поднимаем — он занял бы :8081 у dev-hub из панели
+  INFRA: postgres rabbitmq opensandbox-server
   # humanlog (go install github.com/humanlogio/humanlog/cmd/humanlog@latest) стоит → сервисы пишут JSON и красиво печатаются им; нет → как есть
   HUMANLOG:
     sh: command -v humanlog >/dev/null && echo "| humanlog -m event" || true
@@ -22,9 +24,9 @@ tasks:
       - uv sync
 
   up:
-    desc: Поднять инфраструктуру (OpenSandbox + Postgres)
+    desc: Поднять инфраструктуру (Postgres, RabbitMQ, OpenSandbox; hub из compose — только в проде)
     cmds:
-      - "{{.COMPOSE}} up -d"
+      - "{{.COMPOSE}} up -d {{.INFRA}}"
 
   down:
     desc: Остановить инфраструктуру
@@ -40,7 +42,7 @@ tasks:
   up-dev:
     desc: Весь dev-стек — инфра (compose), миграции, hub (:8081), раннер (:8082), фронт (:5173), puller; внутри Herdr — по панелям workspace «app», иначе в фоне (логи logs/dev/*.log); повторный вызов доподнимает недостающее
     cmds:
-      - "{{.COMPOSE}} up -d"
+      - "{{.COMPOSE}} up -d {{.INFRA}}"
       - for i in $(seq 1 30); do docker exec git-agent-postgres pg_isready -q 2>/dev/null && break; sleep 2; done
       - task: migrate
       - ./scripts/dev.sh up
