@@ -39,6 +39,11 @@ def build_subagent_step(
         "text": text,
         "truncated": truncated,
     }
+    if isinstance(message, AIMessage) and (usage := getattr(message, "usage_metadata", None)):
+        step["usage"] = {
+            "input": int(usage.get("input_tokens") or 0),
+            "output": int(usage.get("output_tokens") or 0),
+        }
     if isinstance(message, AIMessage) and message.tool_calls:
         calls = []
         for call in message.tool_calls:

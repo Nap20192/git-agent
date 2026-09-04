@@ -66,6 +66,18 @@ def message_text(content: Any) -> str:
     return ""
 
 
+def _tokens(usage: Any) -> dict[str, int] | None:
+    """{input, output} из usage шага Сабагента ({input, output}) либо usage_metadata
+    AI-сообщения ({input_tokens, output_tokens}); нет данных — None."""
+    if not isinstance(usage, dict):
+        return None
+    inp = usage.get("input", usage.get("input_tokens"))
+    out = usage.get("output", usage.get("output_tokens"))
+    if inp is None and out is None:
+        return None
+    return {"input": int(inp or 0), "output": int(out or 0)}
+
+
 class ActivityCollector:
     """(mode, serialized chunk) → activity-кадры; держит счётчик Находок Лида
     и статусы Сабагентов (queued до первого прогресс-события)."""
@@ -100,9 +112,12 @@ class ActivityCollector:
         text: Any = None,
         calls: list[dict[str, Any]] | None = None,
         result: tuple[Any, Any] | None = None,
+        usage: Any = None,
     ) -> list[dict[str, Any]]:
         """Кадры work log: text (мысль/ответ агента), tool_call (по одному на вызов),
-        tool_result (имя тула + превью вывода); taskId — Сабагент, без — Лид."""
+        tool_result (имя тула + превью вывода); taskId — Сабагент, без — Лид.
+        usage — токены LLM-вызова, породившего сообщение: tokens={input, output} на
+        первом кадре сообщения (фронт суммирует по агенту и по ходу)."""
         frames: list[dict[str, Any]] = []
         if (
             text := message_text(text).strip()
@@ -129,6 +144,10 @@ class ActivityCollector:
                     description=f"{name or 'tool'}: {_clip(str(out or ''), WORK_RESULT_CHARS)}",
                 )
             )
+        if tokens := _tokens(usage):
+            if not frames:  # пустой ответ без тулов — токены всё равно потрачены
+                frames.append(self._frame("text", taskId=task_id, description=""))
+            frames[0]["tokens"] = tokens
         return frames
 
     def run_failed(self, error: Any) -> dict[str, Any]:
@@ -167,7 +186,12 @@ class ActivityCollector:
             if data.get("kind") == "tool":
                 frames += self._work(task_id, result=(data.get("tool_name"), data.get("text")))
             elif data.get("kind") == "ai":
-                frames += self._work(task_id, text=data.get("text"), calls=data.get("tool_calls"))
+                frames += self._work(
+                    task_id,
+                    text=data.get("text"),
+                    calls=data.get("tool_calls"),
+                    usage=data.get("usage"),
+                )
             return frames
         if dtype in _TERMINAL:
             kind, status = _TERMINAL[dtype]
@@ -197,7 +221,12 @@ class ActivityCollector:
                     )
                     if text := message_text(msg.get("content")).strip():
                         self.reply.append(text)
-                    frames += self._work(None, text=msg.get("content"), calls=msg.get("tool_calls"))
+                    frames += self._work(
+                        None,
+                        text=msg.get("content"),
+                        calls=msg.get("tool_calls"),
+                        usage=msg.get("usage_metadata"),
+                    )
                 elif msg.get("type") == "tool" and msg.get("name") != "task":
                     frames += self._work(None, result=(msg.get("name"), msg.get("content")))
                 # самоотчёт Сабагента: ToolMessage task-тула, парный task_id

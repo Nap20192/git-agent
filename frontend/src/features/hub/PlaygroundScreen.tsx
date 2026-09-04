@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useHubApi, type RepoEvent, type Report } from "@/api/hub";
 import { useBuilds, useHubRepositories, useInstance, useInstanceFindings, useInstanceReports, useInstances, useLlmConnections, useRepoEvents, useRunners, useSandboxConnections } from "@/hooks";
-import { foldActivity, useInstanceActivity } from "./activity.ts";
+import { fmtTokens, foldActivity, useInstanceActivity } from "./activity.ts";
 import { FindingsPanel, ReportView, type FindingsSource } from "./findings.tsx";
 import { InstanceAgentsPanel } from "./InstanceAgentsPanel.tsx";
 import { InstanceChatPanel } from "./InstanceChatPanel.tsx";
@@ -232,6 +232,7 @@ export function PlaygroundScreen() {
               <div className="kv"><span>reports</span><span>{reports.length}</span></div>
               <div className="kv"><span>findings</span><span>{findings.length}</span></div>
               <div className="kv"><span>subagents</span><span className="comment">{saList.length} spawned · {saRunning} running</span></div>
+              <div className="kv"><span>tokens</span><span className="comment" title={`${graph.tokens.input.toLocaleString()} in · ${graph.tokens.output.toLocaleString()} out · lead ${fmtTokens(graph.leadTokens.input + graph.leadTokens.output)}`}>{graph.tokens.input || graph.tokens.output ? `${fmtTokens(graph.tokens.input + graph.tokens.output)} · ${fmtTokens(graph.tokens.input)} in · ${fmtTokens(graph.tokens.output)} out` : "—"}</span></div>
             </Panel>
             <Panel label="sandbox instance" dim="auto-created on run" className="elev pad">
               {sandboxAlive ? (

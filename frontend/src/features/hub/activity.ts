@@ -61,10 +61,19 @@ export function useInstanceActivity(instanceId: number, eventId: number | null) 
   return { frames, done };
 }
 
+export interface Tokens {
+  input: number;
+  output: number;
+}
+
 export interface WorkFrame {
   kind: "tool_call" | "tool_result" | "text";
   text: string;
   ts?: string;
+  /** LLM usage of the call that produced this message (first frame of the message only). */
+  tokens?: Tokens;
+  /** Who did it — set only in the combined feed (lead / subagent label). */
+  who?: string;
   /** tool_call only: ms until its tool_result arrived (matched by tool name within the agent); undefined while running. */
   durationMs?: number;
 }
@@ -102,6 +111,8 @@ export interface AgentNode {
   reportObj?: import("@/api/hub").Report;
   /** Work log (tool_call / tool_result / text frames), oldest first. */
   work: WorkFrame[];
+  /** LLM tokens spent by this agent (sum of its frames' tokens). */
+  tokens: Tokens;
 }
 /** @deprecated alias — the star graph is gone, rows are AgentNode now. */
 export type SubagentNode = AgentNode;
@@ -118,7 +129,25 @@ export interface TurnGraph {
   tasks: AgentNode[];
   /** The lead's own work log (frames without taskId). */
   leadWork: WorkFrame[];
+  /** The lead's own LLM tokens. */
+  leadTokens: Tokens;
+  /** Whole ход: lead + every Сабагент. */
+  tokens: Tokens;
 }
+
+const addTokens = (t: Tokens, x?: Tokens | null) => { if (x) { t.input += x.input || 0; t.output += x.output || 0; } };
+
+/** Combined feed of every agent's work (lead + Сабагенты), oldest first, each line labelled. */
+export function combinedWork(graph: TurnGraph): WorkFrame[] {
+  const label = (a: AgentNode) => (a.description ?? a.taskId).slice(0, 28);
+  return [
+    ...graph.leadWork.map((w) => ({ ...w, who: "lead" })),
+    ...graph.tasks.flatMap((a) => a.work.map((w) => ({ ...w, who: label(a) }))),
+  ].sort((a, b) => (a.ts ?? "").localeCompare(b.ts ?? ""));
+}
+
+/** "12.3k" / "840" — compact token count. */
+export const fmtTokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
 /** Folds the frame stream into the star: lead state + one node per Сабагент. */
 export function foldActivity(frames: ActivityEvent[]): TurnGraph {
@@ -129,12 +158,14 @@ export function foldActivity(frames: ActivityEvent[]): TurnGraph {
     leadFindings: 0,
     tasks: [],
     leadWork: [],
+    leadTokens: { input: 0, output: 0 },
+    tokens: { input: 0, output: 0 },
   };
   const byId = new Map<string, AgentNode>();
   const node = (taskId: string): AgentNode => {
     let task = byId.get(taskId);
     if (!task) {
-      task = { taskId, status: "queued", work: [] };
+      task = { taskId, status: "queued", work: [], tokens: { input: 0, output: 0 } };
       byId.set(taskId, task);
       graph.tasks.push(task);
     }
@@ -182,8 +213,16 @@ export function foldActivity(frames: ActivityEvent[]): TurnGraph {
       case "tool_call":
       case "tool_result":
       case "text": {
-        const w: WorkFrame = { kind: f.kind as WorkFrame["kind"], text: f.description ?? "", ts: f.ts ?? undefined };
-        pushWork(f.taskId ? node(f.taskId).work : graph.leadWork, w);
+        const w: WorkFrame = { kind: f.kind as WorkFrame["kind"], text: f.description ?? "", ts: f.ts ?? undefined, tokens: f.tokens ?? undefined };
+        if (f.taskId) {
+          const t = node(f.taskId);
+          pushWork(t.work, w);
+          addTokens(t.tokens, f.tokens);
+        } else {
+          pushWork(graph.leadWork, w);
+          addTokens(graph.leadTokens, f.tokens);
+        }
+        addTokens(graph.tokens, f.tokens);
         break;
       }
       default:

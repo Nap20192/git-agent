@@ -290,7 +290,8 @@ export type ActivityStatus = "queued" | "working" | "done" | "failed" | "timeout
  * Сабагент's self-report text (description); done — stream closes.
  * Work log (what the agent thinks and does): text — a thought/answer,
  * tool_call — a tool call with its arguments, tool_result — tool name + output
- * preview; taskId marks a Сабагент's frame, none — the lead's.
+ * preview; taskId marks a Сабагент's frame, none — the lead's. tokens — LLM usage
+ * of the call that produced the message, on that message's first frame.
  */
 export interface ActivityEvent {
   kind:
@@ -315,6 +316,7 @@ export interface ActivityEvent {
   ts?: string | null;
   /** Сквозной trace_id хода — тот же, что в логах hub/раннера и в Langfuse/LangSmith. */
   traceId?: string | null;
+  tokens?: { input: number; output: number } | null;
 }
 
 /**

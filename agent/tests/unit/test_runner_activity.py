@@ -86,6 +86,11 @@ def test_collector_lead_work_log():
                         "tool_calls": [
                             {"name": "grep_code", "args": {"pattern": "app.get(", "path": "src"}}
                         ],
+                        "usage_metadata": {
+                            "input_tokens": 1200,
+                            "output_tokens": 40,
+                            "total_tokens": 1240,
+                        },
                     }
                 ]
             },
@@ -101,6 +106,8 @@ def test_collector_lead_work_log():
         ("node", None),
     ]
     assert frames[0]["description"] == "Let me map the entry points."
+    assert frames[0]["tokens"] == {"input": 1200, "output": 40}  # на первом кадре сообщения
+    assert "tokens" not in frames[1]
     assert frames[1]["description"] == 'grep_code(pattern="app.get(", path="src")'
     assert frames[3]["description"].startswith("grep_code: xxx") and frames[3][
         "description"
@@ -119,11 +126,17 @@ def test_collector_subagent_work_log_from_steps():
         "kind": "ai",
         "text": "Checking lockfile",
         "tool_calls": [{"name": "read_file", "args": '{"path": "package-lock.json"}'}],
+        "usage": {"input": 300, "output": 12},
     }
     frames = _strip_ts(c.frames("custom", ai))
     assert frames == [
         {"kind": "task_started", "taskId": "t1", "status": "working"},
-        {"kind": "text", "taskId": "t1", "description": "Checking lockfile"},
+        {
+            "kind": "text",
+            "taskId": "t1",
+            "description": "Checking lockfile",
+            "tokens": {"input": 300, "output": 12},
+        },
         {"kind": "tool_call", "taskId": "t1", "description": 'read_file(path="package-lock.json")'},
     ]
     tool = {
