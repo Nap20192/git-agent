@@ -1,7 +1,7 @@
 version: "3"
 
 vars:
-  COMPOSE: docker compose -f deploy/docker-compose.yml
+  COMPOSE: docker compose --env-file .env -f deploy/docker-compose.yml
   # humanlog (go install github.com/humanlogio/humanlog/cmd/humanlog@latest) стоит → сервисы пишут JSON и красиво печатаются им; нет → как есть
   HUMANLOG:
     sh: command -v humanlog >/dev/null && echo "| humanlog -m event" || true
@@ -36,6 +36,31 @@ tasks:
     dir: agent
     cmds:
       - uv run python -m migrations.migrate
+
+  up-dev:
+    desc: Весь dev-стек — инфра (compose), миграции, hub (:8081), раннер (:8082), фронт (:5173), puller; внутри Herdr — по панелям workspace «app», иначе в фоне (логи logs/dev/*.log); повторный вызов доподнимает недостающее
+    cmds:
+      - "{{.COMPOSE}} up -d"
+      - for i in $(seq 1 30); do docker exec git-agent-postgres pg_isready -q 2>/dev/null && break; sleep 2; done
+      - task: migrate
+      - ./scripts/dev.sh up
+
+  down-dev:
+    desc: Погасить dev-стек — сервисы (ctrl+c в панелях Herdr / kill в фоне) и инфру (compose down; данные в volumes остаются)
+    cmds:
+      - ./scripts/dev.sh down
+      - "{{.COMPOSE}} down"
+
+  status-dev:
+    desc: Кто из dev-стека жив
+    cmds:
+      - ./scripts/dev.sh status
+      - "{{.COMPOSE}} ps --format 'table {{`{{.Name}}`}}\t{{`{{.Status}}`}}'"
+
+  logs-dev:
+    desc: Хвост логов dev-стека вне Herdr (logs/dev/*.log через humanlog, если стоит); внутри Herdr логи — в панелях
+    cmds:
+      - "tail -n 50 -F logs/dev/*.log {{.HUMANLOG}}"
 
   lint:
     desc: Проверить код линтером (ruff)

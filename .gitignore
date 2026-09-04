@@ -14,3 +14,4 @@ wheels/
 logs/
 .claude/worktrees/
 agent/evals/runs/
+.dev/
