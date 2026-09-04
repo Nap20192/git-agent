@@ -38,3 +38,14 @@ def test_incompatible_provider_raises():
     incompatible = "claude-x" if "anthropic" not in allowed else "gpt-x"
     with pytest.raises(ValueError, match="does not support provider"):
         resolve_memory_preset(name, model_name=incompatible)
+
+
+def test_production_preset_summarizes_at_500k():
+    """Продакшен-пресет — prod_v3: суммаризация с 500k токенов (решение 2026-09-04),
+    остальное как у prod_v2 (structured_prefix, keep 50k, без context editing)."""
+    preset = resolve_memory_preset()
+    assert preset.name == "prod_v3"
+    assert preset.summarization_trigger_tokens == 500_000
+    assert preset.summarization_keep_tokens == 50_000
+    assert preset.summarization_strategy == "structured_prefix"
+    assert preset.context_editing is False

@@ -63,3 +63,23 @@ def get_subagent_config(name: str) -> SubagentConfig | None:
 
 def available_subagent_names() -> list[str]:
     return sorted(BUILTIN_SUBAGENTS)
+
+
+def resolve_subagent_config(name: str) -> tuple[SubagentConfig | None, str | None]:
+    """(конфиг, замечание) по имени типа, как его написала модель. Точное имя —
+    без замечания; иначе нормализация (регистр, `_`/пробел → `-`) и префикс
+    («general» → «general-purpose»); единственный зарегистрированный тип берётся
+    при любом имени. Локальные модели часто пишут тип по памяти — падать из-за
+    этого ходом дороже, чем подставить и сказать об этом в результате."""
+    if (exact := BUILTIN_SUBAGENTS.get(name)) is not None:
+        return exact, None
+    norm = (name or "").strip().lower().replace("_", "-").replace(" ", "-")
+    candidates = [
+        n for n in BUILTIN_SUBAGENTS if n == norm or n.startswith(norm) or norm.startswith(n)
+    ]
+    if not candidates and len(BUILTIN_SUBAGENTS) == 1:
+        candidates = list(BUILTIN_SUBAGENTS)
+    if len(candidates) != 1:
+        return None, None
+    chosen = candidates[0]
+    return BUILTIN_SUBAGENTS[chosen], f"subagent_type '{name}' resolved to '{chosen}'"

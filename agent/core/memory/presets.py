@@ -101,6 +101,20 @@ MEMORY_PRESETS: dict[str, MemoryConfig] = {
         tool_output_cap_bytes=40_000,
         experiment_mode=True,
     ),
+    # prod_v2 with the summarization trigger lowered from 800k to 500k (user
+    # decision 2026-09-04): the Экземпляр thread lives forever (events + chat),
+    # so compaction must fire well before a 128k–262k model window overflows.
+    "prod_v3": MemoryConfig(
+        name="prod_v3",
+        summarization_trigger_tokens=500_000,
+        summarization_keep_tokens=50_000,
+        summarization_trim_tokens=None,
+        summarization_input_guard_tokens=900_000,
+        summarization_strategy="structured_prefix",
+        context_editing=False,
+        tool_output_cap_bytes=40_000,
+        experiment_mode=True,
+    ),
     "summarization_only": MemoryConfig(name="summarization_only", context_editing=False),
     "editing_only": MemoryConfig(name="editing_only", summarization=False),
     # How bad can cheap get: compaction fires early and keeps little.
@@ -199,7 +213,7 @@ MEMORY_PRESETS: dict[str, MemoryConfig] = {
 # allowlist stay on the historical, conservative preset until they have a
 # provider-appropriate long-context configuration (Claude Haiku 4.5, for
 # example, has a 200k input window and cannot safely wait for an 800k trigger).
-PRODUCTION_MEMORY_PRESET = "prod_v2"
+PRODUCTION_MEMORY_PRESET = "prod_v3"
 PRODUCTION_FALLBACK_MEMORY_PRESET = "prod"
 # "openrouter" is here for the default DeepSeek-via-OpenRouter chat model.
 # The gate is provider-granular, so any openrouter:* model resolves to the
@@ -214,4 +228,5 @@ DEFAULT_MEMORY_PRESET = PRODUCTION_MEMORY_PRESET
 
 PRESET_PROVIDER_ALLOWLIST: dict[str, frozenset[str]] = {
     "prod_v2": PRODUCTION_LONG_CONTEXT_PROVIDERS,
+    "prod_v3": PRODUCTION_LONG_CONTEXT_PROVIDERS,
 }

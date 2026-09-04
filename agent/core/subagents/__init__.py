@@ -15,6 +15,7 @@ from core.subagents.registry import (
     SubagentConfig,
     available_subagent_names,
     get_subagent_config,
+    resolve_subagent_config,
 )
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "available_subagent_names",
     "get_subagent_config",
     "read_subagent_result_metadata",
+    "resolve_subagent_config",
 ]

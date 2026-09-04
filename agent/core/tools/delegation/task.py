@@ -26,7 +26,7 @@ from core.subagents.contract import (
 )
 from core.subagents.executor import SubagentExecutor
 from core.subagents.receipts import render_citation_verdict, verify_receipt_citations
-from core.subagents.registry import available_subagent_names, get_subagent_config
+from core.subagents.registry import available_subagent_names, resolve_subagent_config
 from core.tools.sandbox import build_sandbox_tools
 from pkg.logger import get_logger
 
@@ -78,12 +78,14 @@ def build_task_tool(
             description: FIRST - short 3-5 word label for progress display.
             prompt: SECOND - the full task assignment; the subagent sees nothing
                 else, so include all needed context and the expected output.
-            subagent_type: THIRD - subagent type name; see available types in
-                the error message if unsure.
+            subagent_type: THIRD - subagent type name, normally "general-purpose"
+                (a close name like "general" is accepted and resolved).
             acceptance_criteria: optional list of verifiable completion criteria.
         """
         writer = _writer()
-        config = get_subagent_config(subagent_type)
+        config, type_note = resolve_subagent_config(subagent_type)
+        if config is not None:
+            subagent_type = config.name
         if config is None:
             content = (
                 f"Unknown subagent type '{subagent_type}'."
@@ -166,6 +168,8 @@ def build_task_tool(
             verdict_line = render_citation_verdict(verdict)
             if verdict_line:
                 content += f"\n\n[{verdict_line}]"
+        if type_note:
+            content += f"\n\n[{type_note}]"
         return Command(
             update={
                 "messages": [
