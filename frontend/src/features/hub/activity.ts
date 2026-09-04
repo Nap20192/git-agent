@@ -65,6 +65,26 @@ export interface WorkFrame {
   kind: "tool_call" | "tool_result" | "text";
   text: string;
   ts?: string;
+  /** tool_call only: ms until its tool_result arrived (matched by tool name within the agent); undefined while running. */
+  durationMs?: number;
+}
+
+/** Tool name from a work line: "name(args…)" for calls, "name: output" for results. */
+const toolName = (text: string) => /^([\w.-]+)\s*[(:]/.exec(text)?.[1] ?? null;
+
+/** Push a work frame and, for a result, stamp the duration on the nearest earlier unmatched call of the same tool. */
+function pushWork(list: WorkFrame[], w: WorkFrame) {
+  if (w.kind === "tool_result" && w.ts) {
+    const name = toolName(w.text);
+    for (let i = list.length - 1; i >= 0; i--) {
+      const c = list[i];
+      if (c.kind === "tool_call" && c.durationMs === undefined && c.ts && toolName(c.text) === name) {
+        c.durationMs = Math.max(0, new Date(w.ts).getTime() - new Date(c.ts).getTime());
+        break;
+      }
+    }
+  }
+  list.push(w);
 }
 
 export interface AgentNode {
@@ -163,7 +183,7 @@ export function foldActivity(frames: ActivityEvent[]): TurnGraph {
       case "tool_result":
       case "text": {
         const w: WorkFrame = { kind: f.kind as WorkFrame["kind"], text: f.description ?? "", ts: f.ts ?? undefined };
-        (f.taskId ? node(f.taskId).work : graph.leadWork).push(w);
+        pushWork(f.taskId ? node(f.taskId).work : graph.leadWork, w);
         break;
       }
       default:

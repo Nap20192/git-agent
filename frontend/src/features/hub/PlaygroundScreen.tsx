@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useHubApi, type RepoEvent, type Report } from "@/api/hub";
 import { useBuilds, useHubRepositories, useInstance, useInstanceFindings, useInstanceReports, useInstances, useLlmConnections, useRepoEvents, useRunners, useSandboxConnections } from "@/hooks";
-import { activityLine, foldActivity, useInstanceActivity } from "./activity.ts";
+import { foldActivity, useInstanceActivity } from "./activity.ts";
 import { FindingsPanel, ReportView, type FindingsSource } from "./findings.tsx";
 import { InstanceAgentsPanel } from "./InstanceAgentsPanel.tsx";
 import { InstanceChatPanel } from "./InstanceChatPanel.tsx";
@@ -145,11 +145,12 @@ export function PlaygroundScreen() {
     act("sandbox", async () => { await api.killSandboxInstance(inst.sandboxInstanceId!); return `sandbox instance killed → ${inst.sandboxExternalId ?? `#${inst.sandboxInstanceId}`}`; });
   };
 
-  // timeline: events (●, click → replay on graph) + reports (→) + activity lines (⚙; node frames stay on the graph), newest first
+  // timeline: events (●, click → replay on graph) + reports (→) + the user's own actions here (⚙), newest first;
+  // the agent's work (tool calls, subagents) lives on the agents tab, not here
   const timeline = [
     ...events.map((e) => ({ t: new Date(e.receivedAt), glyph: "●", color: graphEventId === e.id ? "var(--accent)" : "var(--text-muted)", title: e.action, meta: `${shortRef(e.ref)} @ ${sha(e.commitSha)}${reportFor(e) ? "" : running ? " · no report yet" : " · unfinished"}`, body: "", report: undefined as Report | undefined, eventId: e.id })),
-    ...reports.map((r) => ({ t: new Date(r.createdAt), glyph: "→", color: "var(--accent)", title: "report", meta: r.eventId != null ? `for event #${r.eventId}` : "", body: "", report: r, eventId: null })),
-    ...[...local, ...frames.filter((f) => f.kind !== "node").flatMap((f) => { const text = activityLine(f); return text ? [{ at: f.ts ? new Date(f.ts) : new Date(), text }] : []; })].map((l) => ({ t: l.at, glyph: "⚙", color: "var(--text-comment)", title: "", meta: l.text, body: "", report: undefined as Report | undefined, eventId: null })),
+    ...reports.map((r) => ({ t: new Date(r.createdAt), glyph: "→", color: "var(--accent)", title: "report", meta: `${r.action ?? ""}${r.commitSha ? ` @ ${sha(r.commitSha)}` : ""}${r.eventId != null ? ` · event #${r.eventId}` : ""}`.trim(), body: "", report: r, eventId: null })),
+    ...local.map((l) => ({ t: l.at, glyph: "⚙", color: "var(--text-comment)", title: "", meta: l.text, body: "", report: undefined as Report | undefined, eventId: null })),
   ].sort((a, b) => b.t.getTime() - a.t.getTime());
 
   const saList = graph.tasks;

@@ -100,13 +100,17 @@ function AgentDetail({ a }: { a: AgentNode }) {
   );
 }
 
+/** "340ms" / "2.1s" / "1m 05s". */
+const fmtMs = (ms: number) => (ms < 1000 ? `${ms}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m ${String(Math.round((ms % 60_000) / 1000)).padStart(2, "0")}s`);
+
 function WorkLine({ w }: { w: WorkFrame }) {
   if (w.kind === "text") return <Clamp lines={6}><Rich>{w.text}</Rich></Clamp>;
   const call = w.kind === "tool_call";
   return (
-    <div className="small" style={{ display: "grid", gridTemplateColumns: "2ch 1fr", gap: 4, padding: "3px 0", borderBottom: "1px solid var(--border)" }}>
+    <div className="small" style={{ display: "grid", gridTemplateColumns: "2ch 1fr auto", gap: 4, padding: "3px 0", borderBottom: "1px solid var(--border)" }}>
       <span className={call ? "accent" : "muted"}>{call ? "⚙" : "↳"}</span>
       <Clamp lines={3}><span className={call ? "" : "comment"} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{w.text}</span></Clamp>
+      {call && <span className="muted" title="how long the tool ran (call → result)">{w.durationMs === undefined ? "…" : fmtMs(w.durationMs)}</span>}
     </div>
   );
 }
