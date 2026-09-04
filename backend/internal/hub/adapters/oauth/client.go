@@ -113,11 +113,14 @@ func (c *Client) Refresh(ctx context.Context, provider, refreshToken string) (*d
 	if err != nil {
 		return nil, err
 	}
-	if provider != "gitlab" {
-		// у GitHub OAuth App access-токены вечные — refresh не нужен
-		return nil, fmt.Errorf("refresh is not supported for %s", provider)
+	// GitHub App с истекающими user-токенами (8h) отдаёт refresh_token и
+	// обновляется тем же эндпоинтом, что и обмен кода; OAuth App refresh не
+	// присылает — сюда не попадёт (CallWithToken проверяет RefreshTokenEnc).
+	tokenURL := c.githubWeb() + "/login/oauth/access_token"
+	if provider == "gitlab" {
+		tokenURL = c.gitlabURL() + "/oauth/token"
 	}
-	return c.token(ctx, c.gitlabURL()+"/oauth/token", url.Values{
+	return c.token(ctx, tokenURL, url.Values{
 		"client_id":     {app.ClientID},
 		"client_secret": {app.ClientSecret},
 		"grant_type":    {"refresh_token"},
