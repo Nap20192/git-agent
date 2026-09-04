@@ -141,7 +141,7 @@ export function RepoScreen() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 16, alignItems: "stretch" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
           <Panel label="agents" dim={mine.length + pending.length ? `${mine.length + pending.length} · one per build` : "none yet"}>
             {mine.map((w) => {
@@ -213,7 +213,7 @@ export function RepoScreen() {
         </div>
 
         <Panel label="chat" dim={chatInst ? `${buildName(chatInst.buildId)} #${chatInst.id}` : "no agent yet"} className="col elev" >
-          <div style={{ display: "flex", flexDirection: "column", minHeight: 420, flex: 1 }}>
+          <div style={{ display: "flex", flexDirection: "column", minHeight: 420, maxHeight: "70vh", flex: 1 }}>
             <InstanceChatPanel
               instanceId={chatInst?.id ?? null}
               empty="ask the agent what it has accumulated on this repo. a down agent wakes on the first message."
